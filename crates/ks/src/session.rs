@@ -20,8 +20,7 @@ pub fn get_passphrase() -> Option<Zeroizing<String>> {
 /// # Errors
 /// Returns [`Error::Keyring`] if the OS keyring is unavailable or access is denied.
 pub fn set_passphrase(passphrase: &str) -> Result<()> {
-    let entry =
-        Entry::new(SERVICE, ACCOUNT).map_err(|e| Error::Keyring(e.to_string()))?;
+    let entry = Entry::new(SERVICE, ACCOUNT).map_err(|e| Error::Keyring(e.to_string()))?;
     entry
         .set_password(passphrase)
         .map_err(|e| Error::Keyring(e.to_string()))
@@ -33,8 +32,7 @@ pub fn set_passphrase(passphrase: &str) -> Result<()> {
 /// Returns [`Error::Keyring`] on an unexpected keyring error.
 /// A missing entry is silently ignored.
 pub fn clear() -> Result<()> {
-    let entry =
-        Entry::new(SERVICE, ACCOUNT).map_err(|e| Error::Keyring(e.to_string()))?;
+    let entry = Entry::new(SERVICE, ACCOUNT).map_err(|e| Error::Keyring(e.to_string()))?;
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(Error::Keyring(e.to_string())),

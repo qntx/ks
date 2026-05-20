@@ -16,15 +16,12 @@ pub fn run_export(config: &ks::Config, output: Option<&str>) -> ks::Result<()> {
 }
 
 pub fn run_import(config: &ks::Config, file: Option<&str>, dotenv: bool) -> ks::Result<()> {
-    let content = match file {
-        Some(path) => std::fs::read_to_string(path).map_err(ks::Error::Io)?,
-        None => {
-            let mut buf = String::new();
-            std::io::stdin()
-                .read_to_string(&mut buf)
-                .map_err(ks::Error::Io)?;
-            buf
-        }
+    let content = if let Some(path) = file { std::fs::read_to_string(path).map_err(ks::Error::Io)? } else {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(ks::Error::Io)?;
+        buf
     };
 
     let mut vault = super::open_vault(config)?;

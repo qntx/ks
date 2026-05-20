@@ -1,5 +1,5 @@
-use ks::generate::{Charset, generate};
 use ks::Secret;
+use ks::generate::{Charset, generate};
 
 use crate::output::{print_info, print_success};
 

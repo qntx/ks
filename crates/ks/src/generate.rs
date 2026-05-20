@@ -14,11 +14,9 @@ pub enum Charset {
 }
 
 impl Charset {
-    fn alphabet(self) -> &'static [u8] {
+    const fn alphabet(self) -> &'static [u8] {
         match self {
-            Self::Alphanumeric => {
-                b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-            }
+            Self::Alphanumeric => b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
             Self::Hex => b"0123456789abcdef",
             Self::Printable => {
                 b"!\"#$%&'()*+,-./0123456789:;<=>?@\

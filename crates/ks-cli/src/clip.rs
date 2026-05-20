@@ -16,19 +16,19 @@ const CLEAR_SECS: u64 = 45;
 /// # Errors
 /// Returns an error if the clipboard is unavailable on this system.
 pub fn copy_with_autoclean(value: &str) -> Result<u64> {
-    let mut cb = Clipboard::new().map_err(|e| ks::Error::Io(std::io::Error::other(e.to_string())))?;
-    cb.set_text(value.to_owned()).map_err(|e| ks::Error::Io(std::io::Error::other(e.to_string())))?;
+    let mut cb =
+        Clipboard::new().map_err(|e| ks::Error::Io(std::io::Error::other(e.to_string())))?;
+    cb.set_text(value.to_owned())
+        .map_err(|e| ks::Error::Io(std::io::Error::other(e.to_string())))?;
 
     let owned = value.to_owned();
     thread::spawn(move || {
         thread::sleep(Duration::from_secs(CLEAR_SECS));
-        if let Ok(mut cb2) = Clipboard::new() {
-            if let Ok(current) = cb2.get_text() {
-                if current == owned {
+        if let Ok(mut cb2) = Clipboard::new()
+            && let Ok(current) = cb2.get_text()
+                && current == owned {
                     let _ = cb2.set_text(String::new());
                 }
-            }
-        }
     });
 
     Ok(CLEAR_SECS)

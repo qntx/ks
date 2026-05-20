@@ -34,8 +34,7 @@ impl Config {
             });
         }
 
-        let proj =
-            ProjectDirs::from("", "", APP).ok_or(Error::NoHomeDir)?;
+        let proj = ProjectDirs::from("", "", APP).ok_or(Error::NoHomeDir)?;
 
         Ok(Self {
             vault_path: proj.data_dir().join(VAULT_FILE),

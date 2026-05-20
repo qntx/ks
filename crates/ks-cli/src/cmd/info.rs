@@ -8,10 +8,7 @@ pub fn run(config: &ks::Config, path: &str) -> ks::Result<()> {
 
     let fmt_ts = |ts: u64| {
         let dt = UNIX_EPOCH + Duration::from_secs(ts);
-        let secs = dt
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let secs = dt.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
         format!("{secs}")
     };
 
@@ -28,7 +25,7 @@ pub fn run(config: &ks::Config, path: &str) -> ks::Result<()> {
         let mut keys: Vec<&String> = secret.fields.keys().collect();
         keys.sort();
         for k in keys {
-            eprintln!("    {} = {}", k.cyan(), "•••••••");
+            eprintln!("    {} = •••••••", k.cyan());
         }
     }
     Ok(())

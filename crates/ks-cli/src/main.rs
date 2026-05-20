@@ -12,9 +12,8 @@ mod cmd;
 mod output;
 
 use clap::Parser as _;
-use owo_colors::OwoColorize as _;
-
 use cmd::{Cli, Command};
+use owo_colors::OwoColorize as _;
 
 fn main() {
     let cli = Cli::parse();
@@ -32,9 +31,7 @@ fn main() {
 
         Command::Get { path, copy } => cmd::get::run(&config, &path, copy),
 
-        Command::Set { path, note, force } => {
-            cmd::set::run(&config, &path, note.as_deref(), force)
-        }
+        Command::Set { path, note, force } => cmd::set::run(&config, &path, note.as_deref(), force),
 
         Command::Del { path, force } => cmd::del::run(&config, &path, force),
 
@@ -57,9 +54,7 @@ fn main() {
 
         Command::Export { output } => cmd::io::run_export(&config, output.as_deref()),
 
-        Command::Import { file, dotenv } => {
-            cmd::io::run_import(&config, file.as_deref(), dotenv)
-        }
+        Command::Import { file, dotenv } => cmd::io::run_import(&config, file.as_deref(), dotenv),
 
         Command::Lock => cmd::lock::run(),
     };

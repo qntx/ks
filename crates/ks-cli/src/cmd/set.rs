@@ -5,12 +5,7 @@ use ks::Secret;
 
 use crate::output::{print_success, print_warn};
 
-pub fn run(
-    config: &ks::Config,
-    path: &str,
-    note: Option<&str>,
-    force: bool,
-) -> ks::Result<()> {
+pub fn run(config: &ks::Config, path: &str, note: Option<&str>, force: bool) -> ks::Result<()> {
     let mut vault = super::open_vault(config)?;
 
     if vault.exists(path) && !force {

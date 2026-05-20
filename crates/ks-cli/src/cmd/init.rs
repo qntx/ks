@@ -7,12 +7,8 @@ use crate::output::{print_info, print_success};
 pub fn run(config: &Config) -> ks::Result<()> {
     intro("ks — key store")?;
 
-    let pass: String = password("Enter master passphrase")
-        .mask('•')
-        .interact()?;
-    let confirm_pass: String = password("Confirm passphrase")
-        .mask('•')
-        .interact()?;
+    let pass: String = password("Enter master passphrase").mask('•').interact()?;
+    let confirm_pass: String = password("Confirm passphrase").mask('•').interact()?;
 
     if pass != confirm_pass {
         cliclack::outro_cancel("Passphrases do not match")?;

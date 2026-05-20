@@ -28,12 +28,12 @@ pub fn print_tree(paths: &[&str]) {
     }
 
     struct Node {
-        children: std::collections::BTreeMap<String, Node>,
+        children: std::collections::BTreeMap<String, Self>,
         is_leaf: bool,
     }
 
     impl Node {
-        fn new() -> Self {
+        const fn new() -> Self {
             Self {
                 children: std::collections::BTreeMap::new(),
                 is_leaf: false,
@@ -47,7 +47,7 @@ pub fn print_tree(paths: &[&str]) {
             }
             self.children
                 .entry(parts[0].to_owned())
-                .or_insert_with(Node::new)
+                .or_insert_with(Self::new)
                 .insert(&parts[1..]);
         }
     }
@@ -70,7 +70,7 @@ pub fn print_tree(paths: &[&str]) {
 
             if depth == 0 {
                 if has_children {
-                    eprintln!("{}", format!("{name}/").bold().cyan().to_string());
+                    eprintln!("{}", format!("{name}/").bold().cyan());
                 } else {
                     eprintln!("{name}");
                 }
@@ -84,11 +84,7 @@ pub fn print_tree(paths: &[&str]) {
                         format!("{name}/").bold().cyan()
                     );
                 } else {
-                    eprintln!(
-                        "{}{}",
-                        format!("{prefix}{line_connector}").dimmed(),
-                        name
-                    );
+                    eprintln!("{}{}", format!("{prefix}{line_connector}").dimmed(), name);
                 }
                 let new_prefix = format!("{prefix}{extension}");
                 render(child, &new_prefix, last, depth + 1);

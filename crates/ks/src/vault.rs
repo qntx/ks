@@ -153,9 +153,7 @@ impl Vault {
         let mut keys: Vec<&str> = self
             .secrets
             .iter()
-            .filter(|(k, v)| {
-                k.to_lowercase().contains(&q) || v.note.to_lowercase().contains(&q)
-            })
+            .filter(|(k, v)| k.to_lowercase().contains(&q) || v.note.to_lowercase().contains(&q))
             .map(|(k, _)| k.as_str())
             .collect();
         keys.sort_unstable();
@@ -285,15 +283,13 @@ fn age_encrypt(plaintext: &[u8], passphrase: &str) -> Result<Vec<u8>> {
     writer
         .write_all(plaintext)
         .map_err(|e| Error::Encrypt(e.to_string()))?;
-    writer
-        .finish()
-        .map_err(|e| Error::Encrypt(e.to_string()))?;
+    writer.finish().map_err(|e| Error::Encrypt(e.to_string()))?;
     Ok(output)
 }
 
 fn age_decrypt(ciphertext: &[u8], passphrase: &str) -> Result<Vec<u8>> {
-    let dec = age::Decryptor::new_buffered(ciphertext)
-        .map_err(|e| Error::Decrypt(e.to_string()))?;
+    let dec =
+        age::Decryptor::new_buffered(ciphertext).map_err(|e| Error::Decrypt(e.to_string()))?;
     if !dec.is_scrypt() {
         return Err(Error::Decrypt(
             "vault was not encrypted with a passphrase".into(),

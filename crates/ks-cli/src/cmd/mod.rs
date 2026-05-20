@@ -5,12 +5,12 @@ pub mod del;
 pub mod env;
 pub mod find;
 pub mod generate;
+pub mod get;
 pub mod info;
 pub mod init;
 pub mod io;
 pub mod list;
 pub mod lock;
-pub mod get;
 pub mod passwd;
 pub mod set;
 
