@@ -2,24 +2,30 @@
 
 use std::process::ExitCode;
 
-use cliclack::{intro, outro};
-use ks::{Config, Result, Store, agent, git as git_, identity};
+use std::io::IsTerminal as _;
 
+use cliclack::{intro, outro};
+use ks::{Config, Result, Store, git as git_, identity};
+use secrecy::SecretString;
+
+use crate::commands;
 use crate::prompt;
 use crate::terminal;
 
 pub fn run(config: &Config, init_git: bool) -> Result<ExitCode> {
-    intro("ks --initialise key store")?;
+    let interactive = std::io::stdin().is_terminal();
 
-    let pp = prompt::new_passphrase("Choose a master passphrase")?;
+    let pp = match std::env::var("KS_PASSPHRASE") {
+        Ok(raw) if !raw.is_empty() => SecretString::from(raw),
+        _ => {
+            intro("ks: initialise key store")?;
+            prompt::new_passphrase("Choose a master passphrase")?
+        }
+    };
     let id = identity::create(&config.identity_path, pp)?;
     let store = Store::create(config.clone(), id, &[])?;
 
-    let _ = agent::put(
-        store.root(),
-        store.identity(),
-        config.tunables.session_ttl_secs,
-    );
+    commands::cache_session(config, store.identity());
 
     terminal::success(&format!(
         "Identity written to {}",
@@ -36,6 +42,8 @@ pub fn run(config: &Config, init_git: bool) -> Result<ExitCode> {
         terminal::success("Initialised git repository in store");
     }
 
-    outro("Use `ks set <path>` to store your first secret.")?;
+    if interactive {
+        outro("Use `ks set <path>` to store your first secret.")?;
+    }
     Ok(ExitCode::SUCCESS)
 }

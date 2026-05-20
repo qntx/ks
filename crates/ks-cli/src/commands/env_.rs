@@ -31,7 +31,9 @@ pub fn run(config: &Config, targets: &[String], shell: &str) -> Result<ExitCode>
     let dialect = Dialect::parse(shell)?;
     for path in paths {
         let secret = store.get(&path)?;
-        let name = path.replace('/', "_").to_uppercase();
+        // Replace both `/` (separator) and `-` (allowed in paths but not in
+        // POSIX shell identifiers) with `_`, then upper-case.
+        let name = path.replace(['/', '-'], "_").to_uppercase();
         let value = secret.value.as_str();
         match dialect {
             Dialect::Sh => println!("export {name}={}", shell_quote_posix(value)),

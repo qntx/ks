@@ -35,7 +35,7 @@ pub fn run(config: &Config, env: &[String], prefix: &[String], cmd: &[String]) -
                 .strip_prefix(pfx)
                 .and_then(|s| s.strip_prefix('/'))
                 .unwrap_or(&path);
-            let env_name = suffix.replace('/', "_").to_uppercase();
+            let env_name = suffix.replace(['/', '-'], "_").to_uppercase();
             injected.push((env_name, Zeroizing::new(secret.value.to_string())));
         }
     }
