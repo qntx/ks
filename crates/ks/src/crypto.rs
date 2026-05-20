@@ -23,10 +23,9 @@ pub fn encrypt_to_recipients(
     if recipients.is_empty() {
         return Err(Error::Encrypt("no recipients".into()));
     }
-    let encryptor = age::Encryptor::with_recipients(
-        recipients.iter().map(|r| -> &dyn age::Recipient { r }),
-    )
-    .map_err(|e| Error::Encrypt(e.to_string()))?;
+    let encryptor =
+        age::Encryptor::with_recipients(recipients.iter().map(|r| -> &dyn age::Recipient { r }))
+            .map_err(|e| Error::Encrypt(e.to_string()))?;
 
     let mut output = Vec::with_capacity(plaintext.len() + 256);
     let mut writer = encryptor

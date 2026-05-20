@@ -130,7 +130,10 @@ mod tests {
         save(&path, std::slice::from_ref(&r)).expect("save");
         let loaded = load(&path).expect("load");
         assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded.first().expect("non-empty").to_string(), r.to_string());
+        assert_eq!(
+            loaded.first().expect("non-empty").to_string(),
+            r.to_string()
+        );
     }
 
     fn tempdir() -> std::path::PathBuf {

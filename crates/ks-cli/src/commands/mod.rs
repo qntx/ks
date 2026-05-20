@@ -107,7 +107,11 @@ pub fn unlock(config: &Config) -> Result<x25519::Identity> {
 /// Best-effort session cache: failures (e.g. keyring unavailable) emit a soft
 /// warning rather than fail the command.
 pub(crate) fn cache_session(config: &Config, identity: &x25519::Identity) {
-    if let Err(e) = agent::put(&config.store_dir, identity, config.tunables.session_ttl_secs) {
+    if let Err(e) = agent::put(
+        &config.store_dir,
+        identity,
+        config.tunables.session_ttl_secs,
+    ) {
         crate::terminal::warn(&format!("session cache unavailable: {e}"));
     }
 }

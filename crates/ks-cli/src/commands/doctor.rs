@@ -58,7 +58,11 @@ pub fn run(config: &Config) -> ExitCode {
     let session = agent::get(&config.store_dir).is_some();
     eprintln!(
         "  {} session cache: {}",
-        if session { "[*]".green().to_string() } else { "[ ]".dimmed().to_string() },
+        if session {
+            "[*]".green().to_string()
+        } else {
+            "[ ]".dimmed().to_string()
+        },
         if session { "active" } else { "not cached" }
     );
 

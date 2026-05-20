@@ -1,8 +1,7 @@
 //! `ks init` --bootstrap a new identity and store.
 
-use std::process::ExitCode;
-
 use std::io::IsTerminal as _;
+use std::process::ExitCode;
 
 use cliclack::{intro, outro};
 use ks::{Config, Result, Store, git as git_, identity};
