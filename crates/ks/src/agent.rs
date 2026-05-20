@@ -8,7 +8,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use age::x25519;
-use keyring::Entry;
+use keyring_core::{Entry, Error as KeyringError};
 use zeroize::Zeroizing;
 
 use crate::config::store_id;
@@ -64,7 +64,7 @@ pub fn clear(store_dir: &Path) -> Result<()> {
         return Ok(());
     };
     match entry.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
         Err(e) => Err(Error::Keyring(e.to_string())),
     }
 }

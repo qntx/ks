@@ -111,8 +111,8 @@ impl From<toml::ser::Error> for Error {
     }
 }
 
-impl From<keyring::Error> for Error {
-    fn from(value: keyring::Error) -> Self {
+impl From<keyring_core::Error> for Error {
+    fn from(value: keyring_core::Error) -> Self {
         Self::Keyring(value.to_string())
     }
 }

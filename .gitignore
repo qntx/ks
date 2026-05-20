@@ -20,5 +20,8 @@ target
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# /3rdparty
-.claude
+# Vendored / reference checkouts (kept locally for grep-able context only)
+/3rdparty/
+
+# Local agent scratch
+.claude/

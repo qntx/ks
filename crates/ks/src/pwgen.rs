@@ -1,8 +1,8 @@
 //! Cryptographically-random secret generation.
 //!
-//! Uses the OS-backed thread-local CSPRNG via [`rand::thread_rng`].
+//! Uses the OS-backed thread-local CSPRNG via [`rand::rng`].
 
-use rand::Rng as _;
+use rand::seq::IndexedRandom as _;
 use zeroize::Zeroizing;
 
 /// Character set used when generating a random secret.
@@ -59,12 +59,12 @@ pub fn generate(length: usize, charset: Charset) -> Result<Zeroizing<String>, &'
         return Err("length must be at least 1");
     }
     let alphabet = charset.alphabet();
-    let n = alphabet.len();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut out = String::with_capacity(length);
     for _ in 0..length {
-        let idx = rng.gen_range(0..n);
-        let byte = alphabet.get(idx).copied().unwrap_or(b'a');
+        // Charset::alphabet() is always non-empty, but fall back to `a` to
+        // stay panic-free if a future variant ever changes that.
+        let byte = alphabet.choose(&mut rng).copied().unwrap_or(b'a');
         out.push(char::from(byte));
     }
     Ok(Zeroizing::new(out))
