@@ -1,66 +1,106 @@
-# ks — Key Store
+<!-- markdownlint-disable MD033 MD041 MD036 -->
 
-[![CI](https://github.com/qntx/ks/actions/workflows/ci.yml/badge.svg)](https://github.com/qntx/ks/actions/workflows/ci.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+# ks
 
-A modern, local-first, git-friendly secret manager built on the
-[age](https://age-encryption.org) encryption format. Designed for developers
-who want to keep API tokens, SSH key passphrases and CI secrets encrypted on
-disk and out of `.env` files.
+[![Crates.io][crates-badge]][crates-url]
+[![Docs.rs][docs-badge]][docs-url]
+[![CI][ci-badge]][ci-url]
+[![License][license-badge]][license-url]
+[![Rust][rust-badge]][rust-url]
 
-## Why ks
+[crates-badge]: https://img.shields.io/crates/v/ks.svg
+[crates-url]: https://crates.io/crates/ks
+[docs-badge]: https://img.shields.io/docsrs/ks.svg
+[docs-url]: https://docs.rs/ks
+[ci-badge]: https://github.com/qntx/ks/actions/workflows/ci.yml/badge.svg
+[ci-url]: https://github.com/qntx/ks/actions/workflows/ci.yml
+[license-badge]: https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg
+[license-url]: LICENSE-MIT
+[rust-badge]: https://img.shields.io/badge/rust-edition%202024-orange.svg
+[rust-url]: https://doc.rust-lang.org/edition-guide/
 
-- **Modern crypto, no PGP.** Every secret is an [`age`](https://github.com/FiloSottile/age)
-  file encrypted to one or more X25519 recipients. Your private key lives in
-  a single passphrase-protected `identity.age` and is fully interoperable
-  with the upstream `age` / `rage` CLIs.
-- **Local-first, git-friendly.** Each secret is its own `.age` file under a
-  tree of your choosing (`store/github/token.age`, …). `git diff` shows
-  exactly which secret changed; merge conflicts are scoped to a single key.
-- **Developer workflow built in.** `ks run -- npm start` injects secrets as
-  environment variables into a subprocess without ever touching disk.
-  `ks inject` renders `${KS:path}` markers in a template. `ks env` emits
-  shell `export` statements.
-- **Memory-hygienic.** All in-flight secrets are wrapped in `Zeroizing`
-  / `SecretBox` and zeroed on drop. The session cache stores an unlocked
-  X25519 private key (not the user's passphrase) and expires after a
-  configurable TTL (default 15 min).
-- **Multi-device via plain git.** No bespoke sync server — `git push`/`pull`
-  inside the store directory does it all.
-- **TOTP built in.** Stash an `otpauth://` URL with `ks set --totp` and
-  generate one-time codes with `ks otp`.
+**Local-first, git-friendly secret manager built on `age` — one passphrase-protected identity, per-secret encrypted files, plain git for sync, zero PGP.**
 
-## Installation
+ks keeps API tokens, SSH passphrases, TOTP seeds and CI secrets encrypted on disk and out of `.env` files. Every secret is an `age` file under a directory tree of your choosing; the developer-workflow commands (`run`, `inject`, `env`) feed those secrets straight into subprocesses, templates, or shells without ever materialising them on disk.
+
+## Quick Start
+
+### Install
 
 ```sh
 cargo install --path crates/ks-cli
 ```
 
-This produces a single `ks` binary (~5 MB release).
+Produces a single `ks` binary (~5 MB release).
 
-## Quick start
+### CLI Usage
 
 ```sh
-# Create an identity and an empty store
+# Bootstrap an identity + empty store (optionally a git repo inside it)
 ks init
-
-# Optionally, initialise a git repo inside the store
 ks init --git
 
-# Store a secret (interactive masked prompt)
-ks set github/token --note "Personal Access Token"
-
-# Read it back
-ks get github/token              # prints to stdout
-ks get github/token --copy       # copies to clipboard, auto-clears in 45s
-
-# List, search, inspect
+# Store, read, search
+ks set github/token --note "PAT"          # masked prompt
+ks get github/token                       # to stdout
+ks get github/token --copy                # to clipboard, auto-clear in 45s
 ks ls
 ks find token
-ks info github/token             # metadata only — never prints the value
+ks info github/token                      # metadata only, never reveals the value
+
+# Generate strong passwords in-place
+ks gen aws/access-key -l 32 -s alphanum --copy
+
+# TOTP from an otpauth:// URL
+ks set github/totp --totp <<< 'otpauth://totp/...'
+ks otp  github/totp --copy
+
+# Developer workflow
+ks run --env github/token=GITHUB_TOKEN -- npm test
+ks run --prefix aws -- terraform apply        # AWS_ACCESS_KEY=…, AWS_SECRET_KEY=…
+ks inject -i .env.template -o .env            # ${KS:path} markers
+eval "$(ks env github aws/prod --shell sh)"   # also: --shell fish | pwsh
+
+# Multi-device via plain git
+ks identity show                              # age1… public key
+ks recipients add age1xyz…                    # re-encrypts the whole store
+ks git sync                                   # add -A, commit, pull --rebase, push
+
+# Session & maintenance
+ks unlock                                     # cache for `session_ttl_secs`
+ks lock                                       # clear the cache
+ks doctor                                     # health-check
+ks passwd                                     # rotate the identity passphrase
 ```
 
-## File layout
+### Library Usage
+
+```rust
+use ks::{Config, Store, identity};
+use secrecy::SecretString;
+
+let config = Config::load()?;
+let pp = SecretString::from(std::env::var("KS_PASSPHRASE")?);
+let id = identity::load(&config.identity_path, pp)?;
+let store = Store::open(config, id)?;
+
+let token = store.get("github/token")?;
+println!("{}", token.value.as_str());
+```
+
+## Design
+
+- **Modern crypto, no PGP.** Each secret is an `age` file encrypted to one or more X25519 recipients. The identity file is interoperable with upstream [`age`] / [`rage`].
+- **One file per secret.** `git diff` shows exactly which key changed; merge conflicts are scoped to a single path.
+- **Plain git for sync.** No bespoke server — `git push`/`pull` inside the store directory does the job. `ks git sync` is a convenience wrapper.
+- **Developer workflow first-class.** `ks run` injects secrets as env vars into a subprocess, `ks inject` renders `${KS:path}` markers in templates, `ks env` emits shell exports for `sh` / `fish` / `pwsh`.
+- **Memory-hygienic.** All in-flight secrets are wrapped in `Zeroizing` / `SecretBox` and zeroed on drop.
+- **Session cache.** Unlocked X25519 keys (not passphrases) live in the OS keyring (Credential Manager / Keychain / Secret Service) with a TTL (default 15 min).
+- **TOTP built in.** Stash `otpauth://` URLs, generate codes with `ks otp`.
+- **Stable exit codes** — `sysexits.h`-style codes (`64` usage, `65` data, `66` missing, `70` software, `73` already-exists, `75` keyring unavailable, `77` wrong passphrase).
+- **Strict linting** — Clippy `pedantic` + `nursery` + `correctness` (deny), zero warnings.
+
+## File Layout
 
 ```text
 $XDG_DATA_HOME/ks/
@@ -74,184 +114,53 @@ $XDG_CONFIG_HOME/ks/
 └── config.toml               # session_ttl_secs, clipboard_clear_secs
 ```
 
-Override paths with `KS_DATA_DIR`, `KS_STORE_DIR`, `KS_IDENTITY`, `KS_CONFIG`.
+Override via `KS_DATA_DIR`, `KS_STORE_DIR`, `KS_IDENTITY`, `KS_CONFIG`. Set `KS_PASSPHRASE` for non-interactive use (CI, scripts).
 
-## Developer workflow
+## Multi-Device Onboarding
 
-### `ks run` — subprocess injection (à la `op run`)
+1. Run `ks init` on the new device; copy its public key (`ks identity show`).
+2. On a trusted device, `ks recipients add <new-pubkey>` — every secret is re-encrypted to the union of recipients.
+3. `git pull` from the new device.
 
-```sh
-# Map specific secrets to environment variable names:
-ks run --env github/token=GITHUB_TOKEN --env aws/access-key=AWS_ACCESS_KEY_ID \
-       -- npm test
+To remove access for a lost device: `ks recipients rm <pubkey>` + force-rotate any leaked secrets (no cryptography can revoke past reads).
 
-# Or inject an entire prefix (paths become upper-snake env names):
-ks run --prefix aws -- terraform apply
-# -> AWS_ACCESS_KEY=…, AWS_SECRET_KEY=…
-```
+## Security
 
-Secrets exist only as environment variables in the child process and are
-zeroed in the parent immediately after `spawn`.
+This library has **not** been independently audited. Use at your own risk.
 
-### `ks inject` — template rendering
+| Asset | Protected by |
+| --- | --- |
+| **Identity at rest** | `age` scrypt over a bech32 X25519 secret key (`AGE-SECRET-KEY-1…`) |
+| **Secrets at rest** | `age` X25519 recipient mode (ChaCha20-Poly1305 + HKDF) |
+| **Memory** | `Zeroizing` / `SecretBox` on every secret-bearing type; cleared on drop |
+| **Session cache** | OS keyring (Credential Manager / Keychain / Secret Service) + TTL |
+| **Identity file mode** | `0o600` on Unix (write → chmod → atomic rename) |
 
-```sh
-# .env.template:
-DATABASE_URL=postgres://${KS:db/url}
-GITHUB_TOKEN=${KS:github/token}
-STRIPE_KEY=${KS:stripe/key:test}   # ":field" extracts an extra field
+**Not in scope yet:** YubiKey / PIV plugin (`age-plugin-yubikey`), post-quantum recipients (`age-plugin-pq`). The `identity.age` format is already plugin-ready — only the CLI surface is missing.
 
-ks inject -i .env.template -o .env
-```
-
-### `ks env` — shell export statements
-
-```sh
-eval "$(ks env github aws/prod --shell sh)"
-ks env --shell fish | source
-ks env --shell pwsh | iex
-```
-
-## Recipients and multi-device
-
-```sh
-ks identity show                     # prints "age1..." public key
-ks recipients ls
-ks recipients add age1xyz…           # adds a recipient and re-encrypts everything
-ks recipients rm age1xyz…
-```
-
-To onboard a new device:
-
-1. Run `ks init` on the new device. Note its public key (`ks identity show`).
-2. On an already-trusted device, `ks recipients add <new-pubkey>` (re-encrypts
-   the whole store).
-3. `git push` / `git pull` from inside the store directory.
-
-## TOTP
-
-```sh
-# Store an otpauth:// URL
-ks set github/totp --totp <<< 'otpauth://totp/Github:me?secret=JBSWY...&issuer=Github'
-
-# Generate the current code
-ks otp github/totp                   # prints the 6-digit code
-ks otp github/totp --copy            # copies, auto-clears in 30s
-```
-
-## Session, lock & unlock
-
-```sh
-ks unlock                            # prompt once, cache for `session_ttl_secs`
-ks lock                              # clear the cache immediately
-ks doctor                            # health-check identity, recipients, git
-ks passwd                            # rotate the identity passphrase
-```
-
-## Git sync
-
-```sh
-ks git init                          # initialise the store as a git repo
-ks git sync                          # add -A, commit, pull --rebase, push
-ks git status
-ks git log -n 20
-```
-
-For anything more involved (remotes, branching, …) just `cd` into the store
-directory and use `git` directly. `ks` makes no attempt to reinvent it.
-
-## Environment variables
-
-| Variable             | Purpose                                                                 |
-|----------------------|-------------------------------------------------------------------------|
-| `KS_PASSPHRASE`      | Non-interactive passphrase (skips prompts; for CI use).                 |
-| `KS_DATA_DIR`        | Override the data directory containing `identity.age` and `store/`.     |
-| `KS_STORE_DIR`       | Override the store directory specifically.                              |
-| `KS_IDENTITY`        | Override the identity file path.                                        |
-| `KS_CONFIG`          | Override the `config.toml` location.                                    |
-
-## Exit codes
-
-Stable, scriptable exit codes following [sysexits.h](https://man.freebsd.org/cgi/man.cgi?sysexits):
-
-| Code | Meaning                                                                |
-|------|------------------------------------------------------------------------|
-| 0    | Success                                                                |
-| 1    | Generic error / failed external command                                |
-| 64   | Usage error (bad path, malformed recipient, …)                         |
-| 65   | Data error (corrupt JSON, bad TOML, malformed otpauth)                 |
-| 66   | Missing input (no store, no identity, no secret)                       |
-| 70   | Internal software error (crypto failure)                               |
-| 73   | Cannot create (store/identity/secret already exists)                   |
-| 75   | Transient failure (keyring backend unavailable)                        |
-| 77   | Permission denied (wrong passphrase)                                   |
-
-## Security model
-
-| Asset              | Protected by                                                       |
-|--------------------|--------------------------------------------------------------------|
-| Identity at rest   | `age` scrypt (passphrase) over the bech32 X25519 secret key.       |
-| Secrets at rest    | `age` X25519 recipient mode (ChaCha20-Poly1305 + HKDF).            |
-| Memory             | `Zeroizing` / `SecretBox` on every secret type; cleared on drop.   |
-| Session cache      | OS keyring (Credential Manager / Keychain / Secret Service) + TTL. |
-| Identity file mode | `0o600` on Unix (write-then-chmod-then-rename).                    |
-
-**Not in scope (yet):** YubiKey / PIV plugin support, post-quantum recipients
-(`age-plugin-pq`). The `identity.age` format is already plugin-ready — these
-just need a CLI surface.
-
-## Library use
-
-The `ks` crate is published independently:
-
-```rust
-use age::secrecy::SecretString;
-use ks::{Config, Secret, Store, identity};
-
-let config = Config::load()?;
-let pp = SecretString::from(std::env::var("KS_PASSPHRASE")?);
-let id = identity::load(&config.identity_path, pp)?;
-let store = Store::open(config, id)?;
-
-let token = store.get("github/token")?;
-println!("{}", &*token.value);
-```
-
-## Crate layout
-
-```text
-crates/
-├── ks/                          # library
-│   src/
-│   ├── agent.rs                 # OS-keyring session cache (TTL-bound)
-│   ├── config.rs                # XDG paths + tunables
-│   ├── crypto.rs                # age recipient/passphrase wrappers
-│   ├── error.rs                 # `thiserror`-derived Error
-│   ├── git.rs                   # thin wrapper over the `git` binary
-│   ├── identity.rs              # create/load/rotate the X25519 identity
-│   ├── path.rs                  # strict logical-path validation
-│   ├── pwgen.rs                 # CSPRNG password generation
-│   ├── recipient.rs             # `.recipients` parsing & atomic writes
-│   ├── secret.rs                # Secret data model
-│   ├── store.rs                 # Store: CRUD + re-encryption
-│   ├── totp.rs                  # RFC 6238 TOTP
-│   └── lib.rs
-└── ks-cli/                      # `ks` binary
-    src/
-    ├── cli.rs                   # clap-derive command surface
-    ├── clipboard.rs             # cross-platform clipboard with auto-clear
-    ├── commands/                # one file per subcommand
-    ├── exit.rs                  # stable sysexits.h-style codes
-    ├── prompt.rs                # cliclack wrappers
-    ├── terminal.rs              # coloured stderr helpers + tree printer
-    └── main.rs
-```
+[`age`]: https://github.com/FiloSottile/age
+[`rage`]: https://github.com/str4d/rage
 
 ## License
 
-Dual-licensed under either of
+Licensed under either of:
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT License ([LICENSE-MIT](LICENSE-MIT))
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <https://www.apache.org/licenses/LICENSE-2.0>)
+- MIT License ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/licenses/MIT>)
 
 at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this project shall be dual-licensed as above, without any additional terms or conditions.
+
+---
+
+<div align="center">
+
+A **[QNTX](https://qntx.fun)** open-source project.
+
+<a href="https://qntx.fun"><img alt="QNTX" width="369" src="https://raw.githubusercontent.com/qntx/.github/main/profile/qntx-banner.svg" /></a>
+
+<!--prettier-ignore-->
+Code is law. We write both.
+
+</div>
