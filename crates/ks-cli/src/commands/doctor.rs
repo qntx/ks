@@ -1,14 +1,14 @@
-//! `ks doctor` — sanity-check the store, identity, recipients and git state.
+//! `ks doctor` -- sanity-check the store, identity, recipients and git state.
 
 use std::process::ExitCode;
 
 use ks::recipient;
-use ks::{Config, Result, agent, git};
+use ks::{Config, agent, git};
 use owo_colors::OwoColorize as _;
 
 use crate::commands;
 
-pub fn run(config: Config) -> Result<ExitCode> {
+pub fn run(config: &Config) -> ExitCode {
     let mut failures: usize = 0;
 
     check(
@@ -33,9 +33,7 @@ pub fn run(config: Config) -> Result<ExitCode> {
         &mut failures,
     );
 
-    // Attempt to unlock so we can verify the identity actually matches one of
-    // the recipients (otherwise reads would silently fail later).
-    match commands::unlock(&config) {
+    match commands::unlock(config) {
         Ok(identity) => {
             check(
                 "identity unlocks",
@@ -60,18 +58,14 @@ pub fn run(config: Config) -> Result<ExitCode> {
     let session = agent::get(&config.store_dir).is_some();
     eprintln!(
         "  {} session cache: {}",
-        if session {
-            "●".green().to_string()
-        } else {
-            "○".dimmed().to_string()
-        },
+        if session { "[*]".green().to_string() } else { "[ ]".dimmed().to_string() },
         if session { "active" } else { "not cached" }
     );
 
     if git::is_repo(&config.store_dir) {
         match git::status(&config.store_dir) {
             Ok(out) => {
-                eprintln!("  {} git status:", "●".cyan());
+                eprintln!("  {} git status:", "[*]".cyan());
                 for line in out.lines() {
                     eprintln!("    {line}");
                 }
@@ -79,27 +73,27 @@ pub fn run(config: Config) -> Result<ExitCode> {
             Err(e) => check("git status", false, &e.to_string(), &mut failures),
         }
     } else {
-        eprintln!("  {} git: not a repo", "○".dimmed());
+        eprintln!("  {} git: not a repo", "[ ]".dimmed());
     }
 
     if failures == 0 {
-        eprintln!("\n{} all checks passed", "◆".green().bold());
-        Ok(ExitCode::SUCCESS)
+        eprintln!("\n{} all checks passed", "[OK]".green().bold());
+        ExitCode::SUCCESS
     } else {
         eprintln!(
             "\n{} {} check(s) failed",
-            "✗".red().bold(),
+            "[FAIL]".red().bold(),
             failures.to_string().bold()
         );
-        Ok(ExitCode::from(1))
+        ExitCode::from(1)
     }
 }
 
 fn check(label: &str, ok: bool, detail: &str, failures: &mut usize) {
     let mark = if ok {
-        "◆".green().bold().to_string()
+        "[OK]".green().bold().to_string()
     } else {
-        "✗".red().bold().to_string()
+        "[FAIL]".red().bold().to_string()
     };
     eprintln!("  {mark} {label}: {detail}");
     if !ok {

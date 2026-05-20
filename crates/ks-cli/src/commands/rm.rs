@@ -1,4 +1,4 @@
-//! `ks rm` — delete a secret.
+//! `ks rm` --delete a secret.
 
 use std::process::ExitCode;
 
@@ -8,7 +8,7 @@ use crate::commands;
 use crate::prompt;
 use crate::terminal;
 
-pub fn run(config: Config, path: &str, force: bool) -> Result<ExitCode> {
+pub fn run(config: &Config, path: &str, force: bool) -> Result<ExitCode> {
     let store = commands::open_store(config)?;
 
     if !force {

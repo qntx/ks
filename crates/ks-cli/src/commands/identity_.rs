@@ -1,4 +1,4 @@
-//! `ks identity` — inspect or export the local identity.
+//! `ks identity` --inspect or export the local identity.
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -9,7 +9,7 @@ use crate::cli::IdentityCmd;
 use crate::commands;
 use crate::terminal;
 
-pub fn run(config: Config, cmd: IdentityCmd) -> Result<ExitCode> {
+pub fn run(config: &Config, cmd: IdentityCmd) -> Result<ExitCode> {
     match cmd {
         IdentityCmd::Show => {
             // Showing the public recipient does not require unlocking the

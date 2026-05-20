@@ -1,4 +1,4 @@
-//! `ks set` — store or update a secret.
+//! `ks set` --store or update a secret.
 
 use std::process::ExitCode;
 
@@ -9,7 +9,7 @@ use crate::prompt;
 use crate::terminal;
 
 pub fn run(
-    config: Config,
+    config: &Config,
     path: &str,
     note: Option<&str>,
     force: bool,
@@ -18,7 +18,7 @@ pub fn run(
     let store = commands::open_store(config)?;
 
     if store.exists(path) && !force {
-        let ok = prompt::confirm(&format!("{path} already exists — overwrite?"), false)?;
+        let ok = prompt::confirm(&format!("{path} already exists --overwrite?"), false)?;
         if !ok {
             terminal::warn("Aborted");
             return Ok(ExitCode::SUCCESS);

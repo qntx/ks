@@ -1,4 +1,4 @@
-//! `ks gen` — generate a random secret.
+//! `ks gen` --generate a random secret.
 
 use std::process::ExitCode;
 use std::str::FromStr as _;
@@ -11,7 +11,7 @@ use crate::commands;
 use crate::terminal;
 
 pub fn run(
-    config: Config,
+    config: &Config,
     path: Option<&str>,
     length: usize,
     charset: &str,

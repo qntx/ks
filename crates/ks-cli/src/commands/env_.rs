@@ -1,4 +1,4 @@
-//! `ks env` — emit shell `export` statements for one or more secrets.
+//! `ks env` --emit shell `export` statements for one or more secrets.
 
 use std::process::ExitCode;
 
@@ -7,7 +7,7 @@ use ks::{Config, Error, Result};
 use crate::commands;
 use crate::terminal;
 
-pub fn run(config: Config, targets: &[String], shell: &str) -> Result<ExitCode> {
+pub fn run(config: &Config, targets: &[String], shell: &str) -> Result<ExitCode> {
     let store = commands::open_store(config)?;
     let mut paths: Vec<String> = Vec::new();
 

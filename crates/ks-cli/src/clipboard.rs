@@ -21,12 +21,19 @@ pub fn copy_with_autoclear(value: &str, clear_secs: u64) -> Result<u64> {
 
     let owned = value.to_owned();
     thread::spawn(move || {
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "sync background timer is the simplest correct way to clear a clipboard without pulling in tokio"
+        )]
         thread::sleep(Duration::from_secs(clear_secs));
         if let Ok(mut cb2) = Clipboard::new()
             && let Ok(current) = cb2.get_text()
             && current == owned
+            && let Err(_e) = cb2.set_text(String::new())
         {
-            let _ = cb2.set_text(String::new());
+            // Best-effort: the user closed the session or another process took
+            // the clipboard between our read and write. Either way nothing to
+            // do — failing here would be invisible anyway.
         }
     });
 

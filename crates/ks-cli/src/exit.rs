@@ -64,9 +64,8 @@ pub const fn for_error(err: &Error) -> ExitCode {
 
         Error::Keyring(_) => ExitCode::TempFail,
 
-        Error::Io(_) | Error::Command { .. } => ExitCode::Failure,
-
-        // `ks::Error` is `#[non_exhaustive]`: future variants fall through to Failure.
+        // `ks::Error` is `#[non_exhaustive]`; Io, Command and any future
+        // variants all map to the generic `Failure` exit code.
         _ => ExitCode::Failure,
     }
 }

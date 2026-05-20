@@ -1,4 +1,4 @@
-//! `ks recipients` — manage the recipient (public key) list.
+//! `ks recipients` --manage the recipient (public key) list.
 
 use std::process::ExitCode;
 use std::str::FromStr as _;
@@ -11,7 +11,7 @@ use crate::cli::RecipientsCmd;
 use crate::commands;
 use crate::terminal;
 
-pub fn run(config: Config, cmd: RecipientsCmd) -> Result<ExitCode> {
+pub fn run(config: &Config, cmd: RecipientsCmd) -> Result<ExitCode> {
     let mut store = commands::open_store(config)?;
     match cmd {
         RecipientsCmd::Ls => {

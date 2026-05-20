@@ -1,4 +1,4 @@
-//! `ks run -- <cmd>` — execute a command with secrets injected into its environment.
+//! `ks run -- <cmd>` --execute a command with secrets injected into its environment.
 
 use std::process::{Command, ExitCode};
 
@@ -8,7 +8,7 @@ use zeroize::Zeroizing;
 use crate::commands;
 use crate::terminal;
 
-pub fn run(config: Config, env: &[String], prefix: &[String], cmd: &[String]) -> Result<ExitCode> {
+pub fn run(config: &Config, env: &[String], prefix: &[String], cmd: &[String]) -> Result<ExitCode> {
     let (program, args) = cmd
         .split_first()
         .ok_or_else(|| Error::InvalidPath("missing command after `--`".into()))?;

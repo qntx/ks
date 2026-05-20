@@ -1,4 +1,4 @@
-//! `ks info` — show metadata for a secret without revealing the value.
+//! `ks info` -- show metadata for a secret without revealing the value.
 
 use std::process::ExitCode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -8,7 +8,7 @@ use owo_colors::OwoColorize as _;
 
 use crate::commands;
 
-pub fn run(config: Config, path: &str) -> Result<ExitCode> {
+pub fn run(config: &Config, path: &str) -> Result<ExitCode> {
     let store = commands::open_store(config)?;
     let secret = store.get(path)?;
 
@@ -30,7 +30,7 @@ pub fn run(config: Config, path: &str) -> Result<ExitCode> {
     if !secret.fields.is_empty() {
         eprintln!("  {}:", "fields".dimmed());
         for key in secret.fields.keys() {
-            eprintln!("    {} = {}", key.cyan(), "•••••••".dimmed());
+            eprintln!("    {} = {}", key.cyan(), "*******".dimmed());
         }
     }
     Ok(ExitCode::SUCCESS)

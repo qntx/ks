@@ -1,4 +1,4 @@
-//! `ks git` — thin wrapper for syncing the store with git.
+//! `ks git` --thin wrapper for syncing the store with git.
 
 use std::process::ExitCode;
 
@@ -7,7 +7,7 @@ use ks::{Config, Error, Result, git};
 use crate::cli::GitCmd;
 use crate::terminal;
 
-pub fn run(config: Config, cmd: GitCmd) -> Result<ExitCode> {
+pub fn run(config: &Config, cmd: GitCmd) -> Result<ExitCode> {
     let dir = &config.store_dir;
     if !dir.exists() {
         return Err(Error::StoreNotFound(dir.clone()));

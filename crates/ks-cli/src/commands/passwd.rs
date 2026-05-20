@@ -1,4 +1,4 @@
-//! `ks passwd` — change the identity passphrase.
+//! `ks passwd` --change the identity passphrase.
 
 use std::process::ExitCode;
 
@@ -8,8 +8,8 @@ use ks::{Config, Result, agent, identity};
 use crate::prompt;
 use crate::terminal;
 
-pub fn run(config: Config) -> Result<ExitCode> {
-    intro("ks — change passphrase")?;
+pub fn run(config: &Config) -> Result<ExitCode> {
+    intro("ks --change passphrase")?;
 
     let current = prompt::passphrase("Current passphrase")?;
     let new = prompt::new_passphrase("New passphrase")?;

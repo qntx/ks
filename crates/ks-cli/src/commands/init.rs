@@ -1,4 +1,4 @@
-//! `ks init` — bootstrap a new identity and store.
+//! `ks init` --bootstrap a new identity and store.
 
 use std::process::ExitCode;
 
@@ -8,8 +8,8 @@ use ks::{Config, Result, Store, agent, git as git_, identity};
 use crate::prompt;
 use crate::terminal;
 
-pub fn run(config: Config, init_git: bool) -> Result<ExitCode> {
-    intro("ks — initialise key store")?;
+pub fn run(config: &Config, init_git: bool) -> Result<ExitCode> {
+    intro("ks --initialise key store")?;
 
     let pp = prompt::new_passphrase("Choose a master passphrase")?;
     let id = identity::create(&config.identity_path, pp)?;

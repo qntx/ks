@@ -1,4 +1,4 @@
-//! `ks get` — print or copy a secret value.
+//! `ks get` --print or copy a secret value.
 
 use std::process::ExitCode;
 
@@ -8,7 +8,7 @@ use crate::clipboard;
 use crate::commands;
 use crate::terminal;
 
-pub fn run(config: Config, path: &str, copy: bool, field: Option<&str>) -> Result<ExitCode> {
+pub fn run(config: &Config, path: &str, copy: bool, field: Option<&str>) -> Result<ExitCode> {
     let clear_secs = config.tunables.clipboard_clear_secs;
     let store = commands::open_store(config)?;
     let secret = store.get(path)?;

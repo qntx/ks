@@ -1,4 +1,4 @@
-//! `ks inject` — substitute `${KS:path}` and `${KS:path:field}` markers in a template.
+//! `ks inject` --substitute `${KS:path}` and `${KS:path:field}` markers in a template.
 
 use std::io::{Read as _, Write as _};
 use std::path::Path;
@@ -13,7 +13,7 @@ use crate::terminal;
 const OPEN: &str = "${KS:";
 const CLOSE: char = '}';
 
-pub fn run(config: Config, input: Option<&Path>, output: Option<&Path>) -> Result<ExitCode> {
+pub fn run(config: &Config, input: Option<&Path>, output: Option<&Path>) -> Result<ExitCode> {
     let template = read_input(input)?;
     let store = commands::open_store(config)?;
 
