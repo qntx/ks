@@ -15,12 +15,13 @@ name = "ks"
 path = "src/main.rs"
 
 [dependencies]
-ks.workspace = true
-clap.workspace = true
-cliclack.workspace = true
-owo-colors.workspace = true
-arboard.workspace = true
-zeroize.workspace = true
+ks.workspace          = true
+clap.workspace        = true
+cliclack.workspace    = true
+owo-colors.workspace  = true
+arboard.workspace     = true
+zeroize.workspace     = true
+secrecy.workspace     = true
 
 [lints]
 workspace = true

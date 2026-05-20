@@ -14,14 +14,16 @@ categories.workspace = true
 name = "ks"
 
 [dependencies]
-age.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-keyring.workspace = true
+age.workspace         = true
+serde.workspace       = true
+serde_json.workspace  = true
+toml.workspace        = true
+keyring.workspace     = true
 directories.workspace = true
-zeroize.workspace = true
-thiserror.workspace = true
-rand.workspace = true
+zeroize.workspace     = true
+thiserror.workspace   = true
+rand.workspace        = true
+totp-rs.workspace     = true
 
 [lints]
 workspace = true

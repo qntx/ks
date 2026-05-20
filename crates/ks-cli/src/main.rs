@@ -1,4 +1,5 @@
-//! Key Store CLI — `ks` binary entry point.
+//! `ks` — Key Store CLI entry point.
+
 #![allow(
     unreachable_pub,
     missing_docs,
@@ -7,60 +8,24 @@
     clippy::exit
 )]
 
-mod clip;
-mod cmd;
-mod output;
+mod cli;
+mod clipboard;
+mod commands;
+mod exit;
+mod prompt;
+mod terminal;
 
-use clap::Parser as _;
-use cmd::{Cli, Command};
-use owo_colors::OwoColorize as _;
+use std::process::ExitCode;
 
-fn main() {
-    let cli = Cli::parse();
+use clap::Parser;
 
-    let config = match ks::Config::load() {
-        Ok(c) => c,
+fn main() -> ExitCode {
+    let cli = cli::Cli::parse();
+    match commands::dispatch(cli) {
+        Ok(code) => code,
         Err(e) => {
-            eprintln!("{} {e}", "✗".red().bold());
-            std::process::exit(1);
+            terminal::error(&e.to_string());
+            ExitCode::from(exit::for_error(&e).as_u8())
         }
-    };
-
-    let result = match cli.command {
-        Command::Init => cmd::init::run(&config),
-
-        Command::Get { path, copy } => cmd::get::run(&config, &path, copy),
-
-        Command::Set { path, note, force } => cmd::set::run(&config, &path, note.as_deref(), force),
-
-        Command::Del { path, force } => cmd::del::run(&config, &path, force),
-
-        Command::Ls { prefix } => cmd::list::run(&config, &prefix),
-
-        Command::Gen {
-            path,
-            length,
-            charset,
-            force,
-        } => cmd::generate::run(&config, path.as_deref(), length, &charset, force),
-
-        Command::Env { paths, shell } => cmd::env::run(&config, &paths, &shell),
-
-        Command::Find { query } => cmd::find::run(&config, &query),
-
-        Command::Info { path } => cmd::info::run(&config, &path),
-
-        Command::Passwd => cmd::passwd::run(&config),
-
-        Command::Export { output } => cmd::io::run_export(&config, output.as_deref()),
-
-        Command::Import { file, dotenv } => cmd::io::run_import(&config, file.as_deref(), dotenv),
-
-        Command::Lock => cmd::lock::run(),
-    };
-
-    if let Err(e) = result {
-        output::print_error(&e.to_string());
-        std::process::exit(1);
     }
 }
