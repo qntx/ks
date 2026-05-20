@@ -25,13 +25,25 @@ ks keeps API tokens, SSH passphrases, TOTP seeds and CI secrets encrypted on dis
 
 ## Quick Start
 
-### Install
+### Install the CLI
+
+**Shell** (macOS / Linux):
 
 ```sh
-cargo install --path crates/ks-cli
+curl -fsSL https://sh.qntx.fun/ks | sh
 ```
 
-Produces a single `ks` binary (~5 MB release).
+**PowerShell** (Windows):
+
+```powershell
+irm https://sh.qntx.fun/ks/ps | iex
+```
+
+Or via Cargo:
+
+```bash
+cargo install ks-cli
+```
 
 ### CLI Usage
 
