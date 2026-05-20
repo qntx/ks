@@ -121,6 +121,10 @@ fn set_owner_only(path: &Path) -> Result<()> {
 }
 
 #[cfg(not(unix))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "signature parity with the Unix impl that genuinely needs Result"
+)]
 const fn set_owner_only(_path: &Path) -> Result<()> {
     Ok(())
 }

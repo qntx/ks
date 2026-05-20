@@ -51,7 +51,7 @@ pub fn add_all(dir: &Path) -> Result<()> {
 /// Returns [`Error::Command`] only for actual failures, not for the
 /// "nothing to commit" case.
 pub fn commit(dir: &Path, message: &str) -> Result<()> {
-    let output = command(dir, &["commit", "-m", message])?
+    let output = command(dir, &["commit", "-m", message])
         .output()
         .map_err(Error::Io)?;
     if output.status.success() {
@@ -108,7 +108,7 @@ pub fn log(dir: &Path, n: usize) -> Result<String> {
 }
 
 fn run(dir: &Path, args: &[&str]) -> Result<String> {
-    let output = command(dir, args)?.output().map_err(Error::Io)?;
+    let output = command(dir, args).output().map_err(Error::Io)?;
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {
@@ -120,12 +120,12 @@ fn run(dir: &Path, args: &[&str]) -> Result<String> {
     }
 }
 
-fn command(dir: &Path, args: &[&str]) -> Result<Command> {
+fn command(dir: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::new(BIN);
     cmd.current_dir(dir)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    Ok(cmd)
+    cmd
 }

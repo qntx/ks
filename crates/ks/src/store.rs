@@ -326,6 +326,10 @@ fn set_owner_only(path: &Path) -> Result<()> {
 }
 
 #[cfg(not(unix))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "signature parity with the Unix impl that genuinely needs Result"
+)]
 const fn set_owner_only(_path: &Path) -> Result<()> {
     Ok(())
 }
@@ -369,7 +373,7 @@ mod tests {
             identity_path: root.join("identity.age"),
             store_dir: root.join("store"),
             config_path: root.join("config.toml"),
-            tunables: Default::default(),
+            tunables: crate::Tunables::default(),
         };
         let pp = SecretString::from("pw".to_owned());
         let id = identity::create(&cfg.identity_path, pp).expect("create identity");

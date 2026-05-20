@@ -11,7 +11,7 @@ pub fn run(config: &Config) -> Result<ExitCode> {
     // Drop any stale cache so the explicit unlock always prompts (or uses
     // KS_PASSPHRASE) and starts a fresh TTL window.
     agent::clear(&config.store_dir)?;
-    let _identity = commands::unlock(&config)?;
+    let _identity = commands::unlock(config)?;
     terminal::success(&format!(
         "Session unlocked for {}s",
         config.tunables.session_ttl_secs

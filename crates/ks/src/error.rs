@@ -8,6 +8,10 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// All errors that can occur in the `ks` library.
+#[expect(
+    clippy::error_impl_error,
+    reason = "naming a crate's primary error `Error` is idiomatic in Rust libraries"
+)]
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum Error {

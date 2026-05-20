@@ -14,7 +14,7 @@ pub fn run(config: &Config, cmd: IdentityCmd) -> Result<ExitCode> {
         IdentityCmd::Show => {
             // Showing the public recipient does not require unlocking the
             // identity file: we can derive it once we have the identity.
-            let identity = commands::unlock(&config)?;
+            let identity = commands::unlock(config)?;
             println!("{}", identity.to_public());
             Ok(ExitCode::SUCCESS)
         }

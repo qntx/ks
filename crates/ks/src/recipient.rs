@@ -113,7 +113,7 @@ mod tests {
         let body = format!("# comment line\n\n{pub_str}\n# trailing\n");
         let parsed = parse(&body).expect("parse");
         assert_eq!(parsed.len(), 1);
-        assert_eq!(parsed[0].to_string(), pub_str);
+        assert_eq!(parsed.first().expect("non-empty").to_string(), pub_str);
     }
 
     #[test]
@@ -130,7 +130,7 @@ mod tests {
         save(&path, std::slice::from_ref(&r)).expect("save");
         let loaded = load(&path).expect("load");
         assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].to_string(), r.to_string());
+        assert_eq!(loaded.first().expect("non-empty").to_string(), r.to_string());
     }
 
     fn tempdir() -> std::path::PathBuf {

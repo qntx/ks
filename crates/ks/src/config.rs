@@ -123,9 +123,10 @@ fn env_path(name: &str) -> Option<PathBuf> {
     }
 }
 
-/// Returns a short stable identifier for a store directory, used as part of the
-/// OS keyring entry name. Collisions are acceptable because the keyring entry
-/// also embeds the absolute path in plaintext metadata.
+/// Returns a short, stable identifier for a store directory.
+///
+/// Used as part of the OS keyring entry name; collisions are acceptable
+/// because the entry also embeds the absolute path in plaintext metadata.
 #[must_use]
 pub fn store_id(store_dir: &Path) -> String {
     use std::hash::{Hash as _, Hasher as _};

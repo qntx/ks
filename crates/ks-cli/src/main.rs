@@ -1,11 +1,11 @@
-//! `ks` — Key Store CLI entry point.
+//! `ks` -- Key Store CLI entry point.
 
 #![allow(
     unreachable_pub,
-    missing_docs,
     clippy::print_stdout,
     clippy::print_stderr,
-    clippy::exit
+    clippy::exit,
+    reason = "binary crate: `pub` items are internal; a CLI legitimately writes to stdout/stderr and exits with structured non-zero codes"
 )]
 
 mod cli;

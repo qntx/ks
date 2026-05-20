@@ -29,7 +29,9 @@ pub fn get(store_dir: &Path) -> Option<x25519::Identity> {
     let raw = Zeroizing::new(raw);
     let (expiry, key) = parse_payload(&raw)?;
     if expiry <= now_secs() {
-        let _ = entry.delete_credential();
+        // Best-effort eviction; if the keyring is unavailable we still treat
+        // the entry as absent and return None to the caller.
+        if let Err(_e) = entry.delete_credential() {}
         return None;
     }
     identity::parse(&key).ok()
@@ -92,7 +94,7 @@ mod tests {
     fn parse_payload_works() {
         let p = "1700000000|AGE-SECRET-KEY-1XXX";
         let (e, k) = parse_payload(p).expect("parse");
-        assert_eq!(e, 1700000000);
+        assert_eq!(e, 1_700_000_000);
         assert_eq!(k, "AGE-SECRET-KEY-1XXX");
     }
 
