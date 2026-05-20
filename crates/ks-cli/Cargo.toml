@@ -1,0 +1,26 @@
+[package]
+name = "ks-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Key Store CLI"
+keywords = ["key", "store", "cli", "secrets"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "ks"
+path = "src/main.rs"
+
+[dependencies]
+ks.workspace = true
+clap.workspace = true
+cliclack.workspace = true
+owo-colors.workspace = true
+arboard.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true

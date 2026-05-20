@@ -1,6 +1,6 @@
 [workspace]
 members = ["crates/*"]
-default-members = ["crates/ks"]
+default-members = ["crates/ks-cli"]
 exclude = ["3rdparty"]
 resolver = "3"
 
@@ -16,6 +16,20 @@ keywords = ["key", "store", "encryption"]
 categories = ["cryptography"]
 
 [workspace.dependencies]
+age         = "0.11"
+serde       = { version = "1", features = ["derive"] }
+serde_json  = "1"
+keyring     = "3"
+directories = "6"
+zeroize     = { version = "1", features = ["derive"] }
+thiserror   = "2"
+rand        = "0.8"
+
+ks          = { path = "crates/ks" }
+clap        = { version = "4", features = ["derive", "color"] }
+cliclack    = "0.5"
+owo-colors  = { version = "4", features = ["supports-colors"] }
+arboard     = "3"
 
 [profile.release]
 codegen-units = 1
