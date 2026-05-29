@@ -79,6 +79,24 @@ pub fn secret_value(label: &str) -> Result<Zeroizing<String>> {
     }
 }
 
+/// Reads a multi-line secret from stdin until EOF (Ctrl-D / Ctrl-Z).
+///
+/// The first line is the primary value; subsequent lines are stored verbatim.
+///
+/// # Errors
+/// Returns [`Error::Io`] on read failure.
+pub fn multiline(label: &str) -> Result<Zeroizing<String>> {
+    use std::io::Read as _;
+    if std::io::stdin().is_terminal() {
+        crate::terminal::info(label);
+    }
+    let mut buf = String::new();
+    std::io::stdin()
+        .read_to_string(&mut buf)
+        .map_err(Error::Io)?;
+    Ok(Zeroizing::new(buf))
+}
+
 const fn io_err(e: std::io::Error) -> Error {
     Error::Io(e)
 }

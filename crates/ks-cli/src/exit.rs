@@ -19,7 +19,7 @@ pub enum ExitCode {
     Failure = 1,
     /// User supplied wrong arguments / paths / etc.
     Usage = 64,
-    /// Data format error (corrupt file, bad JSON, bad recipient line).
+    /// Data format error (corrupt file, malformed TOTP, bad recipient line).
     DataErr = 65,
     /// An input file did not exist (store/identity/secret not found).
     NoInput = 66,
@@ -27,8 +27,6 @@ pub enum ExitCode {
     Software = 70,
     /// Cannot create a file or directory (already exists, permission, ...).
     CantCreat = 73,
-    /// A transient failure (keyring backend unavailable, etc.).
-    TempFail = 75,
     /// Permission denied (wrong passphrase / no perms on file).
     NoPerm = 77,
 }
@@ -56,13 +54,13 @@ pub const fn for_error(err: &Error) -> ExitCode {
             ExitCode::CantCreat
         }
 
-        Error::InvalidPath(_) | Error::InvalidRecipient(_) => ExitCode::Usage,
+        Error::InvalidPath(_) | Error::InvalidRecipient(_) | Error::InvalidArgument(_) => {
+            ExitCode::Usage
+        }
 
-        Error::InvalidTotp(_) | Error::Json(_) | Error::Toml(_) => ExitCode::DataErr,
+        Error::InvalidTotp(_) => ExitCode::DataErr,
 
         Error::Encrypt(_) | Error::Decrypt(_) | Error::NoUserDir => ExitCode::Software,
-
-        Error::Keyring(_) => ExitCode::TempFail,
 
         // `ks::Error` is `#[non_exhaustive]`; Io, Command and any future
         // variants all map to the generic `Failure` exit code.

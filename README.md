@@ -21,7 +21,7 @@
 
 **Local-first, git-friendly secret manager built on `age` — one passphrase-protected identity, per-secret encrypted files, plain git for sync, zero PGP.**
 
-ks keeps API tokens, SSH passphrases, TOTP seeds and CI secrets encrypted on disk and out of `.env` files. Every secret is an `age` file under a directory tree of your choosing; the developer-workflow commands (`run`, `inject`, `env`) feed those secrets straight into subprocesses, templates, or shells without ever materialising them on disk.
+ks keeps API tokens, SSH passphrases, TOTP seeds and CI secrets encrypted on disk and out of `.env` files. Every secret is an `age` file whose decrypted payload is plain text — interoperable with the `age` CLI. Encryption needs only public keys, so storing secrets never asks for your passphrase; `ks run` then feeds them straight into a subprocess without ever materialising them on disk.
 
 ## Quick Start
 
@@ -52,35 +52,42 @@ cargo install ks-cli
 ks init
 ks init --git
 
-# Store, read, search
-ks set github/token --note "PAT"          # masked prompt
-ks get github/token                       # to stdout
-ks get github/token --copy                # to clipboard, auto-clear in 45s
+# Store, read, search  (writing never asks for your passphrase)
+ks insert github/token                        # masked single-line prompt
+ks insert github/token --multiline            # first line = value, then `key: value` lines
+echo 'ghp_xxx' | ks insert github/token       # from stdin (pipe)
+ks show github/token                          # prints the whole secret
+ks show github/token -c                       # copy primary value, auto-clear in 45s
+ks show github/token -f user                  # print a single field
+ks show github/token --meta                   # field names only, never values
+ks edit github/token                          # open in $EDITOR
 ks ls
-ks find token
-ks info github/token                      # metadata only, never reveals the value
+ks grep token                                 # match by path
+ks grep alice --values                        # also search decrypted contents
 
-# Generate strong passwords in-place
-ks gen aws/access-key -l 32 -s alphanum --copy
+# Generate strong secrets
+ks gen                                        # print a 32-char value
+ks gen aws/access-key -l 32 -s alphanum -c    # store + copy
 
-# TOTP from an otpauth:// URL
-ks set github/totp --totp <<< 'otpauth://totp/...'
-ks otp  github/totp --copy
+# TOTP — store an otpauth:// URL, then read codes
+printf 'otpauth://totp/GitHub:alice?secret=...' | ks insert github/totp
+ks otp github/totp -c
 
-# Developer workflow
-ks run --env github/token=GITHUB_TOKEN -- npm test
+# Move / copy / remove  (ciphertext-only, no passphrase needed)
+ks mv github/token github/pat
+ks cp github/pat backup/pat
+ks rm backup/pat
+
+# Inject secrets into a subprocess (never hits disk)
+ks run --env github/pat=GITHUB_TOKEN -- npm test
 ks run --prefix aws -- terraform apply        # AWS_ACCESS_KEY=…, AWS_SECRET_KEY=…
-ks inject -i .env.template -o .env            # ${KS:path} markers
-eval "$(ks env github aws/prod --shell sh)"   # also: --shell fish | pwsh
 
 # Multi-device via plain git
-ks identity show                              # age1… public key
+ks identity                                   # this device's age1… public key
 ks recipients add age1xyz…                    # re-encrypts the whole store
-ks git sync                                   # add -A, commit, pull --rebase, push
+ks git add -A && ks git commit -m sync && ks git push   # passthrough, runs in the store
 
-# Session & maintenance
-ks unlock                                     # cache for `session_ttl_secs`
-ks lock                                       # clear the cache
+# Maintenance
 ks doctor                                     # health-check
 ks passwd                                     # rotate the identity passphrase
 ```
@@ -88,28 +95,34 @@ ks passwd                                     # rotate the identity passphrase
 ### Library Usage
 
 ```rust
-use ks::{Config, Store, identity};
-use secrecy::SecretString;
+use age::secrecy::SecretString;
+use ks::{Config, Secret, Store, crypto};
 
 let config = Config::load()?;
-let pp = SecretString::from(std::env::var("KS_PASSPHRASE")?);
-let id = identity::load(&config.identity_path, pp)?;
-let store = Store::open(config, id)?;
 
-let token = store.get("github/token")?;
-println!("{}", token.value.as_str());
+// Writing needs only the public recipients — no passphrase.
+let store = Store::open(config.clone())?;
+store.set("github/token", &Secret::new("ghp_xxx\nuser: alice"))?;
+
+// Reading needs the unlocked identity.
+let pp = SecretString::from(std::env::var("KS_PASSPHRASE")?);
+let id = crypto::load_identity(&config.identity_path, pp)?;
+let token = store.get("github/token", &id)?;
+println!("{}", token.password());
 ```
 
 ## Design
 
 - **Modern crypto, no PGP.** Each secret is an `age` file encrypted to one or more X25519 recipients. The identity file is interoperable with upstream [`age`] / [`rage`].
+- **Plain-text secrets.** The decrypted payload is just text — first line is the value, `key: value` lines are fields, the rest is free-form. `age -d secret.age` is human-readable; no bespoke container.
+- **Write without unlocking.** Encryption needs only the public recipients, so `insert`, `gen`, `mv`, `cp`, `rm` and `ls` never prompt for a passphrase — only reading plaintext does.
 - **One file per secret.** `git diff` shows exactly which key changed; merge conflicts are scoped to a single path.
-- **Plain git for sync.** No bespoke server — `git push`/`pull` inside the store directory does the job. `ks git sync` is a convenience wrapper.
-- **Developer workflow first-class.** `ks run` injects secrets as env vars into a subprocess, `ks inject` renders `${KS:path}` markers in templates, `ks env` emits shell exports for `sh` / `fish` / `pwsh`.
-- **Memory-hygienic.** All in-flight secrets are wrapped in `Zeroizing` / `SecretBox` and zeroed on drop.
-- **Session cache.** Unlocked X25519 keys (not passphrases) live in the OS keyring (Credential Manager / Keychain / Secret Service) with a TTL (default 15 min).
+- **Plain git for sync.** No bespoke server — `ks git …` is a thin passthrough that runs `git` inside the store directory.
+- **Developer workflow first-class.** `ks run` injects secrets as env vars into a subprocess without ever touching disk; `ks edit` round-trips a secret through your `$EDITOR`.
+- **Memory-hygienic.** All in-flight secrets are wrapped in `Zeroizing` and zeroed on drop.
+- **No daemon, no config file, few dependencies.** Configuration is environment variables (`pass`-style); the unlocked key is never persisted.
 - **TOTP built in.** Stash `otpauth://` URLs, generate codes with `ks otp`.
-- **Stable exit codes** — `sysexits.h`-style codes (`64` usage, `65` data, `66` missing, `70` software, `73` already-exists, `75` keyring unavailable, `77` wrong passphrase).
+- **Stable exit codes** — `sysexits.h`-style codes (`64` usage, `65` data, `66` missing, `70` software, `73` already-exists, `77` wrong passphrase).
 - **Strict linting** — Clippy `pedantic` + `nursery` + `correctness` (deny), zero warnings.
 
 ## File Layout
@@ -118,19 +131,18 @@ println!("{}", token.value.as_str());
 $XDG_DATA_HOME/ks/
 ├── identity.age              # passphrase-encrypted X25519 private key (local only)
 └── store/                    # git root, safe to push
-    ├── .recipients           # plaintext public-key allow-list
+    ├── .age-recipients       # plaintext public-key allow-list
     └── github/
-        └── token.age         # age-encrypted JSON blob
-
-$XDG_CONFIG_HOME/ks/
-└── config.toml               # session_ttl_secs, clipboard_clear_secs
+        └── token.age         # age file; plaintext = first-line value + `key: value` fields
 ```
 
-Override via `KS_DATA_DIR`, `KS_STORE_DIR`, `KS_IDENTITY`, `KS_CONFIG`. Set `KS_PASSPHRASE` for non-interactive use (CI, scripts).
+Secret paths are slash-separated logical names; each segment may contain ASCII letters, digits, `_`, `-` and `.` — so dotted names like `aws/credentials.json` are stored intact — but never path traversal or reserved Windows names.
+
+Override paths via `KS_DIR`, `KS_STORE_DIR`, `KS_IDENTITY`. Set `KS_PASSPHRASE` for non-interactive use (CI, scripts) and `KS_CLIP_TIME` to change the clipboard auto-clear delay (default 45 s). Colour is emitted only to interactive terminals and honours [`NO_COLOR`](https://no-color.org), so piped output (e.g. `ks ls | cat`) stays plain text.
 
 ## Multi-Device Onboarding
 
-1. Run `ks init` on the new device; copy its public key (`ks identity show`).
+1. Run `ks init` on the new device; copy its public key (`ks identity`).
 2. On a trusted device, `ks recipients add <new-pubkey>` — every secret is re-encrypted to the union of recipients.
 3. `git pull` from the new device.
 
@@ -144,9 +156,9 @@ This library has **not** been independently audited. Use at your own risk.
 | --- | --- |
 | **Identity at rest** | `age` scrypt over a bech32 X25519 secret key (`AGE-SECRET-KEY-1…`) |
 | **Secrets at rest** | `age` X25519 recipient mode (ChaCha20-Poly1305 + HKDF) |
-| **Memory** | `Zeroizing` / `SecretBox` on every secret-bearing type; cleared on drop |
-| **Session cache** | OS keyring (Credential Manager / Keychain / Secret Service) + TTL |
-| **Identity file mode** | `0o600` on Unix (write → chmod → atomic rename) |
+| **Memory** | `Zeroizing` on every secret-bearing type; cleared on drop |
+| **Identity & secret file mode** | `0o600` on Unix (write → chmod → atomic rename) |
+| **Unlocked key** | never written to disk or OS keyring; lives only in process memory |
 
 **Not in scope yet:** YubiKey / PIV plugin (`age-plugin-yubikey`), post-quantum recipients (`age-plugin-pq`). The `identity.age` format is already plugin-ready — only the CLI surface is missing.
 

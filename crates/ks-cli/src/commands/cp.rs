@@ -1,4 +1,4 @@
-//! `ks mv` — rename a secret (ciphertext move, no passphrase needed).
+//! `ks cp` — copy a secret (ciphertext copy, no passphrase needed).
 
 use std::process::ExitCode;
 
@@ -8,7 +8,7 @@ use crate::commands;
 use crate::terminal;
 
 pub fn run(config: &Config, from: &str, to: &str) -> Result<ExitCode> {
-    commands::open_store(config)?.rename(from, to)?;
-    terminal::success(&format!("Moved {from} → {to}"));
+    commands::open_store(config)?.copy(from, to)?;
+    terminal::success(&format!("Copied {from} → {to}"));
     Ok(ExitCode::SUCCESS)
 }

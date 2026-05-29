@@ -5,36 +5,55 @@
 //!   Pipe-friendly.
 //! - **stderr** carries diagnostics, prompts and progress feedback.
 //!
-//! All status helpers in this module write to **stderr**.
+//! All status helpers in this module write to **stderr**. Colour is applied
+//! only when the destination stream is a colour-capable terminal (honouring
+//! `NO_COLOR`), so redirected or piped output stays plain text.
 
 use std::collections::BTreeMap;
 
-use owo_colors::OwoColorize as _;
+use owo_colors::{OwoColorize as _, Stream, Style};
 
 /// Prints a positive completion message (green diamond).
 pub fn success(msg: &str) {
-    eprintln!("{} {}", "◆".green().bold(), msg.bold());
+    eprintln!(
+        "{} {}",
+        "◆".if_supports_color(Stream::Stderr, |t| t.style(Style::new().green().bold())),
+        msg.if_supports_color(Stream::Stderr, |t| t.bold()),
+    );
 }
 
 /// Prints a neutral informational message (cyan dot).
 pub fn info(msg: &str) {
-    eprintln!("{} {}", "●".cyan(), msg);
+    eprintln!(
+        "{} {msg}",
+        "●".if_supports_color(Stream::Stderr, |t| t.cyan()),
+    );
 }
 
 /// Prints a soft warning (yellow caution).
 pub fn warn(msg: &str) {
-    eprintln!("{} {}", "⚠".yellow(), msg);
+    eprintln!(
+        "{} {msg}",
+        "⚠".if_supports_color(Stream::Stderr, |t| t.yellow()),
+    );
 }
 
 /// Prints an error (red cross), used by `main.rs` for the final failure line.
 pub fn error(msg: &str) {
-    eprintln!("{} {}", "✗".red().bold(), msg);
+    eprintln!(
+        "{} {}",
+        "✗".if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold())),
+        msg.if_supports_color(Stream::Stderr, |t| t.bold()),
+    );
 }
 
 /// Prints `paths` as a Unicode tree, one logical secret per line, to **stdout**.
 pub fn tree(paths: &[&str]) {
     if paths.is_empty() {
-        eprintln!("{}", "(empty)".dimmed());
+        eprintln!(
+            "{}",
+            "(empty)".if_supports_color(Stream::Stderr, |t| t.dimmed()),
+        );
         return;
     }
 
@@ -77,13 +96,19 @@ fn render(node: &Node, prefix: &str, depth: usize) {
         let label = if child.children.is_empty() {
             name.clone()
         } else {
-            format!("{name}/").cyan().bold().to_string()
+            format!("{name}/")
+                .if_supports_color(Stream::Stdout, |t| t.style(Style::new().cyan().bold()))
+                .to_string()
         };
 
         if depth == 0 {
             println!("{label}");
         } else {
-            println!("{}{}{}", prefix.dimmed(), connector.dimmed(), label);
+            println!(
+                "{}{}{label}",
+                prefix.if_supports_color(Stream::Stdout, |t| t.dimmed()),
+                connector.if_supports_color(Stream::Stdout, |t| t.dimmed()),
+            );
         }
 
         let new_prefix = if depth == 0 {

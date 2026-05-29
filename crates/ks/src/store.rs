@@ -1,14 +1,22 @@
 //! The encrypted secret store.
 //!
-//! A [`Store`] is a directory tree where each secret lives in its own
-//! age-encrypted file (`<store>/<logical/path>.age`) and a top-level
-//! `.recipients` file lists the X25519 public keys that may decrypt it.
+//! A [`Store`] is a directory tree where each secret is its own age file
+//! (`<store>/<logical/path>.age`) and a top-level `.age-recipients` file lists
+//! the X25519 public keys allowed to decrypt it.
 //!
-//! Encryption requires only the loaded recipients; decryption requires the
-//! caller-supplied [`x25519::Identity`]. Operations are atomic per-file
-//! (tmp + fsync + rename).
+//! The API mirrors age's natural asymmetry:
+//!
+//! - **Writing** ([`set`](Store::set), [`insert`](Store::insert),
+//!   [`rename`](Store::rename), [`copy`](Store::copy), [`delete`](Store::delete),
+//!   [`list`](Store::list)) needs only the recipient public keys, so it never
+//!   prompts for a passphrase.
+//! - **Reading** ([`get`](Store::get), [`grep`](Store::grep)) and rotating
+//!   recipients ([`set_recipients`](Store::set_recipients)) require the
+//!   caller-supplied [`x25519::Identity`].
+//!
+//! Renames and copies move the ciphertext file as-is — no decryption — because
+//! every secret in the store shares one recipient list.
 
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use age::x25519;
@@ -17,14 +25,12 @@ use crate::config::Config;
 use crate::crypto;
 use crate::error::{Error, Result};
 use crate::path as pathutil;
-use crate::recipient;
-use crate::secret::{Secret, Wire};
+use crate::secret::Secret;
 
-/// The encrypted store, bound to a config, a recipient list and an unlocked identity.
+/// An encrypted store bound to a config and its recipient list.
 pub struct Store {
     config: Config,
     recipients: Vec<x25519::Recipient>,
-    identity: x25519::Identity,
 }
 
 impl std::fmt::Debug for Store {
@@ -32,42 +38,36 @@ impl std::fmt::Debug for Store {
         f.debug_struct("Store")
             .field("store_dir", &self.config.store_dir)
             .field("recipients", &self.recipients.len())
-            .field("identity", &"<redacted>")
             .finish()
     }
 }
 
 impl Store {
-    /// Opens an existing store and validates its recipients.
+    /// Opens an existing store and loads its recipients. Does **not** unlock the
+    /// identity, so the returned store can write but not yet read secrets.
     ///
     /// # Errors
-    /// - [`Error::StoreNotFound`] if `store_dir` does not exist.
-    /// - [`Error::NoRecipients`] if `.recipients` is missing or empty.
+    /// - [`Error::StoreNotFound`] if the store directory does not exist.
+    /// - [`Error::NoRecipients`] if `.age-recipients` is missing or empty.
     /// - [`Error::Io`] / [`Error::InvalidRecipient`] on parse failures.
-    pub fn open(config: Config, identity: x25519::Identity) -> Result<Self> {
+    pub fn open(config: Config) -> Result<Self> {
         if !config.store_dir.exists() {
             return Err(Error::StoreNotFound(config.store_dir));
         }
-        let recipients = recipient::load(&config.recipients_path())?;
-        Ok(Self {
-            config,
-            recipients,
-            identity,
-        })
+        let recipients = crypto::load_recipients(&config.recipients_path())?;
+        Ok(Self { config, recipients })
     }
 
-    /// Creates a brand-new store: `store_dir/`, `.recipients`, and an empty tree.
-    ///
-    /// `identity` is the just-created user identity. Its public key plus any
-    /// `extra_recipients` are written into `.recipients`.
+    /// Creates a brand-new store, writing `.age-recipients` with the owner's
+    /// public key plus any `extra` recipients.
     ///
     /// # Errors
-    /// - [`Error::StoreExists`] if `.recipients` already exists in `store_dir`.
+    /// - [`Error::StoreExists`] if `.age-recipients` already exists.
     /// - [`Error::Io`] on filesystem failures.
     pub fn create(
         config: Config,
-        identity: x25519::Identity,
-        extra_recipients: &[x25519::Recipient],
+        owner: &x25519::Identity,
+        extra: &[x25519::Recipient],
     ) -> Result<Self> {
         let recipients_path = config.recipients_path();
         if recipients_path.exists() {
@@ -75,32 +75,21 @@ impl Store {
         }
         std::fs::create_dir_all(&config.store_dir)?;
 
-        let mut recipients = Vec::with_capacity(extra_recipients.len().saturating_add(1));
-        recipients.push(identity.to_public());
-        for r in extra_recipients {
-            if !recipient::contains(&recipients, r) {
+        let mut recipients = Vec::with_capacity(extra.len().saturating_add(1));
+        recipients.push(owner.to_public());
+        for r in extra {
+            if !crypto::recipients_contain(&recipients, r) {
                 recipients.push(r.clone());
             }
         }
-        recipient::save(&recipients_path, &recipients)?;
-
-        Ok(Self {
-            config,
-            recipients,
-            identity,
-        })
+        crypto::save_recipients(&recipients_path, &recipients)?;
+        Ok(Self { config, recipients })
     }
 
     /// Returns the absolute store directory.
     #[must_use]
     pub fn root(&self) -> &Path {
         &self.config.store_dir
-    }
-
-    /// Returns the unlocked identity.
-    #[must_use]
-    pub const fn identity(&self) -> &x25519::Identity {
-        &self.identity
     }
 
     /// Returns the configured recipient list.
@@ -116,43 +105,24 @@ impl Store {
             && pathutil::to_file(&self.config.store_dir, logical).is_file()
     }
 
-    /// Reads and decrypts the secret at `logical`.
-    ///
-    /// # Errors
-    /// - [`Error::InvalidPath`] for malformed paths.
-    /// - [`Error::SecretNotFound`] if no such file exists.
-    /// - [`Error::Decrypt`] / [`Error::Io`] on failure.
-    pub fn get(&self, logical: &str) -> Result<Secret> {
-        pathutil::validate(logical)?;
-        let file = pathutil::to_file(&self.config.store_dir, logical);
-        if !file.exists() {
-            return Err(Error::SecretNotFound(logical.to_owned()));
-        }
-        let ciphertext = std::fs::read(&file)?;
-        let plaintext = crypto::decrypt_with_identity(&ciphertext, &self.identity)?;
-        let wire: Wire = serde_json::from_slice(&plaintext)?;
-        Ok(wire.into())
-    }
-
     /// Encrypts and writes (or overwrites) `secret` at `logical`.
     ///
     /// # Errors
-    /// - [`Error::InvalidPath`] for malformed paths.
-    /// - [`Error::Io`] / [`Error::Encrypt`] on failure.
+    /// [`Error::InvalidPath`] for malformed paths; [`Error::Io`] /
+    /// [`Error::Encrypt`] on failure.
     pub fn set(&self, logical: &str, secret: &Secret) -> Result<()> {
         pathutil::validate(logical)?;
-        let wire = Wire::from(secret);
-        let plaintext = serde_json::to_vec(&wire)?;
-        let ciphertext = crypto::encrypt_to_recipients(&plaintext, &self.recipients)?;
-        let file = pathutil::to_file(&self.config.store_dir, logical);
-        write_atomic(&file, &ciphertext)?;
-        Ok(())
+        let ciphertext = crypto::encrypt(secret.as_bytes(), &self.recipients)?;
+        crypto::write_atomic(
+            &pathutil::to_file(&self.config.store_dir, logical),
+            &ciphertext,
+        )
     }
 
-    /// Inserts a new secret, failing if one already exists.
+    /// Inserts a new secret, failing with [`Error::SecretExists`] if present.
     ///
     /// # Errors
-    /// Returns [`Error::SecretExists`] if a file is already present.
+    /// See [`set`](Store::set) plus [`Error::SecretExists`].
     pub fn insert(&self, logical: &str, secret: &Secret) -> Result<()> {
         if self.exists(logical) {
             return Err(Error::SecretExists(logical.to_owned()));
@@ -160,11 +130,27 @@ impl Store {
         self.set(logical, secret)
     }
 
-    /// Deletes the secret at `logical`. Also prunes now-empty parent
-    /// directories up to (but not including) the store root.
+    /// Reads and decrypts the secret at `logical`.
     ///
     /// # Errors
-    /// Returns [`Error::SecretNotFound`] if the file is absent.
+    /// [`Error::InvalidPath`], [`Error::SecretNotFound`], or [`Error::Decrypt`]
+    /// / [`Error::Io`] on failure.
+    pub fn get(&self, logical: &str, identity: &x25519::Identity) -> Result<Secret> {
+        pathutil::validate(logical)?;
+        let file = pathutil::to_file(&self.config.store_dir, logical);
+        if !file.exists() {
+            return Err(Error::SecretNotFound(logical.to_owned()));
+        }
+        let plaintext = crypto::decrypt(&std::fs::read(&file)?, identity)?;
+        let text = std::str::from_utf8(&plaintext)
+            .map_err(|e| Error::Decrypt(format!("secret is not valid UTF-8: {e}")))?;
+        Ok(Secret::new(text))
+    }
+
+    /// Deletes the secret at `logical`, pruning now-empty parent directories.
+    ///
+    /// # Errors
+    /// [`Error::SecretNotFound`] if the file is absent; [`Error::Io`] otherwise.
     pub fn delete(&self, logical: &str) -> Result<()> {
         pathutil::validate(logical)?;
         let file = pathutil::to_file(&self.config.store_dir, logical);
@@ -176,68 +162,62 @@ impl Store {
         Ok(())
     }
 
-    /// Renames a secret from one logical path to another.
+    /// Renames a secret by moving its ciphertext file (no decryption).
     ///
     /// # Errors
-    /// - [`Error::SecretNotFound`] if `from` does not exist.
-    /// - [`Error::SecretExists`] if `to` already exists.
-    /// - [`Error::InvalidPath`] for malformed `to`.
+    /// [`Error::SecretNotFound`] if `from` is absent, [`Error::SecretExists`] if
+    /// `to` exists, [`Error::InvalidPath`] for malformed paths.
     pub fn rename(&self, from: &str, to: &str) -> Result<()> {
-        pathutil::validate(from)?;
-        pathutil::validate(to)?;
-        if self.exists(to) {
-            return Err(Error::SecretExists(to.to_owned()));
-        }
-        let src = pathutil::to_file(&self.config.store_dir, from);
-        if !src.exists() {
-            return Err(Error::SecretNotFound(from.to_owned()));
-        }
-        let dst = pathutil::to_file(&self.config.store_dir, to);
-        if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        let (src, dst) = self.relocate_paths(from, to)?;
         std::fs::rename(&src, &dst)?;
         prune_empty_parents(&self.config.store_dir, src.parent());
         Ok(())
     }
 
-    /// Lists logical paths under `prefix` (use `""` for all), sorted.
+    /// Copies a secret by copying its ciphertext file (no decryption).
     ///
     /// # Errors
-    /// Returns [`Error::Io`] on directory traversal failures.
+    /// Same as [`rename`](Store::rename), minus pruning.
+    pub fn copy(&self, from: &str, to: &str) -> Result<()> {
+        let (src, dst) = self.relocate_paths(from, to)?;
+        std::fs::copy(&src, &dst)?;
+        Ok(())
+    }
+
+    /// Lists logical paths under `prefix` (`""` for all), sorted.
+    ///
+    /// # Errors
+    /// [`Error::Io`] on directory traversal failures.
     pub fn list(&self, prefix: &str) -> Result<Vec<String>> {
         let mut out = Vec::new();
         walk(&self.config.store_dir, &self.config.store_dir, &mut out)?;
         out.sort();
         if prefix.is_empty() {
-            Ok(out)
-        } else {
-            Ok(out
-                .into_iter()
-                .filter(|p| p == prefix || p.starts_with(&format!("{prefix}/")))
-                .collect())
+            return Ok(out);
         }
+        let scope = format!("{prefix}/");
+        Ok(out
+            .into_iter()
+            .filter(|p| p == prefix || p.starts_with(&scope))
+            .collect())
     }
 
-    /// Searches paths and decrypted notes case-insensitively for `query`.
-    ///
-    /// Notes are scanned only when `include_notes` is `true` (which requires
-    /// decrypting every secret — slow on large stores).
+    /// Searches paths (always) and decrypted contents (when `identity` is
+    /// `Some`) case-insensitively for `query`.
     ///
     /// # Errors
-    /// Returns [`Error::Io`] / [`Error::Decrypt`] on failure when scanning notes.
-    pub fn find(&self, query: &str, include_notes: bool) -> Result<Vec<String>> {
-        let q = query.to_lowercase();
-        let all = self.list("")?;
+    /// [`Error::Io`] / [`Error::Decrypt`] on failure when scanning contents.
+    pub fn grep(&self, query: &str, identity: Option<&x25519::Identity>) -> Result<Vec<String>> {
+        let needle = query.to_lowercase();
         let mut hits = Vec::new();
-        for path in all {
-            if path.to_lowercase().contains(&q) {
+        for path in self.list("")? {
+            if path.to_lowercase().contains(&needle) {
                 hits.push(path);
                 continue;
             }
-            if include_notes
-                && let Ok(s) = self.get(&path)
-                && s.note.to_lowercase().contains(&q)
+            if let Some(id) = identity
+                && let Ok(secret) = self.get(&path, id)
+                && secret.expose().to_lowercase().contains(&needle)
             {
                 hits.push(path);
             }
@@ -245,34 +225,61 @@ impl Store {
         Ok(hits)
     }
 
-    /// Replaces the recipient list and re-encrypts every secret.
+    /// Replaces the recipient list and re-encrypts every secret to it.
     ///
-    /// `new_recipients` must contain at least the current user's public key
-    /// (otherwise we'd lock ourselves out — checked).
+    /// `new_recipients` must include `identity`'s public key, otherwise the user
+    /// would lock themselves out.
+    ///
+    /// Each secret is rewritten via an atomic file replace, but the rotation as
+    /// a whole is **not** transactional: if it fails partway, the already-rewritten
+    /// secrets use `new_recipients` while the rest (and `.age-recipients`) still
+    /// use the old list. The identity decrypts both, so re-running is safe and
+    /// converges.
     ///
     /// # Errors
-    /// Returns [`Error::InvalidRecipient`] if the resulting list does not
-    /// include the user's own public key, or [`Error::Io`] / [`Error::Decrypt`]
-    /// during re-encryption.
-    pub fn set_recipients(&mut self, new_recipients: Vec<x25519::Recipient>) -> Result<usize> {
-        let own = self.identity.to_public();
-        if !recipient::contains(&new_recipients, &own) {
+    /// [`Error::InvalidRecipient`] if the user's own key is missing, or
+    /// [`Error::Io`] / [`Error::Decrypt`] during re-encryption.
+    pub fn set_recipients(
+        &mut self,
+        new_recipients: Vec<x25519::Recipient>,
+        identity: &x25519::Identity,
+    ) -> Result<usize> {
+        if !crypto::recipients_contain(&new_recipients, &identity.to_public()) {
             return Err(Error::InvalidRecipient(
                 "recipient list must include your own public key".into(),
             ));
         }
         let paths = self.list("")?;
         for path in &paths {
-            let secret = self.get(path)?;
-            let wire = Wire::from(&secret);
-            let plaintext = serde_json::to_vec(&wire)?;
-            let ciphertext = crypto::encrypt_to_recipients(&plaintext, &new_recipients)?;
-            let file = pathutil::to_file(&self.config.store_dir, path);
-            write_atomic(&file, &ciphertext)?;
+            let secret = self.get(path, identity)?;
+            let ciphertext = crypto::encrypt(secret.as_bytes(), &new_recipients)?;
+            crypto::write_atomic(
+                &pathutil::to_file(&self.config.store_dir, path),
+                &ciphertext,
+            )?;
         }
-        recipient::save(&self.config.recipients_path(), &new_recipients)?;
+        crypto::save_recipients(&self.config.recipients_path(), &new_recipients)?;
         self.recipients = new_recipients;
         Ok(paths.len())
+    }
+
+    /// Validates and resolves a `from`/`to` pair for [`rename`]/[`copy`],
+    /// enforcing that `from` exists and `to` does not.
+    fn relocate_paths(&self, from: &str, to: &str) -> Result<(PathBuf, PathBuf)> {
+        pathutil::validate(from)?;
+        pathutil::validate(to)?;
+        let src = pathutil::to_file(&self.config.store_dir, from);
+        if !src.exists() {
+            return Err(Error::SecretNotFound(from.to_owned()));
+        }
+        if self.exists(to) {
+            return Err(Error::SecretExists(to.to_owned()));
+        }
+        let dst = pathutil::to_file(&self.config.store_dir, to);
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        Ok((src, dst))
     }
 }
 
@@ -286,9 +293,7 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<()> {
             continue;
         }
         if file_type.is_dir() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.starts_with('.') {
+            if entry.file_name().to_string_lossy().starts_with('.') {
                 continue;
             }
             walk(root, &entry_path, out)?;
@@ -298,39 +303,6 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<()> {
             out.push(logical);
         }
     }
-    Ok(())
-}
-
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension("age.tmp");
-    {
-        let mut file = std::fs::File::create(&tmp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-    }
-    set_owner_only(&tmp)?;
-    std::fs::rename(&tmp, path)?;
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_owner_only(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
-    let mut perms = std::fs::metadata(path)?.permissions();
-    perms.set_mode(0o600);
-    std::fs::set_permissions(path, perms)?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "signature parity with the Unix impl that genuinely needs Result"
-)]
-const fn set_owner_only(_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -358,80 +330,86 @@ mod tests {
     use age::secrecy::SecretString;
 
     use super::*;
-    use crate::identity;
-    use crate::secret::Secret;
 
-    fn tempdir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("ks-store-{}", rand::random::<u64>()));
-        std::fs::create_dir_all(&dir).expect("temp");
-        dir
-    }
-
-    fn fresh_config() -> (Config, x25519::Identity) {
-        let root = tempdir();
+    fn fresh() -> (Config, x25519::Identity) {
+        let root = std::env::temp_dir().join(format!("ks-store-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&root).expect("temp");
         let cfg = Config {
             identity_path: root.join("identity.age"),
             store_dir: root.join("store"),
-            config_path: root.join("config.toml"),
-            tunables: crate::Tunables::default(),
         };
-        let pp = SecretString::from("pw".to_owned());
-        let id = identity::create(&cfg.identity_path, pp).expect("create identity");
+        let id = crypto::create_identity(&cfg.identity_path, SecretString::from("pw".to_owned()))
+            .expect("identity");
         (cfg, id)
     }
 
     #[test]
-    fn create_then_set_get_delete() {
-        let (cfg, id) = fresh_config();
-        let store = Store::create(cfg, id, &[]).expect("create store");
-
-        let s = Secret::new("v1").with_note("note");
-        store.set("github/token", &s).expect("set");
-        let g = store.get("github/token").expect("get");
-        assert_eq!(&*g.value, "v1");
-        assert_eq!(g.note, "note");
-
-        let listed = store.list("").expect("list");
-        assert_eq!(listed, vec!["github/token".to_owned()]);
-
-        store.delete("github/token").expect("delete");
-        assert!(!store.exists("github/token"));
+    fn set_needs_no_identity_get_does() {
+        let (cfg, id) = fresh();
+        let store = Store::create(cfg, &id, &[]).expect("create");
+        store
+            .set("github/token", &Secret::new("ghp_xxx\nuser: alice\n"))
+            .expect("set");
+        let got = store.get("github/token", &id).expect("get");
+        assert_eq!(got.password(), "ghp_xxx");
+        assert_eq!(got.get("user"), Some("alice"));
+        assert_eq!(
+            store.list("").expect("list"),
+            vec!["github/token".to_owned()]
+        );
     }
 
     #[test]
-    fn rename_works() {
-        let (cfg, id) = fresh_config();
-        let store = Store::create(cfg, id, &[]).expect("create");
+    fn rename_and_copy_are_pure_file_ops() {
+        let (cfg, id) = fresh();
+        let store = Store::create(cfg, &id, &[]).expect("create");
         store.set("a/b", &Secret::new("v")).expect("set");
+
+        store.copy("a/b", "a/c").expect("copy");
+        assert!(store.exists("a/b") && store.exists("a/c"));
+
         store.rename("a/b", "x/y").expect("rename");
-        assert!(!store.exists("a/b"));
-        assert!(store.exists("x/y"));
+        assert!(!store.exists("a/b") && store.exists("x/y"));
+        assert_eq!(store.get("x/y", &id).expect("get").password(), "v");
     }
 
     #[test]
-    fn set_recipients_reencrypts_all() {
-        let (cfg, id) = fresh_config();
-        let mut store = Store::create(cfg, id, &[]).expect("create");
-        store.set("k1", &Secret::new("v1")).expect("set 1");
-        store.set("k2", &Secret::new("v2")).expect("set 2");
+    fn grep_paths_then_values() {
+        let (cfg, id) = fresh();
+        let store = Store::create(cfg, &id, &[]).expect("create");
+        store.set("github/token", &Secret::new("ghp")).expect("s1");
+        store
+            .set("aws/key", &Secret::new("secret\nregion: eu-west-1\n"))
+            .expect("s2");
+
+        assert_eq!(
+            store.grep("github", None).expect("grep"),
+            vec!["github/token"]
+        );
+        assert!(store.grep("eu-west", None).expect("grep").is_empty());
+        assert_eq!(
+            store.grep("eu-west", Some(&id)).expect("grep values"),
+            vec!["aws/key"]
+        );
+    }
+
+    #[test]
+    fn set_recipients_reencrypts_and_guards_lockout() {
+        let (cfg, id) = fresh();
+        let mut store = Store::create(cfg, &id, &[]).expect("create");
+        store.set("k", &Secret::new("v")).expect("set");
 
         let backup = x25519::Identity::generate();
-        let new_list = vec![store.identity().to_public(), backup.to_public()];
-        let n = store.set_recipients(new_list).expect("reencrypt");
-        assert_eq!(n, 2);
+        let n = store
+            .set_recipients(vec![id.to_public(), backup.to_public()], &id)
+            .expect("reencrypt");
+        assert_eq!(n, 1);
+        assert_eq!(store.get("k", &id).expect("get").password(), "v");
 
-        // Original identity still works.
-        assert_eq!(&*store.get("k1").expect("get").value, "v1");
-    }
-
-    #[test]
-    fn refuses_to_lock_out_user() {
-        let (cfg, id) = fresh_config();
-        let mut store = Store::create(cfg, id, &[]).expect("create");
         let stranger = x25519::Identity::generate();
-        let err = store
-            .set_recipients(vec![stranger.to_public()])
-            .expect_err("must refuse");
-        assert!(matches!(err, Error::InvalidRecipient(_)));
+        assert!(matches!(
+            store.set_recipients(vec![stranger.to_public()], &id),
+            Err(Error::InvalidRecipient(_))
+        ));
     }
 }

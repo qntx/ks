@@ -5,48 +5,51 @@
 //!
 //! ## Architecture
 //!
-//! - **Identity** (`identity.age`): a single X25519 secret key, encrypted
-//!   to the user's passphrase using age scrypt mode. Stays local.
-//! - **Recipients** (`store/.recipients`): plaintext list of age public keys
-//!   allowed to decrypt this store. Lives inside the store, safe to git-sync.
+//! - **Identity** (`identity.age`): a single X25519 secret key, encrypted to
+//!   the user's passphrase with age scrypt mode. Stays local.
+//! - **Recipients** (`store/.age-recipients`): a plaintext list of `age1…`
+//!   public keys allowed to decrypt this store. Git-synced with the secrets.
 //! - **Secrets** (`store/<path>.age`): each secret is its own
-//!   recipient-encrypted age file containing a small JSON blob.
+//!   recipient-encrypted age file whose plaintext is just text — the first line
+//!   is the value, `key: value` lines are fields. `age -d secret.age` is
+//!   human-readable and interoperable with the `age` / `rage` CLIs.
 //!
-//! ## Quick start
+//! ## Asymmetry
+//!
+//! Encryption needs only the public recipients, so writing secrets never
+//! prompts for a passphrase. Only reading (and rotating recipients) requires
+//! the unlocked [`x25519::Identity`].
 //!
 //! ```no_run
 //! use age::secrecy::SecretString;
-//! use ks::{Config, Secret, Store, identity};
+//! use ks::{Config, Secret, Store, crypto};
 //!
-//! let config = Config::load().expect("load config");
-//! let pp = SecretString::from("hunter2".to_owned());
-//! let id = identity::create(&config.identity_path, pp).expect("init identity");
-//! let store = Store::create(config, id, &[]).expect("init store");
+//! fn main() -> ks::Result<()> {
+//!     let config = Config::load()?;
+//!     let pp = SecretString::from("hunter2".to_owned());
+//!     let id = crypto::create_identity(&config.identity_path, pp)?;
+//!     let store = Store::create(config, &id, &[])?;
 //!
-//! store.set("github/token", &Secret::new("ghp_xxx")).expect("set");
-//! let token = store.get("github/token").expect("get");
-//! assert_eq!(&*token.value, "ghp_xxx");
+//!     store.set("github/token", &Secret::new("ghp_xxx\nuser: alice"))?; // no unlock
+//!     let token = store.get("github/token", &id)?;
+//!     assert_eq!(token.password(), "ghp_xxx");
+//!     Ok(())
+//! }
 //! ```
 
-/// OS-keyring backed session cache.
-pub mod agent;
-/// Runtime configuration (paths, tunables).
+/// Runtime configuration (filesystem paths).
 pub mod config;
-/// Low-level age encryption primitives.
+/// age encryption primitives, identity file, and recipient list.
 pub mod crypto;
 /// Library-wide error and result types.
 pub mod error;
 /// Thin wrapper over the system `git` binary.
 pub mod git;
-/// Age identity file management.
-pub mod identity;
 /// Logical secret path validation.
 pub mod path;
 /// Cryptographically-random secret generation.
 pub mod pwgen;
-/// Recipient list management.
-pub mod recipient;
-/// Secret value data model.
+/// Plaintext secret model.
 pub mod secret;
 /// The encrypted secret store.
 pub mod store;
@@ -54,7 +57,7 @@ pub mod store;
 pub mod totp;
 
 pub use age::x25519;
-pub use config::{Config, Tunables};
+pub use config::Config;
 pub use error::{Error, Result};
-pub use secret::{Kind, Secret};
+pub use secret::Secret;
 pub use store::Store;

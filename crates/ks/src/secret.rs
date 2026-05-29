@@ -1,146 +1,113 @@
-//! Secret value data model.
+//! Plaintext secret model.
 //!
-//! A [`Secret`] is the deserialised payload of an encrypted `.age` file. It
-//! carries the primary value, optional named fields, free-form notes,
-//! timestamps and a discriminator (`kind`) for special types such as TOTP.
+//! Following the `pass` / `gopass` convention, a secret is just UTF-8 text:
+//!
+//! ```text
+//! correct-horse-battery-staple
+//! user: alice
+//! url: https://github.com
+//! otpauth://totp/GitHub:alice?secret=JBSW...
+//!
+//! free-form notes go here
+//! ```
+//!
+//! - The **first line** is the primary value (password / token).
+//! - Any subsequent `key: value` line is a queryable **field**.
+//! - Everything else is free-form body text.
+//!
+//! Because the on-disk form is exactly this text (encrypted with age and
+//! nothing else), `age -d secret.age` yields human-readable output that
+//! interoperates with the upstream `age` / `rage` CLIs. The full text is held
+//! in a [`Zeroizing`] buffer and scrubbed from memory on drop.
 
-use std::collections::BTreeMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::fmt;
 
-use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-/// Current on-disk secret format version.
-pub const SECRET_FORMAT_VERSION: u32 = 1;
-
-/// Discriminator for the kind of secret stored in [`Secret::value`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Kind {
-    /// A plain secret value (password, API token, …).
-    #[default]
-    Secret,
-    /// A TOTP `otpauth://` URL or raw base32 secret; used by `ks otp`.
-    Totp,
-}
-
-/// In-memory representation of a secret.
-///
-/// `value` and entries of `fields` are wrapped in [`Zeroizing`] so they are
-/// scrubbed from memory on drop.
-#[derive(Debug, Clone)]
+/// An in-memory secret: the decrypted plaintext of one `.age` file.
+#[derive(Clone)]
 pub struct Secret {
-    /// The primary secret value.
-    pub value: Zeroizing<String>,
-    /// Additional named fields (e.g. `region`, `username`).
-    pub fields: BTreeMap<String, Zeroizing<String>>,
-    /// Human-readable note. Not treated as secret.
-    pub note: String,
-    /// What kind of value this is. `Totp` triggers TOTP generation in `ks otp`.
-    pub kind: Kind,
-    /// Unix timestamp (seconds) when this secret was created.
-    pub created_at: u64,
-    /// Unix timestamp (seconds) when this secret was last updated.
-    pub updated_at: u64,
+    raw: Zeroizing<String>,
 }
 
 impl Secret {
-    /// Creates a new plain secret with the given primary value.
+    /// Creates a secret from raw plaintext (first line is the primary value).
     #[must_use]
-    pub fn new(value: impl Into<String>) -> Self {
-        let now = unix_now();
+    pub fn new(raw: impl Into<String>) -> Self {
         Self {
-            value: Zeroizing::new(value.into()),
-            fields: BTreeMap::new(),
-            note: String::new(),
-            kind: Kind::Secret,
-            created_at: now,
-            updated_at: now,
+            raw: Zeroizing::new(raw.into()),
         }
     }
 
-    /// Marks this secret as a TOTP source (otpauth URL or raw base32).
+    /// Returns the primary value: the first line, without the trailing newline.
     #[must_use]
-    pub const fn into_totp(mut self) -> Self {
-        self.kind = Kind::Totp;
-        self
+    pub fn password(&self) -> &str {
+        self.raw
+            .split('\n')
+            .next()
+            .unwrap_or("")
+            .trim_end_matches('\r')
     }
 
-    /// Attaches a note and returns `self` (builder pattern).
+    /// Returns the value of the first `key: value` field matching `key`.
     #[must_use]
-    pub fn with_note(mut self, note: impl Into<String>) -> Self {
-        self.note = note.into();
-        self
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.fields().find(|(k, _)| *k == key).map(|(_, v)| v)
     }
 
-    /// Inserts or updates an additional field and bumps `updated_at`.
-    pub fn set_field(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.fields.insert(key.into(), Zeroizing::new(value.into()));
-        self.updated_at = unix_now();
+    /// Iterates over all `key: value` fields (after the first line), in order.
+    pub fn fields(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.raw.lines().skip(1).filter_map(parse_field)
     }
 
-    /// Returns the value of an additional field, or `None` if absent.
+    /// Returns the field keys, in document order.
     #[must_use]
-    pub fn field(&self, key: &str) -> Option<&str> {
-        self.fields.get(key).map(|v| v.as_str())
+    pub fn keys(&self) -> Vec<&str> {
+        self.fields().map(|(k, _)| k).collect()
     }
-}
 
-/// Wire format actually serialised to disk inside the encrypted `.age` file.
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct Wire {
-    pub(crate) v: u32,
-    pub(crate) value: String,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub(crate) fields: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub(crate) note: String,
-    #[serde(default)]
-    pub(crate) kind: Kind,
-    pub(crate) created_at: u64,
-    pub(crate) updated_at: u64,
-}
-
-impl From<&Secret> for Wire {
-    fn from(s: &Secret) -> Self {
-        Self {
-            v: SECRET_FORMAT_VERSION,
-            value: (*s.value).clone(),
-            fields: s
-                .fields
-                .iter()
-                .map(|(k, v)| (k.clone(), (**v).clone()))
-                .collect(),
-            note: s.note.clone(),
-            kind: s.kind,
-            created_at: s.created_at,
-            updated_at: s.updated_at,
+    /// Returns a TOTP source for `ks otp`: an explicit `otpauth`/`otp`/`totp`
+    /// field if present, otherwise the primary value, otherwise `None`.
+    #[must_use]
+    pub fn otp(&self) -> Option<&str> {
+        for (k, v) in self.fields() {
+            if matches!(k, "otpauth" | "otp" | "totp") {
+                return Some(v.trim());
+            }
         }
+        let pw = self.password();
+        (!pw.is_empty()).then_some(pw)
+    }
+
+    /// Returns the full decrypted plaintext.
+    #[must_use]
+    pub fn expose(&self) -> &str {
+        &self.raw
+    }
+
+    /// Returns the plaintext bytes for encryption.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.raw.as_bytes()
     }
 }
 
-impl From<Wire> for Secret {
-    fn from(w: Wire) -> Self {
-        Self {
-            value: Zeroizing::new(w.value),
-            fields: w
-                .fields
-                .into_iter()
-                .map(|(k, v)| (k, Zeroizing::new(v)))
-                .collect(),
-            note: w.note,
-            kind: w.kind,
-            created_at: w.created_at,
-            updated_at: w.updated_at,
-        }
+impl fmt::Debug for Secret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Secret")
+            .field("raw", &"<redacted>")
+            .finish()
     }
 }
 
-fn unix_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
+/// Parses a `key: value` field line. The key must be non-empty and contain no
+/// whitespace, which avoids misreading prose like `Note: see below` as a field.
+fn parse_field(line: &str) -> Option<(&str, &str)> {
+    let (key, value) = line.split_once(": ")?;
+    if key.is_empty() || key.contains(char::is_whitespace) {
+        return None;
+    }
+    Some((key, value))
 }
 
 #[cfg(test)]
@@ -148,24 +115,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn roundtrip_preserves_fields() {
-        let mut s = Secret::new("ghp_token").with_note("PAT");
-        s.set_field("scope", "repo,workflow");
-        let wire = Wire::from(&s);
-        let json = serde_json::to_vec(&wire).expect("serialise");
-        let parsed: Wire = serde_json::from_slice(&json).expect("parse");
-        let restored: Secret = parsed.into();
-        assert_eq!(&*restored.value, "ghp_token");
-        assert_eq!(restored.note, "PAT");
-        assert_eq!(restored.field("scope"), Some("repo,workflow"));
-        assert_eq!(restored.kind, Kind::Secret);
+    fn password_is_first_line() {
+        let s = Secret::new("hunter2\nuser: alice\n");
+        assert_eq!(s.password(), "hunter2");
     }
 
     #[test]
-    fn totp_kind_roundtrips() {
-        let s = Secret::new("otpauth://totp/...").into_totp();
-        let json = serde_json::to_vec(&Wire::from(&s)).expect("serialise");
-        let parsed: Wire = serde_json::from_slice(&json).expect("parse");
-        assert_eq!(parsed.kind, Kind::Totp);
+    fn password_strips_carriage_return() {
+        let s = Secret::new("hunter2\r\nuser: alice");
+        assert_eq!(s.password(), "hunter2");
+    }
+
+    #[test]
+    fn fields_are_parsed_and_queryable() {
+        let s = Secret::new("pw\nuser: alice\nurl: https://x.test\n");
+        assert_eq!(s.get("user"), Some("alice"));
+        assert_eq!(s.get("url"), Some("https://x.test"));
+        assert_eq!(s.get("missing"), None);
+        assert_eq!(s.keys(), vec!["user", "url"]);
+    }
+
+    #[test]
+    fn prose_with_colon_is_not_a_field() {
+        let s = Secret::new("pw\nNote that: this is prose\n");
+        assert!(s.keys().is_empty());
+    }
+
+    #[test]
+    fn first_line_is_never_a_field() {
+        let s = Secret::new("user: alice\n");
+        assert!(s.keys().is_empty());
+        assert_eq!(s.password(), "user: alice");
+    }
+
+    #[test]
+    fn otp_prefers_explicit_field() {
+        let s = Secret::new("pw\notpauth: otpauth://totp/x?secret=ABC\n");
+        assert_eq!(s.otp(), Some("otpauth://totp/x?secret=ABC"));
+    }
+
+    #[test]
+    fn otp_falls_back_to_password() {
+        let s = Secret::new("JBSWY3DPEHPK3PXP\n");
+        assert_eq!(s.otp(), Some("JBSWY3DPEHPK3PXP"));
+    }
+
+    #[test]
+    fn debug_redacts_contents() {
+        let s = Secret::new("topsecret\n");
+        assert!(!format!("{s:?}").contains("topsecret"));
     }
 }

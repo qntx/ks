@@ -1,9 +1,9 @@
-//! `ks recipients` --manage the recipient (public key) list.
+//! `ks recipients` — manage the recipient (public key) list.
 
 use std::process::ExitCode;
 use std::str::FromStr as _;
 
-use ks::recipient;
+use ks::crypto;
 use ks::x25519;
 use ks::{Config, Error, Result};
 
@@ -24,12 +24,13 @@ pub fn run(config: &Config, cmd: RecipientsCmd) -> Result<ExitCode> {
             let new = x25519::Recipient::from_str(pubkey.trim())
                 .map_err(|e| Error::InvalidRecipient(e.to_owned()))?;
             let mut updated = store.recipients().to_vec();
-            if recipient::contains(&updated, &new) {
+            if crypto::recipients_contain(&updated, &new) {
                 terminal::warn("Recipient already present; nothing to do");
                 return Ok(ExitCode::SUCCESS);
             }
             updated.push(new);
-            let n = store.set_recipients(updated)?;
+            let identity = commands::unlock(config)?;
+            let n = store.set_recipients(updated, &identity)?;
             terminal::success(&format!("Added recipient and re-encrypted {n} secret(s)"));
             Ok(ExitCode::SUCCESS)
         }
@@ -47,12 +48,13 @@ pub fn run(config: &Config, cmd: RecipientsCmd) -> Result<ExitCode> {
                 terminal::warn("Recipient not found; nothing to do");
                 return Ok(ExitCode::SUCCESS);
             }
-            // Ensure the user's own key remains so they don't lock themselves out.
-            let own = store.identity().to_public();
-            if !recipient::contains(&updated, &own) {
+            let identity = commands::unlock(config)?;
+            // Keep the user's own key so they don't lock themselves out.
+            let own = identity.to_public();
+            if !crypto::recipients_contain(&updated, &own) {
                 updated.push(own);
             }
-            let n = store.set_recipients(updated)?;
+            let n = store.set_recipients(updated, &identity)?;
             terminal::success(&format!("Removed recipient and re-encrypted {n} secret(s)"));
             Ok(ExitCode::SUCCESS)
         }

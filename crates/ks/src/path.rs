@@ -109,16 +109,25 @@ fn is_windows_reserved(name: &str) -> bool {
     )
 }
 
-/// Joins a validated logical path onto a store root, appending the `.age` extension.
+/// Joins a validated logical path onto a store root, appending the `.age`
+/// extension to the final segment.
+///
+/// The extension is *appended*, never substituted, so dotted secret names round
+/// trip intact: `aws/credentials.json` maps to `aws/credentials.json.age`, not
+/// `aws/credentials.age`.
 ///
 /// The path is **not** re-validated here; call [`validate`] first.
 #[must_use]
 pub fn to_file(store_root: &Path, logical: &str) -> PathBuf {
     let mut buf = store_root.to_path_buf();
-    for segment in logical.split('/') {
-        buf.push(segment);
+    let mut segments = logical.split('/').peekable();
+    while let Some(segment) = segments.next() {
+        if segments.peek().is_none() {
+            buf.push(format!("{segment}.{SECRET_EXT}"));
+        } else {
+            buf.push(segment);
+        }
     }
-    buf.set_extension(SECRET_EXT);
     buf
 }
 
@@ -190,5 +199,29 @@ mod tests {
         assert_eq!(p, Path::new("/tmp/ks/github/token.age"));
         let logical = from_file(root, &p).expect("should map back");
         assert_eq!(logical, "github/token");
+    }
+
+    #[test]
+    fn accepts_dotted_segment_names() {
+        assert!(validate("aws/credentials.json").is_ok());
+        assert!(validate("x/credentials.yaml").is_ok());
+    }
+
+    #[test]
+    fn to_file_appends_extension_without_clobbering_dots() {
+        let root = Path::new("/tmp/ks");
+        let p = to_file(root, "aws/credentials.json");
+        assert_eq!(p, Path::new("/tmp/ks/aws/credentials.json.age"));
+        let logical = from_file(root, &p).expect("should map back");
+        assert_eq!(logical, "aws/credentials.json");
+    }
+
+    #[test]
+    fn dotted_names_with_distinct_suffixes_do_not_collide() {
+        let root = Path::new("/tmp/ks");
+        assert_ne!(
+            to_file(root, "x/credentials.json"),
+            to_file(root, "x/credentials.yaml"),
+        );
     }
 }

@@ -16,7 +16,6 @@ path = "src/main.rs"
 
 [dependencies]
 ks.workspace         = true
-keyring.workspace    = true
 clap.workspace       = true
 cliclack.workspace   = true
 owo-colors.workspace = true

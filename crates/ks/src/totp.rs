@@ -15,8 +15,6 @@ pub struct Code {
     pub value: String,
     /// Seconds until the code rotates.
     pub remaining_secs: u64,
-    /// Total step length in seconds.
-    pub step_secs: u64,
 }
 
 /// Builds a [`TOTP`] from the stored secret material.
@@ -47,7 +45,6 @@ pub fn current(value: &str) -> Result<Code> {
     Ok(Code {
         value: code,
         remaining_secs: remaining,
-        step_secs: totp.step,
     })
 }
 
@@ -62,7 +59,6 @@ mod tests {
         let code = current("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP").expect("generate");
         assert_eq!(code.value.len(), 6);
         assert!(code.value.chars().all(|c| c.is_ascii_digit()));
-        assert_eq!(code.step_secs, 30);
         assert!(code.remaining_secs <= 30);
     }
 

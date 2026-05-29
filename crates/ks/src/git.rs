@@ -30,7 +30,7 @@ pub fn init(dir: &Path) -> Result<()> {
     if !gitattributes.exists() {
         std::fs::write(
             &gitattributes,
-            "*.age binary -diff -merge\n.recipients text\n",
+            "*.age binary -diff -merge\n.age-recipients text\n",
         )?;
     }
     Ok(())

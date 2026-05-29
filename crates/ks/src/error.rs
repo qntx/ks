@@ -51,6 +51,10 @@ pub enum Error {
     #[error("invalid secret path: {0}")]
     InvalidPath(String),
 
+    /// A command-line argument was invalid (bad value, out of range, ...).
+    #[error("invalid argument: {0}")]
+    InvalidArgument(String),
+
     /// The supplied age recipient could not be parsed.
     #[error("invalid age recipient: {0}")]
     InvalidRecipient(String),
@@ -71,18 +75,6 @@ pub enum Error {
     #[error("decryption failed: {0}")]
     Decrypt(String),
 
-    /// A JSON (de)serialisation error.
-    #[error("json error: {0}")]
-    Json(#[from] serde_json::Error),
-
-    /// A TOML (de)serialisation error.
-    #[error("config parse error: {0}")]
-    Toml(String),
-
-    /// OS keyring failure.
-    #[error("keyring error: {0}")]
-    Keyring(String),
-
     /// Could not determine a default user directory (home/data/config).
     #[error("could not determine user directory")]
     NoUserDir,
@@ -97,22 +89,4 @@ pub enum Error {
         /// Captured stderr output.
         stderr: String,
     },
-}
-
-impl From<toml::de::Error> for Error {
-    fn from(value: toml::de::Error) -> Self {
-        Self::Toml(value.to_string())
-    }
-}
-
-impl From<toml::ser::Error> for Error {
-    fn from(value: toml::ser::Error) -> Self {
-        Self::Toml(value.to_string())
-    }
-}
-
-impl From<keyring_core::Error> for Error {
-    fn from(value: keyring_core::Error) -> Self {
-        Self::Keyring(value.to_string())
-    }
 }

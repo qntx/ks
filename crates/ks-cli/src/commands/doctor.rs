@@ -1,10 +1,11 @@
-//! `ks doctor` -- sanity-check the store, identity, recipients and git state.
+//! `ks doctor` — sanity-check the store, identity, recipients and git state.
 
+use std::io::IsTerminal as _;
+use std::path::Path;
 use std::process::ExitCode;
 
-use ks::recipient;
-use ks::{Config, agent, git};
-use owo_colors::OwoColorize as _;
+use ks::{Config, crypto, git};
+use owo_colors::{OwoColorize as _, Stream, Style};
 
 use crate::commands;
 
@@ -25,51 +26,24 @@ pub fn run(config: &Config) -> ExitCode {
     );
 
     let recipients_path = config.recipients_path();
-    let recipients_ok = recipients_path.exists() && recipient::load(&recipients_path).is_ok();
+    let recipients_ok =
+        recipients_path.exists() && crypto::load_recipients(&recipients_path).is_ok();
     check(
-        ".recipients valid",
+        ".age-recipients valid",
         recipients_ok,
         &recipients_path.display().to_string(),
         &mut failures,
     );
 
-    match commands::unlock(config) {
-        Ok(identity) => {
-            check(
-                "identity unlocks",
-                true,
-                "ok (via env / agent / prompt)",
-                &mut failures,
-            );
-
-            if let Ok(list) = recipient::load(&recipients_path) {
-                let own = identity.to_public();
-                check(
-                    "identity is in .recipients",
-                    recipient::contains(&list, &own),
-                    &own.to_string(),
-                    &mut failures,
-                );
-            }
-        }
-        Err(e) => check("identity unlocks", false, &e.to_string(), &mut failures),
-    }
-
-    let session = agent::get(&config.store_dir).is_some();
-    eprintln!(
-        "  {} session cache: {}",
-        if session {
-            "[*]".green().to_string()
-        } else {
-            "[ ]".dimmed().to_string()
-        },
-        if session { "active" } else { "not cached" }
-    );
+    check_identity(config, &recipients_path, &mut failures);
 
     if git::is_repo(&config.store_dir) {
         match git::status(&config.store_dir) {
             Ok(out) => {
-                eprintln!("  {} git status:", "[*]".cyan());
+                eprintln!(
+                    "  {} git status:",
+                    "[*]".if_supports_color(Stream::Stderr, |t| t.cyan()),
+                );
                 for line in out.lines() {
                     eprintln!("    {line}");
                 }
@@ -77,17 +51,25 @@ pub fn run(config: &Config) -> ExitCode {
             Err(e) => check("git status", false, &e.to_string(), &mut failures),
         }
     } else {
-        eprintln!("  {} git: not a repo", "[ ]".dimmed());
+        eprintln!(
+            "  {} git: not a repo",
+            "[ ]".if_supports_color(Stream::Stderr, |t| t.dimmed()),
+        );
     }
 
     if failures == 0 {
-        eprintln!("\n{} all checks passed", "[OK]".green().bold());
+        eprintln!(
+            "\n{} all checks passed",
+            "[OK]".if_supports_color(Stream::Stderr, |t| t.style(Style::new().green().bold())),
+        );
         ExitCode::SUCCESS
     } else {
         eprintln!(
             "\n{} {} check(s) failed",
-            "[FAIL]".red().bold(),
-            failures.to_string().bold()
+            "[FAIL]".if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold())),
+            failures
+                .to_string()
+                .if_supports_color(Stream::Stderr, |t| t.bold()),
         );
         ExitCode::from(1)
     }
@@ -95,12 +77,49 @@ pub fn run(config: &Config) -> ExitCode {
 
 fn check(label: &str, ok: bool, detail: &str, failures: &mut usize) {
     let mark = if ok {
-        "[OK]".green().bold().to_string()
+        "[OK]"
+            .if_supports_color(Stream::Stderr, |t| t.style(Style::new().green().bold()))
+            .to_string()
     } else {
-        "[FAIL]".red().bold().to_string()
+        "[FAIL]"
+            .if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold()))
+            .to_string()
     };
     eprintln!("  {mark} {label}: {detail}");
     if !ok {
         *failures = failures.saturating_add(1);
+    }
+}
+
+/// Verifies the identity unlocks and is present in the recipient list.
+///
+/// Skipped when neither `KS_PASSPHRASE` nor an interactive terminal is
+/// available, so `ks doctor` stays non-blocking in scripts and CI.
+fn check_identity(config: &Config, recipients_path: &Path, failures: &mut usize) {
+    let can_unlock = std::env::var("KS_PASSPHRASE").is_ok_and(|v| !v.is_empty())
+        || std::io::stdin().is_terminal();
+    if !can_unlock {
+        eprintln!(
+            "  {} identity unlocks: skipped (set KS_PASSPHRASE for non-interactive checks)",
+            "[--]".if_supports_color(Stream::Stderr, |t| t.dimmed()),
+        );
+        return;
+    }
+    let identity = match commands::unlock(config) {
+        Ok(id) => id,
+        Err(e) => {
+            check("identity unlocks", false, &e.to_string(), failures);
+            return;
+        }
+    };
+    check("identity unlocks", true, "ok (env or prompt)", failures);
+    if let Ok(list) = crypto::load_recipients(recipients_path) {
+        let own = identity.to_public();
+        check(
+            "identity is in .age-recipients",
+            crypto::recipients_contain(&list, &own),
+            &own.to_string(),
+            failures,
+        );
     }
 }
