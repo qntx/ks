@@ -328,7 +328,7 @@ fn open_excl_owner_only(path: &Path) -> Result<std::fs::File> {
 #[cfg(unix)]
 fn fsync_dir(dir: &Path) {
     if let Ok(f) = std::fs::File::open(dir) {
-        let _ = f.sync_all();
+        f.sync_all().ok();
     }
 }
 

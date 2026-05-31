@@ -37,7 +37,7 @@ base64      = "0.22"
 
 # Platform hardening (process-level, target-gated in the consuming crate).
 libc        = "0.2"
-windows-sys = { version = "0.59", features = ["Win32_System_Diagnostics_Debug"] }
+windows-sys = { version = "0.61.2", features = ["Win32_System_Diagnostics_Debug"] }
 
 [profile.release]
 codegen-units = 1
