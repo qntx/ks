@@ -14,6 +14,7 @@ mod clipboard;
 mod commands;
 mod exit;
 mod hardening;
+mod output;
 mod prompt;
 mod terminal;
 
@@ -24,10 +25,11 @@ use clap::Parser;
 fn main() -> ExitCode {
     hardening::harden();
     let cli = cli::Cli::parse();
+    output::init(cli.json);
     match commands::dispatch(cli) {
         Ok(code) => code,
         Err(e) => {
-            terminal::error(&e.to_string());
+            output::error(&e);
             ExitCode::from(exit::for_error(&e).as_u8())
         }
     }

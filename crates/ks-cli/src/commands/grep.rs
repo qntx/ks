@@ -16,6 +16,10 @@ pub fn run(config: &Config, query: &str, values: bool) -> Result<ExitCode> {
     };
 
     let hits = store.grep(query, identity.as_ref())?;
+    if crate::output::is_json() {
+        crate::output::emit(&serde_json::json!({ "query": query, "matches": hits }));
+        return Ok(ExitCode::SUCCESS);
+    }
     if hits.is_empty() {
         terminal::warn("No matches");
         return Ok(ExitCode::SUCCESS);

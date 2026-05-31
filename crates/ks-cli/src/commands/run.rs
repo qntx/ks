@@ -53,6 +53,5 @@ pub fn run(config: &Config, env: &[String], prefix: &[String], cmd: &[String]) -
     let status = child.status().map_err(Error::Io)?;
     drop(injected);
 
-    let code = u8::try_from(status.code().unwrap_or(1).clamp(0, 255)).unwrap_or(1);
-    Ok(ExitCode::from(code))
+    Ok(commands::child_exit_code(status))
 }

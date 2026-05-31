@@ -20,6 +20,10 @@ pub fn run(
     let identity = commands::unlock(config)?;
     let secret = store.get(path, &identity)?;
 
+    if crate::output::is_json() {
+        return show_json(path, &secret, field, meta);
+    }
+
     if meta {
         print_meta(path, &secret);
         return Ok(ExitCode::SUCCESS);
@@ -46,6 +50,38 @@ pub fn run(
     } else {
         println!("{}", value.trim_end_matches('\n'));
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Builds the `--json` representation of a secret. `--meta` lists field names
+/// only (no values); `--field` returns one field; binary secrets are base64;
+/// otherwise the primary value, full text, and parsed fields are returned.
+fn show_json(path: &str, secret: &Secret, field: Option<&str>, meta: bool) -> Result<ExitCode> {
+    let value = if meta {
+        serde_json::json!({ "path": path, "fields": secret.keys() })
+    } else if let Some(name) = field {
+        let field_value = secret
+            .get(name)
+            .ok_or_else(|| Error::SecretNotFound(format!("{path}#{name}")))?;
+        serde_json::json!({ "path": path, "field": name, "value": field_value })
+    } else if secret.is_binary() {
+        use base64::Engine as _;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(secret.as_bytes());
+        serde_json::json!({ "path": path, "kind": "binary", "base64": b64 })
+    } else {
+        let fields: serde_json::Map<String, serde_json::Value> = secret
+            .fields()
+            .map(|(k, v)| (k.to_owned(), serde_json::Value::String(v.to_owned())))
+            .collect();
+        serde_json::json!({
+            "path": path,
+            "kind": "text",
+            "value": secret.password(),
+            "text": secret.expose(),
+            "fields": fields,
+        })
+    };
+    crate::output::emit(&value);
     Ok(ExitCode::SUCCESS)
 }
 

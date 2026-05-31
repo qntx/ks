@@ -12,6 +12,10 @@ pub fn run(config: &Config, from: &str, to: &str) -> Result<ExitCode> {
     let store = commands::open_store(config)?;
     let identity = commands::unlock(config)?;
     store.rename(from, to, &identity)?;
-    terminal::success(&format!("Moved {from} → {to}"));
+    if crate::output::is_json() {
+        crate::output::emit(&serde_json::json!({ "from": from, "to": to, "moved": true }));
+    } else {
+        terminal::success(&format!("Moved {from} → {to}"));
+    }
     Ok(ExitCode::SUCCESS)
 }

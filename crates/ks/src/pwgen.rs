@@ -20,6 +20,17 @@ pub enum Charset {
 }
 
 impl Charset {
+    /// Returns the canonical name, matching the values accepted by `--charset`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Alphanumeric => "alphanum",
+            Self::Hex => "hex",
+            Self::Printable => "printable",
+            Self::Slug => "slug",
+        }
+    }
+
     const fn alphabet(self) -> &'static [u8] {
         match self {
             Self::Alphanumeric => b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",

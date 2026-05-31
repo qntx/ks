@@ -20,18 +20,33 @@ pub fn run(
 ) -> Result<ExitCode> {
     let value =
         pwgen::generate(length, charset).map_err(|e| Error::InvalidArgument(e.to_owned()))?;
+    let json = crate::output::is_json();
 
     if let Some(path) = path {
         let store = commands::open_store(config)?;
-        if store.exists(path)
-            && !force
-            && !prompt::confirm(&format!("{path} already exists — overwrite?"), false)?
-        {
-            terminal::warn("Aborted");
-            return Ok(ExitCode::SUCCESS);
+        if store.exists(path) && !force {
+            if json {
+                return Err(Error::SecretExists(path.to_owned()));
+            }
+            if !prompt::confirm(&format!("{path} already exists — overwrite?"), false)? {
+                terminal::warn("Aborted");
+                return Ok(ExitCode::SUCCESS);
+            }
         }
         store.set(path, &Secret::new(value.as_str()))?;
-        terminal::success(&format!("Stored generated secret at {path}"));
+        if !json {
+            terminal::success(&format!("Stored generated secret at {path}"));
+        }
+    }
+
+    if json {
+        crate::output::emit(&serde_json::json!({
+            "value": value.as_str(),
+            "length": length,
+            "charset": charset.name(),
+            "stored": path,
+        }));
+        return Ok(ExitCode::SUCCESS);
     }
 
     if copy {

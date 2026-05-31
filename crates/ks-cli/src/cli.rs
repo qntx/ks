@@ -7,6 +7,12 @@ use ks::pwgen::Charset;
 #[derive(Debug, Parser)]
 #[command(name = "ks", version, about, long_about = None, arg_required_else_help = true)]
 pub struct Cli {
+    /// Emit machine-readable JSON and run fully non-interactively: never prompts,
+    /// requires `KS_PASSPHRASE` to unlock, and needs `--force` for destructive
+    /// operations. Errors become `{"error": "..."}` on stdout.
+    #[arg(long, global = true)]
+    pub json: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }

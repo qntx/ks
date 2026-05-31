@@ -11,6 +11,9 @@ use crate::commands;
 use crate::terminal;
 
 pub fn run(config: &Config, path: &str) -> Result<ExitCode> {
+    if crate::output::is_json() {
+        return Err(crate::output::interactive_only("edit"));
+    }
     let store = commands::open_store(config)?;
 
     // Editing an existing secret needs the plaintext, so unlock; creating a new

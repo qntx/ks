@@ -18,6 +18,15 @@ pub fn run(config: &Config, path: &str, copy: bool) -> Result<ExitCode> {
         .ok_or_else(|| Error::InvalidTotp(format!("no TOTP source in {path}")))?;
     let code = totp::current(source)?;
 
+    if crate::output::is_json() {
+        crate::output::emit(&serde_json::json!({
+            "path": path,
+            "code": code.value,
+            "valid_for_secs": code.remaining_secs,
+        }));
+        return Ok(ExitCode::SUCCESS);
+    }
+
     if copy {
         let secs = clipboard::copy_with_autoclear(&code.value, commands::clip_secs())?;
         terminal::info(&format!(

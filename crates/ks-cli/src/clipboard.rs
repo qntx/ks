@@ -26,14 +26,14 @@ pub fn copy_with_autoclear(value: &str, clear_secs: u64) -> Result<u64> {
             reason = "sync background timer is the simplest correct way to clear a clipboard without pulling in tokio"
         )]
         thread::sleep(Duration::from_secs(clear_secs));
+        // Clear only if the clipboard still holds what we wrote, so we never
+        // discard content the user copied in the meantime. Best-effort: if the
+        // session is gone, a failed clear is invisible anyway.
         if let Ok(mut cb2) = Clipboard::new()
             && let Ok(current) = cb2.get_text()
             && current == owned
-            && let Err(_e) = cb2.set_text(String::new())
         {
-            // Best-effort: the user closed the session or another process took
-            // the clipboard between our read and write. Either way nothing to
-            // do — failing here would be invisible anyway.
+            cb2.set_text(String::new()).ok();
         }
     });
 

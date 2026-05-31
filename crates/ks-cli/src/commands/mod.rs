@@ -34,8 +34,10 @@ pub mod show;
 pub fn dispatch(cli: Cli) -> Result<ExitCode> {
     let config = Config::load()?;
     let cfg = &config;
-    for issue in config.permission_issues() {
-        crate::terminal::warn(&issue);
+    if !crate::output::is_json() {
+        for issue in config.permission_issues() {
+            crate::terminal::warn(&issue);
+        }
     }
     let (op, target) = audit_descriptor(&cli.command);
     let result = match cli.command {
@@ -114,6 +116,11 @@ pub fn unlock(config: &Config) -> Result<x25519::Identity> {
     if let Some(raw) = crate::hardening::take_env("KS_PASSPHRASE") {
         return crypto::load_identity(&config.identity_path, SecretString::from(raw));
     }
+    if crate::output::is_json() {
+        return Err(ks::Error::InvalidArgument(
+            "KS_PASSPHRASE is required to unlock in --json mode".to_owned(),
+        ));
+    }
     let pp = prompt::passphrase("Enter passphrase")?;
     crypto::load_identity(&config.identity_path, pp)
 }
@@ -132,4 +139,11 @@ pub(crate) fn clip_secs() -> u64 {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(45)
+}
+
+/// Maps a finished child process's status to a CLI exit code, clamped into the
+/// `u8` range so `ks run` / `ks git` propagate the subprocess's own code.
+pub(crate) fn child_exit_code(status: std::process::ExitStatus) -> ExitCode {
+    let code = status.code().unwrap_or(1).clamp(0, 255);
+    ExitCode::from(u8::try_from(code).unwrap_or(1))
 }

@@ -37,14 +37,13 @@ fn append(config: &Config, op: &str, target: &str, ok: bool) -> std::io::Result<
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    let result = if ok { "ok" } else { "error" };
-    // `op` and `result` are fixed strings; `target` is either empty or a logical
-    // path restricted to `[A-Za-z0-9_.-/]` (plus `->` for moves), none of which
-    // require JSON string escaping.
-    let line = format!(
-        "{{\"ts\":{ts},\"op\":\"{op}\",\"target\":\"{target}\",\"result\":\"{result}\"}}\n"
-    );
-    open_append(&path)?.write_all(line.as_bytes())
+    let record = serde_json::json!({
+        "ts": ts,
+        "op": op,
+        "target": target,
+        "result": if ok { "ok" } else { "error" },
+    });
+    open_append(&path)?.write_all(format!("{record}\n").as_bytes())
 }
 
 /// Audit log path: `<identity-dir>/logs/audit.jsonl`.

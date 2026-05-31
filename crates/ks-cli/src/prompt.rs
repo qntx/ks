@@ -73,7 +73,7 @@ pub fn confirm(label: &str, default: bool) -> Result<bool> {
 /// # Errors
 /// Returns [`Error::Io`] on read failure.
 pub fn secret_value(label: &str) -> Result<Zeroizing<String>> {
-    if std::io::stdin().is_terminal() {
+    if std::io::stdin().is_terminal() && !crate::output::is_json() {
         let raw: String = ck_password(label).mask('•').interact().map_err(io_err)?;
         Ok(Zeroizing::new(raw))
     } else {

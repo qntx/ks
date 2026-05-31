@@ -9,44 +9,144 @@ use owo_colors::{OwoColorize as _, Stream, Style};
 
 use crate::commands;
 
-pub fn run(config: &Config) -> ExitCode {
-    let mut failures: usize = 0;
+/// Accumulates check results so they can be rendered as human lines (printed
+/// inline as they run) or a single JSON object at the end.
+#[derive(Default)]
+struct Report {
+    checks: Vec<CheckLine>,
+    notes: Vec<String>,
+    failures: usize,
+}
 
-    check(
+struct CheckLine {
+    label: String,
+    ok: bool,
+    detail: String,
+}
+
+impl Report {
+    fn check(&mut self, label: &str, ok: bool, detail: &str) {
+        if !ok {
+            self.failures = self.failures.saturating_add(1);
+        }
+        if !crate::output::is_json() {
+            let mark = if ok {
+                "[OK]"
+                    .if_supports_color(Stream::Stderr, |t| t.style(Style::new().green().bold()))
+                    .to_string()
+            } else {
+                "[FAIL]"
+                    .if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold()))
+                    .to_string()
+            };
+            eprintln!("  {mark} {label}: {detail}");
+        }
+        self.checks.push(CheckLine {
+            label: label.to_owned(),
+            ok,
+            detail: detail.to_owned(),
+        });
+    }
+
+    fn note(&mut self, detail: &str) {
+        if !crate::output::is_json() {
+            eprintln!(
+                "  {} {detail}",
+                "[*]".if_supports_color(Stream::Stderr, |t| t.cyan()),
+            );
+        }
+        self.notes.push(detail.to_owned());
+    }
+}
+
+pub fn run(config: &Config) -> ExitCode {
+    let mut report = Report::default();
+
+    report.check(
         "identity file present",
         config.identity_path.exists(),
         &config.identity_path.display().to_string(),
-        &mut failures,
     );
-    check(
+    report.check(
         "store directory present",
         config.store_dir.exists(),
         &config.store_dir.display().to_string(),
-        &mut failures,
     );
 
     let recipients_path = config.recipients_path();
     let recipients_ok =
         recipients_path.exists() && crypto::load_recipients(&recipients_path).is_ok();
-    check(
+    report.check(
         ".age-recipients valid",
         recipients_ok,
         &recipients_path.display().to_string(),
-        &mut failures,
     );
 
-    check_permissions(config, &mut failures);
+    check_permissions(config, &mut report);
 
-    let identity = check_identity(config, &recipients_path, &mut failures);
+    let identity = check_identity(config, &recipients_path, &mut report);
     if let Some(identity) = &identity {
-        check_secrets(config, identity, &mut failures);
+        check_secrets(config, identity, &mut report);
     }
 
-    check_runtime_artifacts(config);
+    check_runtime_artifacts(config, &mut report);
+    report_git(config, &mut report);
 
-    if git::is_repo(&config.store_dir) {
-        match git::status(&config.store_dir) {
-            Ok(out) => {
+    finish(&report)
+}
+
+/// Emits the final summary (JSON object, or a coloured pass/fail line) and maps
+/// to the process exit code.
+fn finish(report: &Report) -> ExitCode {
+    let ok = report.failures == 0;
+    if crate::output::is_json() {
+        let checks: Vec<serde_json::Value> = report
+            .checks
+            .iter()
+            .map(|line| {
+                serde_json::json!({ "check": line.label, "ok": line.ok, "detail": line.detail })
+            })
+            .collect();
+        crate::output::emit(&serde_json::json!({
+            "checks": checks,
+            "notes": report.notes,
+            "failures": report.failures,
+            "ok": ok,
+        }));
+    } else if ok {
+        eprintln!(
+            "\n{} all checks passed",
+            "[OK]".if_supports_color(Stream::Stderr, |t| t.style(Style::new().green().bold())),
+        );
+    } else {
+        eprintln!(
+            "\n{} {} check(s) failed",
+            "[FAIL]".if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold())),
+            report
+                .failures
+                .to_string()
+                .if_supports_color(Stream::Stderr, |t| t.bold()),
+        );
+    }
+    if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+/// Records git repo status as a note (human prints the full `git status -sb`).
+fn report_git(config: &Config, report: &mut Report) {
+    if !git::is_repo(&config.store_dir) {
+        report.note("git: not a repository");
+        return;
+    }
+    match git::status(&config.store_dir) {
+        Ok(out) => {
+            if crate::output::is_json() {
+                let branch = out.lines().next().unwrap_or("").trim().to_owned();
+                report.notes.push(format!("git {branch}"));
+            } else {
                 eprintln!(
                     "  {} git status:",
                     "[*]".if_supports_color(Stream::Stderr, |t| t.cyan()),
@@ -55,46 +155,8 @@ pub fn run(config: &Config) -> ExitCode {
                     eprintln!("    {line}");
                 }
             }
-            Err(e) => check("git status", false, &e.to_string(), &mut failures),
         }
-    } else {
-        eprintln!(
-            "  {} git: not a repo",
-            "[ ]".if_supports_color(Stream::Stderr, |t| t.dimmed()),
-        );
-    }
-
-    if failures == 0 {
-        eprintln!(
-            "\n{} all checks passed",
-            "[OK]".if_supports_color(Stream::Stderr, |t| t.style(Style::new().green().bold())),
-        );
-        ExitCode::SUCCESS
-    } else {
-        eprintln!(
-            "\n{} {} check(s) failed",
-            "[FAIL]".if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold())),
-            failures
-                .to_string()
-                .if_supports_color(Stream::Stderr, |t| t.bold()),
-        );
-        ExitCode::from(1)
-    }
-}
-
-fn check(label: &str, ok: bool, detail: &str, failures: &mut usize) {
-    let mark = if ok {
-        "[OK]"
-            .if_supports_color(Stream::Stderr, |t| t.style(Style::new().green().bold()))
-            .to_string()
-    } else {
-        "[FAIL]"
-            .if_supports_color(Stream::Stderr, |t| t.style(Style::new().red().bold()))
-            .to_string()
-    };
-    eprintln!("  {mark} {label}: {detail}");
-    if !ok {
-        *failures = failures.saturating_add(1);
+        Err(e) => report.check("git status", false, &e.to_string()),
     }
 }
 
@@ -105,52 +167,48 @@ fn check(label: &str, ok: bool, detail: &str, failures: &mut usize) {
 fn check_identity(
     config: &Config,
     recipients_path: &Path,
-    failures: &mut usize,
+    report: &mut Report,
 ) -> Option<x25519::Identity> {
     let can_unlock = std::env::var("KS_PASSPHRASE").is_ok_and(|v| !v.is_empty())
         || std::io::stdin().is_terminal();
     if !can_unlock {
-        eprintln!(
-            "  {} identity unlocks: skipped (set KS_PASSPHRASE for non-interactive checks)",
-            "[--]".if_supports_color(Stream::Stderr, |t| t.dimmed()),
-        );
+        report.note("identity unlocks: skipped (set KS_PASSPHRASE for non-interactive checks)");
         return None;
     }
     let identity = match commands::unlock(config) {
         Ok(id) => id,
         Err(e) => {
-            check("identity unlocks", false, &e.to_string(), failures);
+            report.check("identity unlocks", false, &e.to_string());
             return None;
         }
     };
-    check("identity unlocks", true, "ok (env or prompt)", failures);
+    report.check("identity unlocks", true, "ok (env or prompt)");
     if let Ok(list) = crypto::load_recipients(recipients_path) {
         let own = identity.to_public();
-        check(
+        report.check(
             "identity is in .age-recipients",
             crypto::recipients_contain(&list, &own),
             &own.to_string(),
-            failures,
         );
     }
     Some(identity)
 }
 
 /// Flags any identity/store/recipients path readable by group or other (Unix).
-fn check_permissions(config: &Config, failures: &mut usize) {
+fn check_permissions(config: &Config, report: &mut Report) {
     let issues = config.permission_issues();
     if issues.is_empty() {
-        check("file permissions owner-only", true, "ok", failures);
+        report.check("file permissions owner-only", true, "ok");
     } else {
         for issue in &issues {
-            check("file permissions", false, issue, failures);
+            report.check("file permissions", false, issue);
         }
     }
 }
 
 /// Spot-checks that a sample of secrets decrypt and pass envelope verification,
 /// catching tampering, relocation, or legacy (pre-envelope) files.
-fn check_secrets(config: &Config, identity: &x25519::Identity, failures: &mut usize) {
+fn check_secrets(config: &Config, identity: &x25519::Identity, report: &mut Report) {
     const SAMPLE: usize = 20;
     let Ok(store) = commands::open_store(config) else {
         return;
@@ -167,7 +225,7 @@ fn check_secrets(config: &Config, identity: &x25519::Identity, failures: &mut us
         .take(SAMPLE)
         .filter(|path| store.get(path, identity).is_err())
         .count();
-    check(
+    report.check(
         &format!("secrets decrypt & verify ({checked} sampled)"),
         bad == 0,
         &if bad == 0 {
@@ -175,33 +233,25 @@ fn check_secrets(config: &Config, identity: &x25519::Identity, failures: &mut us
         } else {
             format!("{bad} failed integrity/decrypt")
         },
-        failures,
     );
 }
 
 /// Reports leftover runtime artifacts (interrupted rotation, scratch files) as
 /// non-fatal notes with a cleanup hint.
-fn check_runtime_artifacts(config: &Config) {
+fn check_runtime_artifacts(config: &Config, report: &mut Report) {
     let staging = config.store_dir.join(".ks-rotate");
     if staging.exists() {
-        note(&format!(
+        report.note(&format!(
             "leftover rotation staging at {} — safe to delete (a rotation was interrupted)",
             staging.display()
         ));
     }
     let temps = orphan_temp_count(&config.store_dir);
     if temps > 0 {
-        note(&format!(
+        report.note(&format!(
             "{temps} leftover *.tmp scratch file(s) under the store — safe to delete"
         ));
     }
-}
-
-fn note(detail: &str) {
-    eprintln!(
-        "  {} {detail}",
-        "[*]".if_supports_color(Stream::Stderr, |t| t.cyan()),
-    );
 }
 
 /// Counts `*.tmp` scratch files left by an interrupted atomic write, skipping

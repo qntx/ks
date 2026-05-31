@@ -18,82 +18,95 @@
 [license-url]: LICENSE-MIT
 [rust-badge]: https://img.shields.io/badge/rust-edition%202024-orange.svg
 [rust-url]: https://doc.rust-lang.org/edition-guide/
+[`age`]: https://github.com/FiloSottile/age
+[`rage`]: https://github.com/str4d/rage
 
-**Local-first, git-friendly secret manager built on `age` — one passphrase-protected identity, per-secret encrypted files, plain git for sync, zero PGP.**
+> **Local-first, git-friendly secret manager built on [`age`].** One passphrase-protected identity, one encrypted file per secret, plain git for sync — zero PGP.
 
-ks keeps API tokens, SSH passphrases, TOTP seeds and CI secrets encrypted on disk and out of `.env` files. Every secret is an `age` file whose decrypted payload is plain text — interoperable with the `age` CLI. Encryption needs only public keys, so storing secrets never asks for your passphrase; `ks run` then feeds them straight into a subprocess without ever materialising them on disk.
+ks keeps API tokens, SSH/DB passphrases, TOTP seeds and CI secrets encrypted on disk and out of `.env` files. Encryption needs only public keys, so **storing a secret never asks for your passphrase** — and `ks run` injects them into a subprocess without ever touching disk.
 
-## Quick Start
+## Highlights
 
-### Install the CLI
+- **Write without unlocking** — `insert`, `gen`, `rm` and `ls` need only public keys; only *reading* a secret unlocks the identity.
+- **Modern crypto, zero PGP** — X25519 + ChaCha20-Poly1305 via `age`; identities and secrets interoperate with the [`age`] / [`rage`] CLIs.
+- **Plain-text payloads** — first line is the value, `key: value` lines are fields; `age -d secret.age` stays human-readable, no bespoke container.
+- **One file per secret** — clean `git diff`s, conflicts scoped to a single key, synced over plain git with no server.
+- **Tamper-evident** — every secret is sealed in a path-bound envelope, so a relocated, swapped or rolled-back file is rejected on read.
+- **Hardened by default** — secrets live in `Zeroizing` memory; the process disables core dumps, denies debuggers and (on Unix) locks pages out of swap; writes are atomic and lock-serialised.
+- **Agent-friendly** — a global `--json` flag turns every command non-interactive and machine-readable.
+- **Batteries included** — built-in TOTP, subprocess injection, and an optional audit log.
 
-**Shell** (macOS / Linux):
+## Install
+
+**macOS / Linux**
 
 ```sh
 curl -fsSL https://sh.qntx.fun/ks | sh
 ```
 
-**PowerShell** (Windows):
+**Windows** (PowerShell)
 
 ```powershell
 irm https://sh.qntx.fun/ks/ps | iex
 ```
 
-Or via Cargo:
+Or with Cargo — `cargo install ks-cli`.
 
-```bash
-cargo install ks-cli
-```
-
-### CLI Usage
+## Usage
 
 ```sh
-# Bootstrap an identity + empty store (optionally a git repo inside it)
+# Bootstrap an identity + empty store (add --git to init a repo inside it)
 ks init
-ks init --git
 
 # Store, read, search  (writing never asks for your passphrase)
-ks insert github/token                        # masked single-line prompt
+ks insert github/token                        # masked prompt, or pipe via stdin
 ks insert github/token --multiline            # first line = value, then `key: value` lines
-echo 'ghp_xxx' | ks insert github/token       # from stdin (pipe)
-ks insert tls/key.p12 --binary < key.p12      # store raw bytes verbatim (no field parsing)
-ks show github/token                          # prints the whole secret
-ks show github/token -c                       # copy primary value, auto-clear in 45s
+ks insert tls/key.p12 --binary < key.p12      # store raw bytes verbatim
+ks show github/token                          # print the whole secret
 ks show github/token -f user                  # print a single field
-ks show github/token --meta                   # field names only, never values
-ks edit github/token                          # open in $EDITOR
-ks ls
-ks grep token                                 # match by path
-ks grep alice --values                        # also search decrypted contents
+ks show github/token -c                       # copy the value, auto-clear in 45 s
+ks ls                                         # tree of all secrets
+ks grep token --values                        # search paths (and decrypted contents)
 
-# Generate strong secrets
-ks gen                                        # print a 32-char value
-ks gen aws/access-key -l 32 -s alphanum -c    # store + copy
+# Generate, organise, rotate
+ks gen aws/access-key -l 32 -c                # generate, store, copy
+ks mv github/token github/pat                 # rename (re-encrypts to re-bind path)
+ks cp github/pat backup/pat                   # copy   (re-encrypts to re-bind path)
+ks rm backup/pat
 
 # TOTP — store an otpauth:// URL, then read codes
-printf 'otpauth://totp/GitHub:alice?secret=...' | ks insert github/totp
+printf 'otpauth://totp/GitHub:alice?secret=…' | ks insert github/totp
 ks otp github/totp -c
-
-# Move / copy / remove  (mv/cp re-bind the path, so they unlock the identity)
-ks mv github/token github/pat
-ks cp github/pat backup/pat
-ks rm backup/pat
 
 # Inject secrets into a subprocess (never hits disk)
 ks run --env github/pat=GITHUB_TOKEN -- npm test
 ks run --prefix aws -- terraform apply        # AWS_ACCESS_KEY=…, AWS_SECRET_KEY=…
 
-# Multi-device via plain git
+# Sync across devices with plain git
 ks identity                                   # this device's age1… public key
-ks recipients add age1xyz…                    # re-encrypts the whole store
-ks git add -A && ks git commit -m sync && ks git push   # passthrough, runs in the store
+ks recipients add age1xyz…                    # re-encrypt the store to a new device
+ks git push                                   # passthrough, runs inside the store
 
 # Maintenance
 ks doctor                                     # health-check
 ks passwd                                     # rotate the identity passphrase
 ```
 
-### Library Usage
+## Agent & JSON
+
+The global `--json` flag makes any command emit one JSON object on stdout and run **fully non-interactively**: it never prompts, requires `KS_PASSPHRASE` to unlock, needs `--force` for destructive operations, and reports failures as `{"error": "…"}`.
+
+```sh
+export KS_PASSPHRASE='…'
+echo -n 'ghp_xxx' | ks --json insert github/token   # {"path":"github/token","stored":true}
+ks --json show github/token | jq -r .value          # ghp_xxx
+```
+
+The bundled skill [`skills/ks/SKILL.md`](skills/ks/SKILL.md) documents every command's JSON schema and the non-interactive contract.
+
+> `show --json` prints the **plaintext** secret value — treat that output as sensitive.
+
+## Library
 
 ```rust
 use age::secrecy::SecretString;
@@ -108,71 +121,56 @@ store.set("github/token", &Secret::new("ghp_xxx\nuser: alice"))?;
 // Reading needs the unlocked identity.
 let pp = SecretString::from(std::env::var("KS_PASSPHRASE")?);
 let id = crypto::load_identity(&config.identity_path, pp)?;
-let token = store.get("github/token", &id)?;
-println!("{}", token.password());
+println!("{}", store.get("github/token", &id)?.password());
 ```
 
-## Design
-
-- **Modern crypto, no PGP.** Each secret is an `age` file encrypted to one or more X25519 recipients. The identity file is interoperable with upstream [`age`] / [`rage`].
-- **Plain-text secrets.** The decrypted payload is text — a tiny `ksenv/1` header binding the path, then the value on the first line, `key: value` fields, and free-form notes. `age -d secret.age` stays human-readable and interoperable with the upstream [`age`] / [`rage`] CLIs.
-- **Write without unlocking.** Encryption needs only the public recipients, so `insert`, `gen`, `rm` and `ls` never prompt for a passphrase — only reading plaintext does. (`mv`/`cp` re-encrypt to re-bind the path, so they unlock the identity.)
-- **Tamper-evident.** Each secret is sealed in a versioned envelope binding its logical path inside the ciphertext, so a relocated, swapped or rolled-back `.age` file is rejected on read instead of silently returning the wrong secret.
-- **One file per secret.** `git diff` shows exactly which key changed; merge conflicts are scoped to a single path.
-- **Plain git for sync.** No bespoke server — `ks git …` is a thin passthrough that runs `git` inside the store directory.
-- **Developer workflow first-class.** `ks run` injects secrets as env vars into a subprocess without ever touching disk; `ks edit` round-trips a secret through your `$EDITOR`.
-- **Memory-hygienic & hardened.** In-flight secrets are wrapped in `Zeroizing` and zeroed on drop; at startup the process disables core dumps, denies debugger attachment, and (on Unix) locks pages out of swap.
-- **Atomic & concurrency-safe.** Writes land via an `O_EXCL` temp file + rename with a parent-directory fsync; a store-wide advisory lock serialises writers, and recipient rotation is staged then committed so a failure never corrupts the store.
-- **Optional audit log.** `KS_AUDIT=1` appends metadata-only records (timestamp, op, path, result — never values) to `logs/audit.jsonl`.
-- **No daemon, no config file, few dependencies.** Configuration is environment variables (`pass`-style); the unlocked key is never persisted.
-- **TOTP built in.** Stash `otpauth://` URLs, generate codes with `ks otp`.
-- **Stable exit codes** — `sysexits.h`-style codes (`64` usage, `65` data, `66` missing, `70` software, `73` already-exists, `77` wrong passphrase).
-- **Strict linting** — Clippy `pedantic` + `nursery` + `correctness` (deny), zero warnings.
-
-## File Layout
+## Storage & Configuration
 
 ```text
 $XDG_DATA_HOME/ks/
-├── identity.age              # passphrase-encrypted X25519 private key (local only)
-├── logs/audit.jsonl          # optional metadata-only audit log (KS_AUDIT=1)
-└── store/                    # git root, safe to push
-    ├── .age-recipients       # plaintext public-key allow-list
-    ├── .ks.lock              # advisory write lock (git-ignored, local only)
+├── identity.age          # passphrase-encrypted X25519 private key (local only)
+├── logs/audit.jsonl      # optional metadata-only audit log (KS_AUDIT=1)
+└── store/                # git root — safe to push
+    ├── .age-recipients   # plaintext public-key allow-list
+    ├── .ks.lock          # advisory write lock (git-ignored)
     └── github/
-        └── token.age         # age envelope; plaintext = path header + value + `key: value` fields
+        └── token.age     # age envelope: path header + value + `key: value` fields
 ```
 
-Secret paths are slash-separated logical names; each segment may contain ASCII letters, digits, `_`, `-` and `.` — so dotted names like `aws/credentials.json` are stored intact — but never path traversal or reserved Windows names.
+Secret paths are slash-separated; each segment allows ASCII letters, digits, `_`, `-` and `.` (so `aws/credentials.json` is stored intact) — never path traversal or reserved Windows names.
 
-Override paths via `KS_DIR`, `KS_STORE_DIR`, `KS_IDENTITY`. Set `KS_PASSPHRASE` for non-interactive use (CI, scripts) — it is read once and immediately scrubbed from the environment so child processes do not inherit it. `KS_CLIP_TIME` changes the clipboard auto-clear delay (default 45 s), and `KS_AUDIT=1` enables the append-only audit log. Colour is emitted only to interactive terminals and honours [`NO_COLOR`](https://no-color.org), so piped output (e.g. `ks ls | cat`) stays plain text.
-
-## Multi-Device Onboarding
-
-1. Run `ks init` on the new device; copy its public key (`ks identity`).
-2. On a trusted device, `ks recipients add <new-pubkey>` — every secret is re-encrypted to the union of recipients.
-3. `git pull` from the new device.
-
-To remove access for a lost device: `ks recipients rm <pubkey>` + force-rotate any leaked secrets (no cryptography can revoke past reads).
+| Variable | Purpose |
+| --- | --- |
+| `KS_DIR` · `KS_STORE_DIR` · `KS_IDENTITY` | Override the store / identity paths |
+| `KS_PASSPHRASE` | Non-interactive unlock (CI); read once, then scrubbed from the environment |
+| `KS_CLIP_TIME` | Clipboard auto-clear delay in seconds (default `45`) |
+| `KS_AUDIT` | `1` enables the append-only audit log |
+| `NO_COLOR` | Disable colour (already off when output is piped) |
 
 ## Security
 
-This library has **not** been independently audited. Use at your own risk.
+> **Not** independently audited — use at your own risk.
 
 | Asset | Protected by |
 | --- | --- |
-| **Identity at rest** | `age` scrypt over a bech32 X25519 secret key (`AGE-SECRET-KEY-1…`) |
+| **Identity at rest** | `age` scrypt over a bech32 X25519 secret key |
 | **Secrets at rest** | `age` X25519 recipient mode (ChaCha20-Poly1305 + HKDF) |
+| **Integrity** | per-secret, path-bound envelope; relocation or rollback is rejected on read |
 | **Memory** | `Zeroizing` on every secret-bearing type; cleared on drop |
-| **Identity & secret file mode** | `0o600` files / `0o700` dirs on Unix, created with `O_EXCL`; a startup self-check warns on group/world access |
-| **Integrity** | each secret is bound to its path in a versioned envelope; relocation or rollback is detected on read |
+| **Files** | `0o600` files / `0o700` dirs on Unix, created with `O_EXCL`; startup self-check warns on group/world access |
 | **Process** | core dumps disabled, debugger attachment denied, pages locked out of swap (Unix); crash dumps suppressed (Windows) |
-| **Concurrency** | store-wide advisory write lock; recipient rotation is staged then committed |
-| **Unlocked key** | never written to disk or OS keyring; lives only in process memory |
+| **Concurrency** | store-wide advisory write lock; recipient rotation staged then committed |
+| **Unlocked key** | never written to disk or a keyring; lives only in process memory |
 
-**Not in scope yet:** YubiKey / PIV plugin (`age-plugin-yubikey`), post-quantum recipients (`age-plugin-pq`). The `identity.age` format is already plugin-ready — only the CLI surface is missing.
+**Roadmap:** YubiKey / PIV (`age-plugin-yubikey`) and post-quantum recipients (`age-plugin-pq`) — the `identity.age` format is already plugin-ready.
 
-[`age`]: https://github.com/FiloSottile/age
-[`rage`]: https://github.com/str4d/rage
+## Multi-Device
+
+1. On the new device, run `ks init` and copy its public key (`ks identity`).
+2. On a trusted device, `ks recipients add <new-pubkey>` — every secret is re-encrypted to the union of recipients.
+3. `git pull` on the new device.
+
+Revoke a lost device with `ks recipients rm <pubkey>`, then rotate any exposed secrets — no cryptography can revoke past reads.
 
 ## License
 
