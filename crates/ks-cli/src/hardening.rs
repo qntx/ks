@@ -73,7 +73,7 @@ mod unix {
         // SAFETY: `setrlimit` reads the `rlimit` we pass by pointer and sets a
         // kernel limit. It neither retains the pointer nor touches our memory.
         unsafe {
-            libc::setrlimit(libc::RLIMIT_CORE, &limit);
+            libc::setrlimit(libc::RLIMIT_CORE, &raw const limit);
         }
     }
 
