@@ -1,4 +1,5 @@
-//! `ks cp` — copy a secret (ciphertext copy, no passphrase needed).
+//! `ks cp` — copy a secret. Re-binds the envelope to the new path, so it
+//! decrypts and re-encrypts and therefore unlocks the identity.
 
 use std::process::ExitCode;
 
@@ -8,7 +9,9 @@ use crate::commands;
 use crate::terminal;
 
 pub fn run(config: &Config, from: &str, to: &str) -> Result<ExitCode> {
-    commands::open_store(config)?.copy(from, to)?;
+    let store = commands::open_store(config)?;
+    let identity = commands::unlock(config)?;
+    store.copy(from, to, &identity)?;
     terminal::success(&format!("Copied {from} → {to}"));
     Ok(ExitCode::SUCCESS)
 }

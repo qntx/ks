@@ -24,25 +24,72 @@ use std::fmt;
 
 use zeroize::Zeroizing;
 
-/// An in-memory secret: the decrypted plaintext of one `.age` file.
+/// What kind of payload a [`Secret`] holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretKind {
+    /// UTF-8 text: first line is the value, `key: value` lines are fields.
+    Text,
+    /// Opaque bytes stored verbatim, with no text or field parsing.
+    Binary,
+}
+
+/// An in-memory secret: the decrypted payload of one `.age` file.
+///
+/// Text secrets follow the `pass` convention (first line value, `key: value`
+/// fields); binary secrets hold arbitrary bytes and expose no text accessors.
 #[derive(Clone)]
 pub struct Secret {
-    raw: Zeroizing<String>,
+    raw: Zeroizing<Vec<u8>>,
+    kind: SecretKind,
 }
 
 impl Secret {
-    /// Creates a secret from raw plaintext (first line is the primary value).
+    /// Creates a UTF-8 text secret (the first line is the primary value).
     #[must_use]
     pub fn new(raw: impl Into<String>) -> Self {
         Self {
-            raw: Zeroizing::new(raw.into()),
+            raw: Zeroizing::new(raw.into().into_bytes()),
+            kind: SecretKind::Text,
+        }
+    }
+
+    /// Creates a secret from raw bytes with an explicit [`SecretKind`].
+    #[must_use]
+    pub fn from_bytes(raw: Vec<u8>, kind: SecretKind) -> Self {
+        Self {
+            raw: Zeroizing::new(raw),
+            kind,
+        }
+    }
+
+    /// Returns the secret's kind (text or binary).
+    #[must_use]
+    pub const fn kind(&self) -> SecretKind {
+        self.kind
+    }
+
+    /// Returns `true` if this is a binary secret.
+    #[must_use]
+    pub const fn is_binary(&self) -> bool {
+        matches!(self.kind, SecretKind::Binary)
+    }
+
+    /// Returns the payload as UTF-8, or `None` for binary secrets or text that
+    /// is not valid UTF-8.
+    #[must_use]
+    pub fn as_str(&self) -> Option<&str> {
+        match self.kind {
+            SecretKind::Text => std::str::from_utf8(&self.raw).ok(),
+            SecretKind::Binary => None,
         }
     }
 
     /// Returns the primary value: the first line, without the trailing newline.
+    /// Empty for binary secrets.
     #[must_use]
     pub fn password(&self) -> &str {
-        self.raw
+        self.as_str()
+            .unwrap_or("")
             .split('\n')
             .next()
             .unwrap_or("")
@@ -56,8 +103,11 @@ impl Secret {
     }
 
     /// Iterates over all `key: value` fields (after the first line), in order.
+    /// Empty for binary secrets.
     pub fn fields(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.raw.lines().skip(1).filter_map(parse_field)
+        self.as_str()
+            .into_iter()
+            .flat_map(|t| t.lines().skip(1).filter_map(parse_field))
     }
 
     /// Returns the field keys, in document order.
@@ -79,16 +129,16 @@ impl Secret {
         (!pw.is_empty()).then_some(pw)
     }
 
-    /// Returns the full decrypted plaintext.
+    /// Returns the full decrypted text, or `""` for binary secrets.
     #[must_use]
     pub fn expose(&self) -> &str {
-        &self.raw
+        self.as_str().unwrap_or("")
     }
 
-    /// Returns the plaintext bytes for encryption.
+    /// Returns the raw payload bytes (for encryption or binary output).
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
-        self.raw.as_bytes()
+        &self.raw
     }
 }
 
@@ -164,5 +214,26 @@ mod tests {
     fn debug_redacts_contents() {
         let s = Secret::new("topsecret\n");
         assert!(!format!("{s:?}").contains("topsecret"));
+    }
+
+    #[test]
+    fn text_secret_kind_and_bytes() {
+        let s = Secret::new("hunter2\nuser: alice\n");
+        assert_eq!(s.kind(), SecretKind::Text);
+        assert!(!s.is_binary());
+        assert_eq!(s.as_str(), Some("hunter2\nuser: alice\n"));
+    }
+
+    #[test]
+    fn binary_secret_has_no_text_view() {
+        let bytes = vec![0u8, 159, 146, 150, b'\n', 0xff];
+        let s = Secret::from_bytes(bytes.clone(), SecretKind::Binary);
+        assert!(s.is_binary());
+        assert_eq!(s.as_bytes(), &bytes[..]);
+        assert_eq!(s.as_str(), None);
+        assert_eq!(s.password(), "");
+        assert!(s.keys().is_empty());
+        assert_eq!(s.otp(), None);
+        assert_eq!(s.expose(), "");
     }
 }

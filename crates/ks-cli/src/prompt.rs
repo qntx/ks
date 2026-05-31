@@ -37,6 +37,11 @@ pub fn new_passphrase(label: &str) -> Result<SecretString> {
     if a != b {
         return Err(Error::WrongPassphrase);
     }
+    if a.is_empty() {
+        return Err(Error::InvalidArgument(
+            "passphrase must not be empty".to_owned(),
+        ));
+    }
     if a.chars().count() < MIN_PASSPHRASE {
         let proceed = ck_confirm(format!(
             "Passphrase is shorter than {MIN_PASSPHRASE} characters — continue anyway?"
@@ -95,6 +100,20 @@ pub fn multiline(label: &str) -> Result<Zeroizing<String>> {
         .read_to_string(&mut buf)
         .map_err(Error::Io)?;
     Ok(Zeroizing::new(buf))
+}
+
+/// Reads all of stdin as raw bytes, for storing a binary secret verbatim.
+///
+/// The caller is expected to move the result straight into a `Secret`, which
+/// holds it in a zeroizing buffer.
+///
+/// # Errors
+/// Returns [`Error::Io`] on read failure.
+pub fn stdin_bytes() -> Result<Vec<u8>> {
+    use std::io::Read as _;
+    let mut buf = Vec::new();
+    std::io::stdin().read_to_end(&mut buf).map_err(Error::Io)?;
+    Ok(buf)
 }
 
 const fn io_err(e: std::io::Error) -> Error {

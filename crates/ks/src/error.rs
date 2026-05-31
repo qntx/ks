@@ -75,6 +75,17 @@ pub enum Error {
     #[error("decryption failed: {0}")]
     Decrypt(String),
 
+    /// A secret failed its integrity check: the envelope is missing/unsupported
+    /// (a legacy or corrupt file) or its bound path does not match where the
+    /// file lives — possible tampering, a relocated file, or a rolled-back sync.
+    #[error("integrity check failed for `{path}`: {reason}")]
+    Tampered {
+        /// The logical path the secret was read from.
+        path: String,
+        /// A human-readable explanation of the mismatch.
+        reason: String,
+    },
+
     /// Could not determine a default user directory (home/data/config).
     #[error("could not determine user directory")]
     NoUserDir,

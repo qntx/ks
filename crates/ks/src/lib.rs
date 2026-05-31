@@ -41,6 +41,8 @@
 pub mod config;
 /// age encryption primitives, identity file, and recipient list.
 pub mod crypto;
+/// Versioned secret envelope binding each secret to its logical path.
+mod envelope;
 /// Library-wide error and result types.
 pub mod error;
 /// Thin wrapper over the system `git` binary.
@@ -59,5 +61,5 @@ pub mod totp;
 pub use age::x25519;
 pub use config::Config;
 pub use error::{Error, Result};
-pub use secret::Secret;
+pub use secret::{Secret, SecretKind};
 pub use store::Store;

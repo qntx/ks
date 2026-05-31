@@ -17,7 +17,13 @@ pub fn run(config: &Config, path: &str) -> Result<ExitCode> {
     // one only writes, so stay locked (consistent with `insert`).
     let original = if store.exists(path) {
         let identity = commands::unlock(config)?;
-        Zeroizing::new(store.get(path, &identity)?.expose().to_owned())
+        let secret = store.get(path, &identity)?;
+        if secret.is_binary() {
+            return Err(Error::InvalidArgument(format!(
+                "{path} is a binary secret and cannot be edited as text"
+            )));
+        }
+        Zeroizing::new(secret.expose().to_owned())
     } else {
         Zeroizing::new(String::new())
     };

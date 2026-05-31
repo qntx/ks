@@ -56,6 +56,7 @@ ks init --git
 ks insert github/token                        # masked single-line prompt
 ks insert github/token --multiline            # first line = value, then `key: value` lines
 echo 'ghp_xxx' | ks insert github/token       # from stdin (pipe)
+ks insert tls/key.p12 --binary < key.p12      # store raw bytes verbatim (no field parsing)
 ks show github/token                          # prints the whole secret
 ks show github/token -c                       # copy primary value, auto-clear in 45s
 ks show github/token -f user                  # print a single field
@@ -73,7 +74,7 @@ ks gen aws/access-key -l 32 -s alphanum -c    # store + copy
 printf 'otpauth://totp/GitHub:alice?secret=...' | ks insert github/totp
 ks otp github/totp -c
 
-# Move / copy / remove  (ciphertext-only, no passphrase needed)
+# Move / copy / remove  (mv/cp re-bind the path, so they unlock the identity)
 ks mv github/token github/pat
 ks cp github/pat backup/pat
 ks rm backup/pat
@@ -114,12 +115,15 @@ println!("{}", token.password());
 ## Design
 
 - **Modern crypto, no PGP.** Each secret is an `age` file encrypted to one or more X25519 recipients. The identity file is interoperable with upstream [`age`] / [`rage`].
-- **Plain-text secrets.** The decrypted payload is just text — first line is the value, `key: value` lines are fields, the rest is free-form. `age -d secret.age` is human-readable; no bespoke container.
-- **Write without unlocking.** Encryption needs only the public recipients, so `insert`, `gen`, `mv`, `cp`, `rm` and `ls` never prompt for a passphrase — only reading plaintext does.
+- **Plain-text secrets.** The decrypted payload is text — a tiny `ksenv/1` header binding the path, then the value on the first line, `key: value` fields, and free-form notes. `age -d secret.age` stays human-readable and interoperable with the upstream [`age`] / [`rage`] CLIs.
+- **Write without unlocking.** Encryption needs only the public recipients, so `insert`, `gen`, `rm` and `ls` never prompt for a passphrase — only reading plaintext does. (`mv`/`cp` re-encrypt to re-bind the path, so they unlock the identity.)
+- **Tamper-evident.** Each secret is sealed in a versioned envelope binding its logical path inside the ciphertext, so a relocated, swapped or rolled-back `.age` file is rejected on read instead of silently returning the wrong secret.
 - **One file per secret.** `git diff` shows exactly which key changed; merge conflicts are scoped to a single path.
 - **Plain git for sync.** No bespoke server — `ks git …` is a thin passthrough that runs `git` inside the store directory.
 - **Developer workflow first-class.** `ks run` injects secrets as env vars into a subprocess without ever touching disk; `ks edit` round-trips a secret through your `$EDITOR`.
-- **Memory-hygienic.** All in-flight secrets are wrapped in `Zeroizing` and zeroed on drop.
+- **Memory-hygienic & hardened.** In-flight secrets are wrapped in `Zeroizing` and zeroed on drop; at startup the process disables core dumps, denies debugger attachment, and (on Unix) locks pages out of swap.
+- **Atomic & concurrency-safe.** Writes land via an `O_EXCL` temp file + rename with a parent-directory fsync; a store-wide advisory lock serialises writers, and recipient rotation is staged then committed so a failure never corrupts the store.
+- **Optional audit log.** `KS_AUDIT=1` appends metadata-only records (timestamp, op, path, result — never values) to `logs/audit.jsonl`.
 - **No daemon, no config file, few dependencies.** Configuration is environment variables (`pass`-style); the unlocked key is never persisted.
 - **TOTP built in.** Stash `otpauth://` URLs, generate codes with `ks otp`.
 - **Stable exit codes** — `sysexits.h`-style codes (`64` usage, `65` data, `66` missing, `70` software, `73` already-exists, `77` wrong passphrase).
@@ -130,15 +134,17 @@ println!("{}", token.password());
 ```text
 $XDG_DATA_HOME/ks/
 ├── identity.age              # passphrase-encrypted X25519 private key (local only)
+├── logs/audit.jsonl          # optional metadata-only audit log (KS_AUDIT=1)
 └── store/                    # git root, safe to push
     ├── .age-recipients       # plaintext public-key allow-list
+    ├── .ks.lock              # advisory write lock (git-ignored, local only)
     └── github/
-        └── token.age         # age file; plaintext = first-line value + `key: value` fields
+        └── token.age         # age envelope; plaintext = path header + value + `key: value` fields
 ```
 
 Secret paths are slash-separated logical names; each segment may contain ASCII letters, digits, `_`, `-` and `.` — so dotted names like `aws/credentials.json` are stored intact — but never path traversal or reserved Windows names.
 
-Override paths via `KS_DIR`, `KS_STORE_DIR`, `KS_IDENTITY`. Set `KS_PASSPHRASE` for non-interactive use (CI, scripts) and `KS_CLIP_TIME` to change the clipboard auto-clear delay (default 45 s). Colour is emitted only to interactive terminals and honours [`NO_COLOR`](https://no-color.org), so piped output (e.g. `ks ls | cat`) stays plain text.
+Override paths via `KS_DIR`, `KS_STORE_DIR`, `KS_IDENTITY`. Set `KS_PASSPHRASE` for non-interactive use (CI, scripts) — it is read once and immediately scrubbed from the environment so child processes do not inherit it. `KS_CLIP_TIME` changes the clipboard auto-clear delay (default 45 s), and `KS_AUDIT=1` enables the append-only audit log. Colour is emitted only to interactive terminals and honours [`NO_COLOR`](https://no-color.org), so piped output (e.g. `ks ls | cat`) stays plain text.
 
 ## Multi-Device Onboarding
 
@@ -157,7 +163,10 @@ This library has **not** been independently audited. Use at your own risk.
 | **Identity at rest** | `age` scrypt over a bech32 X25519 secret key (`AGE-SECRET-KEY-1…`) |
 | **Secrets at rest** | `age` X25519 recipient mode (ChaCha20-Poly1305 + HKDF) |
 | **Memory** | `Zeroizing` on every secret-bearing type; cleared on drop |
-| **Identity & secret file mode** | `0o600` on Unix (write → chmod → atomic rename) |
+| **Identity & secret file mode** | `0o600` files / `0o700` dirs on Unix, created with `O_EXCL`; a startup self-check warns on group/world access |
+| **Integrity** | each secret is bound to its path in a versioned envelope; relocation or rollback is detected on read |
+| **Process** | core dumps disabled, debugger attachment denied, pages locked out of swap (Unix); crash dumps suppressed (Windows) |
+| **Concurrency** | store-wide advisory write lock; recipient rotation is staged then committed |
 | **Unlocked key** | never written to disk or OS keyring; lives only in process memory |
 
 **Not in scope yet:** YubiKey / PIV plugin (`age-plugin-yubikey`), post-quantum recipients (`age-plugin-pq`). The `identity.age` format is already plugin-ready — only the CLI surface is missing.

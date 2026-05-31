@@ -34,7 +34,11 @@ pub mod show;
 pub fn dispatch(cli: Cli) -> Result<ExitCode> {
     let config = Config::load()?;
     let cfg = &config;
-    match cli.command {
+    for issue in config.permission_issues() {
+        crate::terminal::warn(&issue);
+    }
+    let (op, target) = audit_descriptor(&cli.command);
+    let result = match cli.command {
         Command::Init { git } => init::run(cfg, git),
         Command::Ls { prefix } => ls::run(cfg, &prefix),
         Command::Show {
@@ -47,7 +51,8 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
             path,
             multiline,
             force,
-        } => insert::run(cfg, &path, multiline, force),
+            binary,
+        } => insert::run(cfg, &path, multiline, force, binary),
         Command::Edit { path } => edit::run(cfg, &path),
         Command::Gen {
             path,
@@ -67,6 +72,33 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
         Command::Git { args } => git::run(cfg, &args),
         Command::Doctor => Ok(doctor::run(cfg)),
         Command::Passwd => passwd::run(cfg),
+    };
+    crate::audit::record(cfg, op, &target, result.is_ok());
+    result
+}
+
+/// Maps a command to its `(operation, target)` pair for the audit log. The
+/// target is a logical path (or `from->to` for moves), or empty when the command
+/// has no single target.
+fn audit_descriptor(command: &Command) -> (&'static str, String) {
+    match command {
+        Command::Init { .. } => ("init", String::new()),
+        Command::Ls { .. } => ("ls", String::new()),
+        Command::Show { path, .. } => ("show", path.clone()),
+        Command::Insert { path, .. } => ("insert", path.clone()),
+        Command::Edit { path } => ("edit", path.clone()),
+        Command::Gen { path, .. } => ("gen", path.clone().unwrap_or_default()),
+        Command::Rm { path, .. } => ("rm", path.clone()),
+        Command::Mv { from, to } => ("mv", format!("{from}->{to}")),
+        Command::Cp { from, to } => ("cp", format!("{from}->{to}")),
+        Command::Grep { .. } => ("grep", String::new()),
+        Command::Otp { path, .. } => ("otp", path.clone()),
+        Command::Run { .. } => ("run", String::new()),
+        Command::Recipients { .. } => ("recipients", String::new()),
+        Command::Identity => ("identity", String::new()),
+        Command::Git { .. } => ("git", String::new()),
+        Command::Doctor => ("doctor", String::new()),
+        Command::Passwd => ("passwd", String::new()),
     }
 }
 
@@ -79,9 +111,7 @@ pub fn dispatch(cli: Cli) -> Result<ExitCode> {
 /// - [`ks::Error::IdentityNotFound`] if no identity file exists.
 /// - [`ks::Error::WrongPassphrase`] for a bad passphrase.
 pub fn unlock(config: &Config) -> Result<x25519::Identity> {
-    if let Ok(raw) = std::env::var("KS_PASSPHRASE")
-        && !raw.is_empty()
-    {
+    if let Some(raw) = crate::hardening::take_env("KS_PASSPHRASE") {
         return crypto::load_identity(&config.identity_path, SecretString::from(raw));
     }
     let pp = prompt::passphrase("Enter passphrase")?;

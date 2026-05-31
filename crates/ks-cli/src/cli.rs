@@ -56,6 +56,9 @@ pub enum Command {
         /// Overwrite an existing secret without prompting.
         #[arg(short, long)]
         force: bool,
+        /// Store raw bytes from stdin verbatim (no text or field parsing).
+        #[arg(short, long, conflicts_with = "multiline")]
+        binary: bool,
     },
 
     /// Edit a secret in `$EDITOR`.

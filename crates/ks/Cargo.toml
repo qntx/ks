@@ -20,6 +20,7 @@ zeroize.workspace     = true
 thiserror.workspace   = true
 rand.workspace        = true
 totp-rs.workspace     = true
+fd-lock.workspace     = true
 
 [lints]
 workspace = true

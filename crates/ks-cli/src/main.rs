@@ -8,10 +8,12 @@
     reason = "binary crate: `pub` items are internal; a CLI legitimately writes to stdout/stderr and exits with structured non-zero codes"
 )]
 
+mod audit;
 mod cli;
 mod clipboard;
 mod commands;
 mod exit;
+mod hardening;
 mod prompt;
 mod terminal;
 
@@ -20,6 +22,7 @@ use std::process::ExitCode;
 use clap::Parser;
 
 fn main() -> ExitCode {
+    hardening::harden();
     let cli = cli::Cli::parse();
     match commands::dispatch(cli) {
         Ok(code) => code,

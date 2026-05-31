@@ -58,7 +58,7 @@ pub const fn for_error(err: &Error) -> ExitCode {
             ExitCode::Usage
         }
 
-        Error::InvalidTotp(_) => ExitCode::DataErr,
+        Error::InvalidTotp(_) | Error::Tampered { .. } => ExitCode::DataErr,
 
         Error::Encrypt(_) | Error::Decrypt(_) | Error::NoUserDir => ExitCode::Software,
 

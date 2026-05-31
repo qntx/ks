@@ -25,6 +25,10 @@ pub fn run(
         return Ok(ExitCode::SUCCESS);
     }
 
+    if secret.is_binary() {
+        return show_binary(path, &secret, copy, field);
+    }
+
     let value = match field {
         Some(name) => secret
             .get(name)
@@ -42,6 +46,21 @@ pub fn run(
     } else {
         println!("{}", value.trim_end_matches('\n'));
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Writes a binary secret's raw bytes to stdout. `--field` and `--copy` do not
+/// apply to opaque binary payloads, so they are rejected as usage errors.
+fn show_binary(path: &str, secret: &Secret, copy: bool, field: Option<&str>) -> Result<ExitCode> {
+    use std::io::Write as _;
+    if field.is_some() || copy {
+        return Err(Error::InvalidArgument(format!(
+            "{path} is a binary secret; --field and --copy do not apply"
+        )));
+    }
+    std::io::stdout()
+        .write_all(secret.as_bytes())
+        .map_err(Error::Io)?;
     Ok(ExitCode::SUCCESS)
 }
 

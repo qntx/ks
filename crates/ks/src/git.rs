@@ -33,6 +33,12 @@ pub fn init(dir: &Path) -> Result<()> {
             "*.age binary -diff -merge\n.age-recipients text\n",
         )?;
     }
+    let gitignore = dir.join(".gitignore");
+    if !gitignore.exists() {
+        // Local-only runtime files that must never be committed: the advisory
+        // lock, atomic-write scratch files, and the rotation staging area.
+        std::fs::write(&gitignore, ".ks.lock\n.ks-rotate/\n*.tmp\n")?;
+    }
     Ok(())
 }
 

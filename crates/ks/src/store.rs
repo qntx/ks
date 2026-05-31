@@ -7,25 +7,36 @@
 //! The API mirrors age's natural asymmetry:
 //!
 //! - **Writing** ([`set`](Store::set), [`insert`](Store::insert),
-//!   [`rename`](Store::rename), [`copy`](Store::copy), [`delete`](Store::delete),
-//!   [`list`](Store::list)) needs only the recipient public keys, so it never
-//!   prompts for a passphrase.
-//! - **Reading** ([`get`](Store::get), [`grep`](Store::grep)) and rotating
-//!   recipients ([`set_recipients`](Store::set_recipients)) require the
-//!   caller-supplied [`x25519::Identity`].
+//!   [`delete`](Store::delete), [`list`](Store::list)) needs only the recipient
+//!   public keys, so it never prompts for a passphrase.
+//! - **Reading** ([`get`](Store::get), [`grep`](Store::grep)), moving
+//!   ([`rename`](Store::rename), [`copy`](Store::copy)) and rotating recipients
+//!   ([`set_recipients`](Store::set_recipients)) require the caller-supplied
+//!   [`x25519::Identity`].
 //!
-//! Renames and copies move the ciphertext file as-is — no decryption — because
-//! every secret in the store shares one recipient list.
+//! Each secret is wrapped in a versioned envelope that binds it to its logical
+//! path, so moving a secret re-encrypts it under the new path and a relocated or
+//! swapped ciphertext file is detected on read.
 
+use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
 use age::x25519;
+use fd_lock::RwLock;
+use zeroize::Zeroizing;
 
 use crate::config::Config;
 use crate::crypto;
+use crate::envelope;
 use crate::error::{Error, Result};
 use crate::path as pathutil;
 use crate::secret::Secret;
+
+/// Name of the advisory-lock file kept at the store root.
+const LOCK_FILE: &str = ".ks.lock";
+
+/// Name of the staging directory used for transactional recipient rotation.
+const ROTATE_DIR: &str = ".ks-rotate";
 
 /// An encrypted store bound to a config and its recipient list.
 pub struct Store {
@@ -73,7 +84,7 @@ impl Store {
         if recipients_path.exists() {
             return Err(Error::StoreExists(config.store_dir));
         }
-        std::fs::create_dir_all(&config.store_dir)?;
+        crypto::create_dir_all_secure(&config.store_dir)?;
 
         let mut recipients = Vec::with_capacity(extra.len().saturating_add(1));
         recipients.push(owner.to_public());
@@ -98,6 +109,27 @@ impl Store {
         &self.recipients
     }
 
+    /// Opens (creating if absent) the store's advisory-lock file.
+    fn lock_file(&self) -> Result<File> {
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.config.store_dir.join(LOCK_FILE))
+            .map_err(Error::Io)
+    }
+
+    /// Runs `f` while holding an exclusive advisory lock on the store, so two
+    /// `ks` processes never mutate it concurrently. Reads do not lock: every
+    /// write lands via an atomic rename, so a concurrent reader always sees
+    /// either the old file or the new one, never a partial write.
+    fn with_write_lock<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        let mut lock = RwLock::new(self.lock_file()?);
+        let _guard = lock.write().map_err(Error::Io)?;
+        f()
+    }
+
     /// Returns `true` if a secret exists at `logical`.
     #[must_use]
     pub fn exists(&self, logical: &str) -> bool {
@@ -112,7 +144,14 @@ impl Store {
     /// [`Error::Encrypt`] on failure.
     pub fn set(&self, logical: &str, secret: &Secret) -> Result<()> {
         pathutil::validate(logical)?;
-        let ciphertext = crypto::encrypt(secret.as_bytes(), &self.recipients)?;
+        self.with_write_lock(|| self.write_secret(logical, secret))
+    }
+
+    /// Encrypts and writes `secret` at `logical` *without* taking the store
+    /// lock; callers must already hold it via [`with_write_lock`](Store::with_write_lock).
+    fn write_secret(&self, logical: &str, secret: &Secret) -> Result<()> {
+        let wrapped = envelope::wrap(logical, secret.kind(), secret.as_bytes());
+        let ciphertext = crypto::encrypt(&wrapped, &self.recipients)?;
         crypto::write_atomic(
             &pathutil::to_file(&self.config.store_dir, logical),
             &ciphertext,
@@ -124,10 +163,13 @@ impl Store {
     /// # Errors
     /// See [`set`](Store::set) plus [`Error::SecretExists`].
     pub fn insert(&self, logical: &str, secret: &Secret) -> Result<()> {
-        if self.exists(logical) {
-            return Err(Error::SecretExists(logical.to_owned()));
-        }
-        self.set(logical, secret)
+        pathutil::validate(logical)?;
+        self.with_write_lock(|| {
+            if self.exists(logical) {
+                return Err(Error::SecretExists(logical.to_owned()));
+            }
+            self.write_secret(logical, secret)
+        })
     }
 
     /// Reads and decrypts the secret at `logical`.
@@ -142,9 +184,8 @@ impl Store {
             return Err(Error::SecretNotFound(logical.to_owned()));
         }
         let plaintext = crypto::decrypt(&std::fs::read(&file)?, identity)?;
-        let text = std::str::from_utf8(&plaintext)
-            .map_err(|e| Error::Decrypt(format!("secret is not valid UTF-8: {e}")))?;
-        Ok(Secret::new(text))
+        let (kind, payload) = envelope::unwrap(logical, &plaintext)?;
+        Ok(Secret::from_bytes(payload, kind))
     }
 
     /// Deletes the secret at `logical`, pruning now-empty parent directories.
@@ -153,35 +194,65 @@ impl Store {
     /// [`Error::SecretNotFound`] if the file is absent; [`Error::Io`] otherwise.
     pub fn delete(&self, logical: &str) -> Result<()> {
         pathutil::validate(logical)?;
-        let file = pathutil::to_file(&self.config.store_dir, logical);
-        if !file.exists() {
-            return Err(Error::SecretNotFound(logical.to_owned()));
-        }
-        std::fs::remove_file(&file)?;
-        prune_empty_parents(&self.config.store_dir, file.parent());
-        Ok(())
+        self.with_write_lock(|| {
+            let file = pathutil::to_file(&self.config.store_dir, logical);
+            if !file.exists() {
+                return Err(Error::SecretNotFound(logical.to_owned()));
+            }
+            std::fs::remove_file(&file)?;
+            prune_empty_parents(&self.config.store_dir, file.parent());
+            Ok(())
+        })
     }
 
-    /// Renames a secret by moving its ciphertext file (no decryption).
+    /// Renames a secret: decrypts it, re-binds the envelope to `to`, re-encrypts,
+    /// writes the destination, then removes the source. Needs the identity
+    /// because the path binding lives inside the ciphertext.
     ///
     /// # Errors
     /// [`Error::SecretNotFound`] if `from` is absent, [`Error::SecretExists`] if
-    /// `to` exists, [`Error::InvalidPath`] for malformed paths.
-    pub fn rename(&self, from: &str, to: &str) -> Result<()> {
-        let (src, dst) = self.relocate_paths(from, to)?;
-        std::fs::rename(&src, &dst)?;
-        prune_empty_parents(&self.config.store_dir, src.parent());
-        Ok(())
+    /// `to` exists, [`Error::InvalidPath`] for malformed paths, or
+    /// [`Error::Decrypt`] / [`Error::Tampered`] reading the source.
+    pub fn rename(&self, from: &str, to: &str, identity: &x25519::Identity) -> Result<()> {
+        self.with_write_lock(|| {
+            let (src, dst) = self.relocate_paths(from, to)?;
+            self.reencrypt_to(&src, from, to, &dst, identity)?;
+            std::fs::remove_file(&src)?;
+            prune_empty_parents(&self.config.store_dir, src.parent());
+            Ok(())
+        })
     }
 
-    /// Copies a secret by copying its ciphertext file (no decryption).
+    /// Copies a secret: decrypts it, re-binds the envelope to `to`, re-encrypts,
+    /// and writes the destination. Needs the identity for the same reason as
+    /// [`rename`](Store::rename).
     ///
     /// # Errors
     /// Same as [`rename`](Store::rename), minus pruning.
-    pub fn copy(&self, from: &str, to: &str) -> Result<()> {
-        let (src, dst) = self.relocate_paths(from, to)?;
-        std::fs::copy(&src, &dst)?;
-        Ok(())
+    pub fn copy(&self, from: &str, to: &str, identity: &x25519::Identity) -> Result<()> {
+        self.with_write_lock(|| {
+            let (src, dst) = self.relocate_paths(from, to)?;
+            self.reencrypt_to(&src, from, to, &dst, identity)
+        })
+    }
+
+    /// Decrypts the secret at `src` (bound to `from`), re-wraps it bound to `to`,
+    /// re-encrypts to the store's recipients, and writes `dst`. Shared by
+    /// [`rename`](Store::rename) and [`copy`](Store::copy).
+    fn reencrypt_to(
+        &self,
+        src: &Path,
+        from: &str,
+        to: &str,
+        dst: &Path,
+        identity: &x25519::Identity,
+    ) -> Result<()> {
+        let plaintext = crypto::decrypt(&std::fs::read(src)?, identity)?;
+        let (kind, payload) = envelope::unwrap(from, &plaintext)?;
+        let payload = Zeroizing::new(payload);
+        let wrapped = envelope::wrap(to, kind, &payload);
+        let ciphertext = crypto::encrypt(&wrapped, &self.recipients)?;
+        crypto::write_atomic(dst, &ciphertext)
     }
 
     /// Lists logical paths under `prefix` (`""` for all), sorted.
@@ -230,11 +301,13 @@ impl Store {
     /// `new_recipients` must include `identity`'s public key, otherwise the user
     /// would lock themselves out.
     ///
-    /// Each secret is rewritten via an atomic file replace, but the rotation as
-    /// a whole is **not** transactional: if it fails partway, the already-rewritten
-    /// secrets use `new_recipients` while the rest (and `.age-recipients`) still
-    /// use the old list. The identity decrypts both, so re-running is safe and
-    /// converges.
+    /// Rotation is two-phase: every secret is first re-encrypted into a staging
+    /// directory, and only once *all* succeed are the staged files moved over the
+    /// live ones (the recipients file last). A failure during preparation (e.g. a
+    /// tampered secret) therefore leaves the live store completely untouched. A
+    /// crash during the short commit phase can leave a mix of old/new secrets, but
+    /// every file is always a complete ciphertext the identity can decrypt, so
+    /// re-running converges.
     ///
     /// # Errors
     /// [`Error::InvalidRecipient`] if the user's own key is missing, or
@@ -249,18 +322,51 @@ impl Store {
                 "recipient list must include your own public key".into(),
             ));
         }
+        let mut lock = RwLock::new(self.lock_file()?);
+        let _guard = lock.write().map_err(Error::Io)?;
+
         let paths = self.list("")?;
+        let staging = self.config.store_dir.join(ROTATE_DIR);
+        remove_staging(&staging);
+
+        // Phase 1 — prepare: re-encrypt every secret into the staging area. Any
+        // failure here leaves the live store untouched.
+        if let Err(e) = self.stage_rotation(&paths, &staging, &new_recipients, identity) {
+            remove_staging(&staging);
+            return Err(e);
+        }
+
+        // Phase 2 — commit: move each staged file over its live counterpart,
+        // flip the recipients file last, then drop the staging area.
         for path in &paths {
-            let secret = self.get(path, identity)?;
-            let ciphertext = crypto::encrypt(secret.as_bytes(), &new_recipients)?;
-            crypto::write_atomic(
+            crypto::rename_replace(
+                &pathutil::to_file(&staging, path),
                 &pathutil::to_file(&self.config.store_dir, path),
-                &ciphertext,
             )?;
         }
         crypto::save_recipients(&self.config.recipients_path(), &new_recipients)?;
+        remove_staging(&staging);
+
         self.recipients = new_recipients;
         Ok(paths.len())
+    }
+
+    /// Re-encrypts every secret in `paths` to `new_recipients`, writing the
+    /// ciphertext into the `staging` mirror tree. Phase 1 of [`set_recipients`].
+    fn stage_rotation(
+        &self,
+        paths: &[String],
+        staging: &Path,
+        new_recipients: &[x25519::Recipient],
+        identity: &x25519::Identity,
+    ) -> Result<()> {
+        for path in paths {
+            let secret = self.get(path, identity)?;
+            let wrapped = envelope::wrap(path, secret.kind(), secret.as_bytes());
+            let ciphertext = crypto::encrypt(&wrapped, new_recipients)?;
+            crypto::write_atomic(&pathutil::to_file(staging, path), &ciphertext)?;
+        }
+        Ok(())
     }
 
     /// Validates and resolves a `from`/`to` pair for [`rename`]/[`copy`],
@@ -325,6 +431,13 @@ fn prune_empty_parents(root: &Path, dir: Option<&Path>) {
     }
 }
 
+/// Best-effort removal of the rotation staging directory and its contents.
+fn remove_staging(dir: &Path) {
+    if dir.exists() {
+        std::fs::remove_dir_all(dir).ok();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use age::secrecy::SecretString;
@@ -360,17 +473,53 @@ mod tests {
     }
 
     #[test]
-    fn rename_and_copy_are_pure_file_ops() {
+    fn rename_and_copy_rebind_path() {
         let (cfg, id) = fresh();
         let store = Store::create(cfg, &id, &[]).expect("create");
         store.set("a/b", &Secret::new("v")).expect("set");
 
-        store.copy("a/b", "a/c").expect("copy");
+        store.copy("a/b", "a/c", &id).expect("copy");
         assert!(store.exists("a/b") && store.exists("a/c"));
+        assert_eq!(store.get("a/c", &id).expect("get").password(), "v");
 
-        store.rename("a/b", "x/y").expect("rename");
+        store.rename("a/b", "x/y", &id).expect("rename");
         assert!(!store.exists("a/b") && store.exists("x/y"));
         assert_eq!(store.get("x/y", &id).expect("get").password(), "v");
+    }
+
+    #[test]
+    fn relocating_ciphertext_is_detected_as_tampering() {
+        let (cfg, id) = fresh();
+        let store = Store::create(cfg.clone(), &id, &[]).expect("create");
+        store.set("a", &Secret::new("secret-a")).expect("a");
+        store.set("b", &Secret::new("secret-b")).expect("b");
+
+        // Swap the two ciphertext files behind the store's back.
+        let pa = pathutil::to_file(&cfg.store_dir, "a");
+        let pb = pathutil::to_file(&cfg.store_dir, "b");
+        let tmp = cfg.store_dir.join("swap.tmp");
+        std::fs::rename(&pa, &tmp).expect("mv a");
+        std::fs::rename(&pb, &pa).expect("mv b->a");
+        std::fs::rename(&tmp, &pb).expect("mv tmp->b");
+
+        // Reading `a` now decrypts b's payload, whose bound path is `b`.
+        assert!(matches!(store.get("a", &id), Err(Error::Tampered { .. })));
+    }
+
+    #[test]
+    fn binary_secret_roundtrips_through_store() {
+        let (cfg, id) = fresh();
+        let store = Store::create(cfg, &id, &[]).expect("create");
+        let raw = vec![0u8, b'\n', 0xff, 0x00, b'x'];
+        store
+            .set(
+                "certs/key",
+                &Secret::from_bytes(raw.clone(), crate::secret::SecretKind::Binary),
+            )
+            .expect("set binary");
+        let got = store.get("certs/key", &id).expect("get");
+        assert!(got.is_binary());
+        assert_eq!(got.as_bytes(), &raw[..]);
     }
 
     #[test]
@@ -411,5 +560,33 @@ mod tests {
             store.set_recipients(vec![stranger.to_public()], &id),
             Err(Error::InvalidRecipient(_))
         ));
+    }
+
+    #[test]
+    fn failed_rotation_leaves_store_unchanged() {
+        let (cfg, id) = fresh();
+        let mut store = Store::create(cfg.clone(), &id, &[]).expect("create");
+        store.set("a", &Secret::new("va")).expect("a");
+        store.set("b", &Secret::new("vb")).expect("b");
+
+        // Corrupt `b` so phase-1 preparation fails when it is decrypted.
+        std::fs::write(pathutil::to_file(&cfg.store_dir, "b"), b"garbage").expect("corrupt");
+        let a_before = std::fs::read(pathutil::to_file(&cfg.store_dir, "a")).expect("read a");
+
+        let backup = x25519::Identity::generate();
+        assert!(
+            store
+                .set_recipients(vec![id.to_public(), backup.to_public()], &id)
+                .is_err()
+        );
+
+        // `a` ciphertext is byte-for-byte unchanged and the staging area is gone.
+        let a_after = std::fs::read(pathutil::to_file(&cfg.store_dir, "a")).expect("read a");
+        assert_eq!(
+            a_before, a_after,
+            "live store must be untouched on rollback"
+        );
+        assert!(!cfg.store_dir.join(".ks-rotate").exists());
+        assert_eq!(store.get("a", &id).expect("get a").password(), "va");
     }
 }

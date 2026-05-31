@@ -176,23 +176,55 @@ pub fn recipients_contain(list: &[x25519::Recipient], target: &x25519::Recipient
     list.iter().any(|r| r.to_string() == needle)
 }
 
-/// Atomically writes `bytes` to `path` (mode `0o600` on Unix): write a sibling
-/// temp file, fsync, set permissions, then rename over the target.
+/// Atomically writes `bytes` to `path`: create a uniquely-named sibling temp
+/// file with `O_EXCL` (owner-only `0o600` on Unix), fsync it, rename it over the
+/// target, then fsync the parent directory so the rename is durable.
+///
+/// The temp name is randomised so concurrent writers to the same target never
+/// share a scratch file, and `O_EXCL` refuses to follow a pre-planted symlink.
+/// On any failure the temp file is removed.
 ///
 /// # Errors
 /// Returns [`Error::Io`] on any filesystem failure.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension("ks-tmp");
-    {
-        let mut file = std::fs::File::create(&tmp)?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    create_dir_all_secure(parent)?;
+
+    let file_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| Error::Io(std::io::Error::other("invalid target file name")))?;
+    let tmp = parent.join(format!(".{file_name}.{:016x}.tmp", rand::random::<u64>()));
+
+    let write = || -> Result<()> {
+        let mut file = open_excl_owner_only(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
+        Ok(())
+    };
+    if let Err(e) = write() {
+        std::fs::remove_file(&tmp).ok();
+        return Err(e);
     }
-    set_owner_only(&tmp)?;
-    std::fs::rename(&tmp, path)?;
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        std::fs::remove_file(&tmp).ok();
+        return Err(Error::Io(e));
+    }
+    fsync_dir(parent);
+    Ok(())
+}
+
+/// Renames `src` over `dst` (replacing any existing file), creating `dst`'s
+/// parent if needed and fsyncing it so the replacement survives a crash. Used to
+/// commit a file previously staged with [`write_atomic`].
+///
+/// # Errors
+/// Returns [`Error::Io`] on any filesystem failure.
+pub(crate) fn rename_replace(src: &Path, dst: &Path) -> Result<()> {
+    let parent = dst.parent().unwrap_or_else(|| Path::new("."));
+    create_dir_all_secure(parent)?;
+    std::fs::rename(src, dst)?;
+    fsync_dir(parent);
     Ok(())
 }
 
@@ -251,23 +283,57 @@ fn parse_identity(plaintext: &[u8]) -> Result<x25519::Identity> {
     Err(Error::Decrypt("identity file is empty".into()))
 }
 
+/// Creates `dir` and any missing parents, restricting newly-created directories
+/// to the owner (`0o700`) on Unix. Pre-existing directories are left untouched.
 #[cfg(unix)]
-fn set_owner_only(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
-    let mut perms = std::fs::metadata(path)?.permissions();
-    perms.set_mode(0o600);
-    std::fs::set_permissions(path, perms)?;
-    Ok(())
+pub(crate) fn create_dir_all_secure(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::DirBuilderExt as _;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(dir)
+        .map_err(Error::Io)
 }
 
 #[cfg(not(unix))]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "signature parity with the Unix impl that genuinely needs Result"
-)]
-const fn set_owner_only(_path: &Path) -> Result<()> {
-    Ok(())
+pub(crate) fn create_dir_all_secure(dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(dir).map_err(Error::Io)
 }
+
+/// Opens a freshly-created file for writing, failing if it already exists
+/// (`O_EXCL`). On Unix the file is created with mode `0o600` in one step, so
+/// there is no window during which it is world-readable.
+#[cfg(unix)]
+fn open_excl_owner_only(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(Error::Io)
+}
+
+#[cfg(not(unix))]
+fn open_excl_owner_only(path: &Path) -> Result<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(Error::Io)
+}
+
+/// Best-effort fsync of a directory so a prior rename is durable. Unix-only;
+/// Windows has no portable directory fsync, so this is a no-op there.
+#[cfg(unix)]
+fn fsync_dir(dir: &Path) {
+    if let Ok(f) = std::fs::File::open(dir) {
+        let _ = f.sync_all();
+    }
+}
+
+#[cfg(not(unix))]
+const fn fsync_dir(_dir: &Path) {}
 
 #[cfg(test)]
 mod tests {

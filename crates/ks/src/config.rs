@@ -61,12 +61,64 @@ impl Config {
     pub fn recipients_path(&self) -> PathBuf {
         self.store_dir.join(RECIPIENTS_FILE)
     }
+
+    /// Reports filesystem-permission problems with the identity, store directory
+    /// and recipients file (each checked only if it exists).
+    ///
+    /// On Unix this flags any path accessible by group or other; on other
+    /// platforms it returns an empty list, since Windows uses ACLs rather than
+    /// mode bits and is out of scope.
+    #[cfg_attr(
+        not(unix),
+        allow(
+            clippy::unused_self,
+            clippy::missing_const_for_fn,
+            reason = "non-Unix has no mode bits to inspect; parity with the Unix impl"
+        )
+    )]
+    #[must_use]
+    pub fn permission_issues(&self) -> Vec<String> {
+        #[cfg(unix)]
+        {
+            let mut issues = Vec::new();
+            check_mode(&self.identity_path, "identity file", 0o600, &mut issues);
+            check_mode(&self.store_dir, "store directory", 0o700, &mut issues);
+            check_mode(
+                &self.recipients_path(),
+                "recipients file",
+                0o600,
+                &mut issues,
+            );
+            issues
+        }
+        #[cfg(not(unix))]
+        {
+            Vec::new()
+        }
+    }
 }
 
 fn env_path(name: &str) -> Option<PathBuf> {
     match std::env::var(name) {
         Ok(raw) if !raw.is_empty() => Some(PathBuf::from(raw)),
         _ => None,
+    }
+}
+
+/// Pushes an issue if `path` exists and is accessible by group or other.
+#[cfg(unix)]
+fn check_mode(path: &std::path::Path, kind: &str, want: u32, issues: &mut Vec<String>) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let Ok(meta) = std::fs::metadata(path) else {
+        return;
+    };
+    let mode = meta.permissions().mode() & 0o777;
+    if mode & 0o077 != 0 {
+        issues.push(format!(
+            "{kind} {} is group/other-accessible (mode {mode:03o}); run `chmod {want:o} {}`",
+            path.display(),
+            path.display()
+        ));
     }
 }
 
@@ -83,6 +135,28 @@ mod tests {
         assert_eq!(
             cfg.recipients_path(),
             PathBuf::from("/tmp/ks/store/.age-recipients")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn flags_group_accessible_identity() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = std::env::temp_dir().join(format!("ks-perm-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).expect("temp");
+        let identity_path = dir.join("identity.age");
+        std::fs::write(&identity_path, b"x").expect("write");
+        std::fs::set_permissions(&identity_path, std::fs::Permissions::from_mode(0o644))
+            .expect("chmod");
+        let cfg = Config {
+            identity_path,
+            store_dir: dir.join("store"),
+        };
+        assert!(
+            cfg.permission_issues()
+                .iter()
+                .any(|s| s.contains("identity")),
+            "a 0644 identity file must be flagged"
         );
     }
 }

@@ -13,12 +13,11 @@ use crate::terminal;
 pub fn run(config: &Config, init_git: bool) -> Result<ExitCode> {
     let interactive = std::io::stdin().is_terminal();
 
-    let pp = match std::env::var("KS_PASSPHRASE") {
-        Ok(raw) if !raw.is_empty() => SecretString::from(raw),
-        _ => {
-            intro("ks: initialise key store")?;
-            prompt::new_passphrase("Choose a master passphrase")?
-        }
+    let pp = if let Some(raw) = crate::hardening::take_env("KS_PASSPHRASE") {
+        SecretString::from(raw)
+    } else {
+        intro("ks: initialise key store")?;
+        prompt::new_passphrase("Choose a master passphrase")?
     };
     let id = crypto::create_identity(&config.identity_path, pp)?;
     let store = Store::create(config.clone(), &id, &[])?;
