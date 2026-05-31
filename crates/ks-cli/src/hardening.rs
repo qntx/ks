@@ -77,14 +77,31 @@ mod unix {
         }
     }
 
-    /// Locks all current and future pages into RAM so decrypted secrets are
-    /// never written to swap. Best-effort: silently no-ops without the required
-    /// `RLIMIT_MEMLOCK` budget.
+    /// Locks resident pages into RAM so decrypted secrets are kept out of swap.
+    /// Best-effort and deliberately conservative: `MCL_FUTURE` is requested only
+    /// when `RLIMIT_MEMLOCK` is unlimited, because otherwise a later memory-hard
+    /// allocation (age's scrypt KDF on unlock) would exceed the limit and the
+    /// allocator would abort the whole process.
     fn lock_memory() {
-        // SAFETY: `mlockall` takes only an integer flag and asks the kernel to
-        // keep our pages resident; it does not read or write our memory.
+        // SAFETY: each call takes a valid pointer to the local `rlimit` or a
+        // scalar flag; the kernel copies the values and retains no pointer.
         unsafe {
-            libc::mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE);
+            let mut limit = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
+            if libc::getrlimit(libc::RLIMIT_MEMLOCK, &raw mut limit) != 0 {
+                return;
+            }
+            // Raise the soft limit to the hard cap so we lock as much as allowed.
+            limit.rlim_cur = limit.rlim_max;
+            libc::setrlimit(libc::RLIMIT_MEMLOCK, &raw const limit);
+            let flags = if limit.rlim_max == libc::RLIM_INFINITY {
+                libc::MCL_CURRENT | libc::MCL_FUTURE
+            } else {
+                libc::MCL_CURRENT
+            };
+            libc::mlockall(flags);
         }
     }
 
