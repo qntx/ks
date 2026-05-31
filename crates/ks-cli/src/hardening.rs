@@ -83,24 +83,30 @@ mod unix {
     /// allocation (age's scrypt KDF on unlock) would exceed the limit and the
     /// allocator would abort the whole process.
     fn lock_memory() {
-        // SAFETY: each call takes a valid pointer to the local `rlimit` or a
-        // scalar flag; the kernel copies the values and retains no pointer.
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: `getrlimit` only writes the current limit into our local struct.
+        let queried = unsafe { libc::getrlimit(libc::RLIMIT_MEMLOCK, &raw mut limit) };
+        if queried != 0 {
+            return;
+        }
+        // Raise the soft limit to the hard cap so we lock as much as the OS allows.
+        limit.rlim_cur = limit.rlim_max;
+        // SAFETY: `setrlimit` reads our local struct and sets the kernel limit.
         unsafe {
-            let mut limit = libc::rlimit {
-                rlim_cur: 0,
-                rlim_max: 0,
-            };
-            if libc::getrlimit(libc::RLIMIT_MEMLOCK, &raw mut limit) != 0 {
-                return;
-            }
-            // Raise the soft limit to the hard cap so we lock as much as allowed.
-            limit.rlim_cur = limit.rlim_max;
             libc::setrlimit(libc::RLIMIT_MEMLOCK, &raw const limit);
-            let flags = if limit.rlim_max == libc::RLIM_INFINITY {
-                libc::MCL_CURRENT | libc::MCL_FUTURE
-            } else {
-                libc::MCL_CURRENT
-            };
+        }
+        let flags = if limit.rlim_max == libc::RLIM_INFINITY {
+            libc::MCL_CURRENT | libc::MCL_FUTURE
+        } else {
+            libc::MCL_CURRENT
+        };
+        // SAFETY: `mlockall` takes a scalar flag; `MCL_FUTURE` is requested only
+        // when the locked-memory limit is unlimited, so no later allocation can
+        // exceed it and abort the process.
+        unsafe {
             libc::mlockall(flags);
         }
     }
