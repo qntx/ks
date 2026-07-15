@@ -16,7 +16,7 @@ keywords = ["key", "store", "encryption"]
 categories = ["cryptography"]
 
 [workspace.dependencies]
-age         = { version = "0.11", features = ["armor"] }
+age         = { version = "0.12", features = ["armor"] }
 directories = "6"
 zeroize     = { version = "1", features = ["derive"] }
 secrecy     = "0.10"
