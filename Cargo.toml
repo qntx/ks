@@ -22,7 +22,7 @@ zeroize     = { version = "1", features = ["derive"] }
 secrecy     = "0.10"
 thiserror   = "2"
 rand        = "0.10"
-totp-rs     = { version = "5", features = ["otpauth"] }
+totp-rs     = { version = "6", features = ["otpauth"] }
 fd-lock     = "4"
 
 ks          = { version = "0.7", path = "crates/ks" }
