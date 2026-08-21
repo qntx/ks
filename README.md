@@ -40,13 +40,13 @@ ks keeps API tokens, SSH/DB passphrases, TOTP seeds and CI secrets encrypted on 
 **macOS / Linux**
 
 ```sh
-curl -fsSL https://sh.qntx.fun/ks | sh
+curl -fsSL https://sh.qntx.org/ks | sh
 ```
 
 **Windows** (PowerShell)
 
 ```powershell
-irm https://sh.qntx.fun/ks/ps | iex
+irm https://sh.qntx.org/ks/ps | iex
 ```
 
 Or with Cargo — `cargo install ks-cli`.
@@ -240,9 +240,9 @@ Unless you explicitly state otherwise, any contribution intentionally submitted 
 
 <div align="center">
 
-A **[QuantX](https://qntx.fun)** open-source project.
+A **[QuantX](https://qntx.org)** open-source project.
 
-<a href="https://qntx.fun"><img alt="QuantX" width="369" src="https://raw.githubusercontent.com/qntx/.github/main/profile/qntx.svg" /></a>
+<a href="https://qntx.org"><img alt="QuantX" width="369" src="https://raw.githubusercontent.com/qntx/.github/main/profile/qntx.svg" /></a>
 
 Code is law. We write both.
 
