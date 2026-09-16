@@ -17,13 +17,13 @@ description: >-
 **macOS / Linux:**
 
 ```sh
-curl -fsSL https://sh.qntx.fun/ks | sh
+curl -fsSL https://sh.qntx.org/ks | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://sh.qntx.fun/ks/ps | iex
+irm https://sh.qntx.org/ks/ps | iex
 ```
 
 Or via Cargo: `cargo install ks-cli`. Verify with `ks --version`.
