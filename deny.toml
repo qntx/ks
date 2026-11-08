@@ -1,5 +1,5 @@
 # cargo-deny for the ks workspace.
-# Run: `cargo deny check` (also wired into CI / security.yml).
+# Run: `cargo deny check` (also wired into ci.yml via ci-rust.yml@v2).
 
 [graph]
 all-features = true
@@ -8,10 +8,7 @@ all-features = true
 feature-depth = 1
 
 [advisories]
-# age → i18n-embed-fl → proc-macro-error2 (compile-time only). Revisit on age bumps.
-ignore = [
-    { id = "RUSTSEC-2026-0173", reason = "unmaintained proc-macro-error2 via age → i18n-embed-fl; compile-time only" },
-]
+ignore = []
 
 [licenses]
 confidence-threshold = 0.8
@@ -42,14 +39,8 @@ workspace-default-features = "allow"
 external-default-features  = "allow"
 allow-workspace            = true
 
-# Dual rand/crypto lines until age leaves rand 0.8 (workspace uses rand 0.10).
-skip = [
-    { crate = "rand@0.8", reason = "age 0.11 / age-core; workspace uses rand 0.10" },
-    { crate = "rand_core@0.6", reason = "rand 0.8 + x25519-dalek via age" },
-    { crate = "getrandom@0.2", reason = "rand_core 0.6 (age) and directories" },
-    { crate = "chacha20@0.9", reason = "age → chacha20poly1305; rand 0.10 pulls chacha20 0.10" },
-    { crate = "cpufeatures@0.2", reason = "age crypto stack; chacha20 0.10 pulls cpufeatures 0.3" },
-]
+# Only for upstream-forced duplicate versions; each entry needs a reason.
+skip = []
 
 [sources]
 unknown-registry = "deny"

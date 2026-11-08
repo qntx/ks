@@ -1,45 +1,22 @@
 [workspace]
-members = ["crates/*"]
+members = ["crates/ks", "crates/ks-cli"]
 default-members = ["crates/ks-cli"]
-exclude = ["3rdparty", "fuzz"]
 resolver = "3"
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
+rust-version = "1.99"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/qntx/ks"
 homepage = "https://github.com/qntx/ks"
 authors = ["QNTX <https://qntx.org>"]
-description = "A local-first, age-encrypted secret manager in Rust"
-keywords = ["key", "store", "encryption"]
+description = "Personal local secret vault with an age-compatible on-disk format"
+keywords = ["age", "secrets", "password-manager", "vault"]
 categories = ["cryptography"]
 
 [workspace.dependencies]
-age         = { version = "0.11", features = ["armor"] }
-directories = "6"
-zeroize     = { version = "1", features = ["derive"] }
-secrecy     = "0.10"
-thiserror   = "2"
-rand        = "0.10"
-totp-rs     = { version = "5", features = ["otpauth"] }
-fd-lock     = "4"
-
-ks          = { version = "0.7", path = "crates/ks" }
-clap        = { version = "4", features = ["derive", "color", "wrap_help"] }
-cliclack    = "0.5"
-owo-colors  = { version = "4", features = ["supports-colors"] }
-arboard     = "3"
-
-# Agent-friendly JSON output (ks-cli only; the library stays serde-free).
-serde_json  = "1"
-# Match age's base64 0.21 so the lockfile does not carry two major lines.
-base64      = "0.23"
-
-# Platform hardening (process-level, target-gated in the consuming crate).
-libc        = "0.2"
-windows-sys = { version = "0.61.2", features = ["Win32_System_Diagnostics_Debug"] }
-
+clap = { version = "4.6.7", features = ["derive"] }
 [profile.release]
 codegen-units = 1
 lto = "thin"
