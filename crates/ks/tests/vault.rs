@@ -452,3 +452,49 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
     }
     out
 }
+
+#[test]
+fn open_error_variants() {
+    let dir = tempfile::tempdir().unwrap();
+    // missing directory -> not_found
+    let missing = dir.path().join("nope");
+    assert!(matches!(Vault::open(&missing), Err(Error::NotFound(_))));
+    // directory without .identity.age -> not_found
+    let empty = dir.path().join("empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    assert!(matches!(Vault::open(&empty), Err(Error::NotFound(_))));
+    // oversized .identity.age -> corrupt ("file too large") at unlock
+    let big = dir.path().join("big");
+    std::fs::create_dir_all(&big).unwrap();
+    std::fs::write(big.join(".identity.age"), vec![0u8; 64 * 1024 + 1]).unwrap();
+    let v = Vault::open(&big).unwrap();
+    assert!(matches!(
+        v.unlock(Some(&|| Ok(passphrase()))),
+        Err(Error::Corrupt { .. })
+    ));
+}
+
+#[test]
+fn rename_to_existing_and_remove_missing() {
+    let (_d, session) = create();
+    session.set(&name("a"), &text("1"), false).unwrap();
+    session.set(&name("b"), &text("2"), false).unwrap();
+    assert!(matches!(
+        session.rename(&name("a"), &name("b"), false),
+        Err(Error::Exists(_))
+    ));
+    assert!(matches!(
+        session.remove(&name("missing")),
+        Err(Error::NotFound(_))
+    ));
+}
+
+#[test]
+fn unlock_without_source_is_locked() {
+    let (_d, session) = create();
+    // no agent, no device factors, no passphrase -> Locked
+    assert!(matches!(
+        session.vault().unlock_without_agent(None),
+        Err(Error::Locked)
+    ));
+}

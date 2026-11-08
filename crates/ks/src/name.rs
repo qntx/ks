@@ -224,7 +224,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn parse_never_panics(s in ".*") {
+    fn parse_never_panics(s in ".*") {
             let _ = Name::parse(&s);
         }
 
@@ -233,5 +233,11 @@ mod tests {
             let n = Name::parse(&s).unwrap();
             prop_assert_eq!(n.as_str(), s);
         }
+    }
+    #[test]
+    fn display_debug_roundtrip() {
+        let n = Name::parse("a/b.c").unwrap();
+        assert_eq!(n.to_string(), "a/b.c");
+        assert_eq!(format!("{n:?}"), "a/b.c");
     }
 }
