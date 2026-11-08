@@ -75,7 +75,8 @@ ks status --json                # vault, agent ttl/life, git state (no unlock)
 
 After `ks unlock`, commands need no `KS_PASSPHRASE*`: the agent answers
 age unwrap/wrap over a per-user socket until the idle ttl, the lifetime
-max, or `ks lock`. `locked` (77) means unlock first or supply a passphrase
+max, or `ks lock`. `locked` (77) means unlock first or supply a passphrase —
+including a write that raced a key rotation: unlock and retry
 source. `--no-agent` bypasses it; `passwd`/`unlock`/`rekey` always need the
 real passphrase (the agent never hands out the vault key).
 
