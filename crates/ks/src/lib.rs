@@ -61,4 +61,4 @@ pub use key::LocalKey;
 pub use name::Name;
 pub use passphrase::check_new_passphrase;
 pub use rekey::RekeyReport;
-pub use vault::{Session, Vault};
+pub use vault::{GITATTRIBUTES, GITIGNORE, Session, Vault};

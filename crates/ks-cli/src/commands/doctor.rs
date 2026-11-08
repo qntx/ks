@@ -26,6 +26,7 @@ pub(crate) fn run(cli: &Cli, out: &Out, fix: bool) -> CliResult<i32> {
         });
     }
     scan(&root, &mut problems);
+    check_git_meta(&root, &mut problems);
 
     // Every listed entry must decrypt with a matching name.
     let names = session.vault().list(None).map_err(|e| err(&e))?;
@@ -75,6 +76,32 @@ pub(crate) fn run(cli: &Cli, out: &Out, fix: bool) -> CliResult<i32> {
 }
 
 #[cfg(unix)]
+/// `.gitignore`/`.gitattributes` must equal the canonical content the
+/// vault writes — a remote can weaken the whitelist and the next
+/// `sync` would then stage files ks never wrote.
+fn check_git_meta(root: &Path, problems: &mut Vec<Problem>) {
+    for (file, canonical) in [
+        (".gitignore", ks::GITIGNORE),
+        (".gitattributes", ks::GITATTRIBUTES),
+    ] {
+        let path = root.join(file);
+        match std::fs::read(&path) {
+            Ok(bytes) if bytes == canonical.as_bytes() => {}
+            Ok(_) => problems.push(Problem {
+                path: path.clone(),
+                problem: format!("{file} differs from the canonical content"),
+                fixable: true,
+            }),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => problems.push(Problem {
+                path: path.clone(),
+                problem: format!("cannot read {file}: {e}"),
+                fixable: false,
+            }),
+        }
+    }
+}
+
 fn fix_perms(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt as _;
     let mode = if path.is_dir() { 0o700 } else { 0o600 };
@@ -91,6 +118,14 @@ fn apply_fix(p: &Problem) -> bool {
     match p.problem.as_str() {
         s if s.starts_with("leftover temp file") => std::fs::remove_file(&p.path).is_ok(),
         s if s.starts_with("wrong permissions") => fix_perms(&p.path),
+        s if s.contains("differs from the canonical content") => {
+            let canonical = match p.path.file_name().and_then(|n| n.to_str()) {
+                Some(".gitignore") => ks::GITIGNORE,
+                Some(".gitattributes") => ks::GITATTRIBUTES,
+                _ => return false,
+            };
+            std::fs::write(&p.path, canonical).is_ok()
+        }
         _ => false,
     }
 }

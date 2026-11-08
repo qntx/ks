@@ -31,6 +31,12 @@ pub struct SyncReport {
     pub warnings: Vec<String>,
 }
 
+/// Paths `ks sync` is allowed to stage: every entry file plus the two
+/// canonical git metadata files. A tampered `.gitignore` cannot widen
+/// this set, and `-f` in `add` defeats a `.gitignore` that was tampered
+/// to *ignore* entries. Also the scope of "dirty" checks.
+const STAGE_PATHS: &[&str] = &["--", "*.age", ".gitignore", ".gitattributes"];
+
 /// Thin wrapper over `git -C <root>` for one vault directory.
 #[derive(Debug)]
 pub struct Git {
@@ -171,10 +177,11 @@ impl Git {
         }
         let mut report = SyncReport::default();
 
-        // 1. Commit pending changes (the whitelist .gitignore scopes it).
-        let status = self.git(&["status", "--porcelain"])?;
+        // 1. Commit pending changes — staged by pathspec, not by the
+        // (remote-modifiable) .gitignore whitelist.
+        let status = self.git(&[&["status", "--porcelain"], STAGE_PATHS].concat())?;
         if !String::from_utf8_lossy(&status.stdout).trim().is_empty() {
-            self.git(&["add", "-A"])?;
+            self.git(&[&["add", "-A", "-f"], STAGE_PATHS].concat())?;
             self.git(&["commit", "-q", "-m", "ks: sync"])?;
             report.committed = true;
         }

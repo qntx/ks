@@ -467,7 +467,21 @@ fn admin_doctor() {
     assert_eq!(v["ok"], false);
     let probs = v["problems"].as_array().unwrap();
     assert!(probs.len() >= 2);
+    // tampered .gitignore is reported and --fix restores canonical
+    std::fs::write(t.vault.join(".gitignore"), "*\n!*.txt\n").unwrap();
+    let (_, v, _) = json(&t, &["doctor"], b"");
+    assert!(
+        v["problems"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["problem"].as_str().unwrap().contains("canonical"))
+    );
     let (code, _, _) = run(&t, &["doctor", "--fix"], b"");
+    assert_eq!(
+        std::fs::read_to_string(t.vault.join(".gitignore")).unwrap(),
+        "*\n!*/\n!*.age\n!.gitignore\n!.gitattributes\n"
+    );
     let (_, v, _) = json(&t, &["doctor"], b"");
     // .tmp fixed, notes.txt still reported
     assert!(
