@@ -137,21 +137,34 @@ impl Vault {
                         "session agent does not hold the current vault key; asking it to exit"
                             .to_owned(),
                     );
-                    drop(crate::agent::lock(self));
+                    match crate::agent::lock(self) {
+                        Ok(_) => {}
+                        Err(e) => warnings
+                            .push(format!("could not stop the session agent: {e}")),
+                    }
                 }
                 Stale::TouchId => {
-                    warnings.push(
-                        "Touch ID has been removed; re-enable with `ks touchid enable`".to_owned(),
-                    );
-                    drop(crate::touchid::disable(self));
+                    match crate::touchid::disable(self) {
+                        Ok(_) => warnings.push(
+                            "Touch ID has been removed; re-enable with `ks touchid enable`"
+                                .to_owned(),
+                        ),
+                        Err(e) => warnings.push(format!(
+                            "could not remove Touch ID: {e}; remove it with `ks touchid disable`"
+                        )),
+                    }
                 }
                 #[cfg(feature = "keychain")]
                 Stale::Keychain => {
-                    warnings.push(
-                        "the OS keychain entry has been removed; re-enable with `ks keychain enable`"
-                            .to_owned(),
-                    );
-                    drop(crate::keychain::disable(self));
+                    match crate::keychain::disable(self) {
+                        Ok(_) => warnings.push(
+                            "the OS keychain entry has been removed; re-enable with `ks keychain enable`"
+                                .to_owned(),
+                        ),
+                        Err(e) => warnings.push(format!(
+                            "could not remove the OS keychain entry: {e}; remove it with `ks keychain disable`"
+                        )),
+                    }
                 }
             }
         }
