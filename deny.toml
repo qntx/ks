@@ -8,7 +8,10 @@ all-features = true
 feature-depth = 1
 
 [advisories]
-ignore = []
+ignore = [
+    { id = "RUSTSEC-2026-0374", reason = "unmaintained basic-toml via age -> i18n-embed-fl; used at compile time only" },
+    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint timing variability via age -> p256; reachable only through the tagpq recipient, which ks never uses" },
+]
 
 [licenses]
 confidence-threshold = 0.8
