@@ -24,13 +24,17 @@ pub(crate) fn seal_identity(key: &LocalKey, passphrase: &SecretString) -> Result
         .map_err(|e| Error::InvalidInput(format!("encryption setup failed: {e}")))?;
     let plaintext = key.to_identity_text();
     let mut out = Vec::new();
-    let mut writer = encryptor
-        .wrap_output(&mut out)
-        .map_err(|e| Error::Io { path: "identity file".into(), source: e })?;
+    let mut writer = encryptor.wrap_output(&mut out).map_err(|e| Error::Io {
+        path: "identity file".into(),
+        source: e,
+    })?;
     writer
         .write_all(plaintext.expose_secret().as_bytes())
         .and_then(|()| writer.finish().map(|_| ()))
-        .map_err(|e| Error::Io { path: "identity file".into(), source: e })?;
+        .map_err(|e| Error::Io {
+            path: "identity file".into(),
+            source: e,
+        })?;
     drop(plaintext);
     Ok(out)
 }
@@ -43,7 +47,10 @@ pub(crate) fn seal_identity(key: &LocalKey, passphrase: &SecretString) -> Result
 ///   malformed plaintext.
 /// - [`Error::WrongPassphrase`] when decryption fails.
 pub(crate) fn open_identity(bytes: &[u8], passphrase: &SecretString) -> Result<LocalKey> {
-    let corrupt = |reason: &'static str| Error::Corrupt { path: ".identity.age".into(), reason };
+    let corrupt = |reason: &'static str| Error::Corrupt {
+        path: ".identity.age".into(),
+        reason,
+    };
     let decryptor = age::Decryptor::new_buffered(bytes).map_err(|_| corrupt("not an age file"))?;
     if !decryptor.is_scrypt() {
         return Err(corrupt("not passphrase-encrypted"));
@@ -77,10 +84,14 @@ pub(crate) fn open_identity(bytes: &[u8], passphrase: &SecretString) -> Result<L
 pub fn check_new_passphrase(passphrase: &SecretString) -> Result<Vec<String>> {
     let text = passphrase.expose_secret();
     if text.chars().count() < MIN_LENGTH {
-        return Err(Error::WeakPassphrase("must be at least 15 characters".into()));
+        return Err(Error::WeakPassphrase(
+            "must be at least 15 characters".into(),
+        ));
     }
     if text.chars().any(char::is_control) {
-        return Err(Error::WeakPassphrase("must not contain control characters".into()));
+        return Err(Error::WeakPassphrase(
+            "must not contain control characters".into(),
+        ));
     }
     let entropy = zxcvbn::zxcvbn(text, &[]);
     if entropy.score() < zxcvbn::Score::Three {
@@ -170,7 +181,8 @@ mod tests {
         let mut sealed = Vec::new();
         let mut w = encryptor.wrap_output(&mut sealed).unwrap();
         use std::io::Write as _;
-        w.write_all(key.to_identity_text().expose_secret().as_bytes()).unwrap();
+        w.write_all(key.to_identity_text().expose_secret().as_bytes())
+            .unwrap();
         w.finish().unwrap();
 
         let start = std::time::Instant::now();
@@ -178,6 +190,9 @@ mod tests {
             Err(Error::Corrupt { .. }) => {}
             other => panic!("expected Corrupt, got {other:?}"),
         }
-        assert!(start.elapsed().as_secs() < 1, "work-factor rejection must be fast");
+        assert!(
+            start.elapsed().as_secs() < 1,
+            "work-factor rejection must be fast"
+        );
     }
 }

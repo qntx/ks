@@ -103,7 +103,8 @@ mod tests {
 
     #[test]
     fn grease_stanzas_are_tolerated() {
-        check(b"age-encryption.org/v1\n-> X25519 arg\nYWJj\n-> CXP4-grease x\nYWJj\n--- m\n").unwrap();
+        check(b"age-encryption.org/v1\n-> X25519 arg\nYWJj\n-> CXP4-grease x\nYWJj\n--- m\n")
+            .unwrap();
     }
 
     #[test]

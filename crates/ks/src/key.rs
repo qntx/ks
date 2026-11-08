@@ -19,7 +19,10 @@ impl LocalKey {
     /// Generates a fresh single-key vault key.
     #[must_use]
     pub fn generate() -> Self {
-        Self { keys: vec![age::x25519::Identity::generate()], label: new_label() }
+        Self {
+            keys: vec![age::x25519::Identity::generate()],
+            label: new_label(),
+        }
     }
 
     /// Parses an `age` identity file: `#` comments and blank lines are ignored,
@@ -46,7 +49,10 @@ impl LocalKey {
                 reason: "must contain one or two identities",
             });
         }
-        Ok(Self { keys, label: new_label() })
+        Ok(Self {
+            keys,
+            label: new_label(),
+        })
     }
 
     /// Serializes as an `age` identity file (`# ks vault key` header).
@@ -63,12 +69,17 @@ impl LocalKey {
 
 impl fmt::Debug for LocalKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LocalKey").field("keys", &self.keys.len()).finish_non_exhaustive()
+        f.debug_struct("LocalKey")
+            .field("keys", &self.keys.len())
+            .finish_non_exhaustive()
     }
 }
 
 impl age::Identity for LocalKey {
-    fn unwrap_stanza(&self, stanza: &Stanza) -> Option<std::result::Result<FileKey, age::DecryptError>> {
+    fn unwrap_stanza(
+        &self,
+        stanza: &Stanza,
+    ) -> Option<std::result::Result<FileKey, age::DecryptError>> {
         self.keys.iter().find_map(|key| key.unwrap_stanza(stanza))
     }
 }
@@ -111,7 +122,10 @@ mod tests {
     fn identity_text_round_trip() {
         let key = LocalKey::generate();
         let text = key.to_identity_text();
-        assert!(text.expose_secret().starts_with("# ks vault key\nAGE-SECRET-KEY-1"));
+        assert!(
+            text.expose_secret()
+                .starts_with("# ks vault key\nAGE-SECRET-KEY-1")
+        );
         let parsed = LocalKey::from_identity_text(&text).unwrap();
         assert_eq!(parsed.keys.len(), 1);
     }
@@ -119,7 +133,12 @@ mod tests {
     #[test]
     fn identity_text_parse() {
         let key = LocalKey::generate().to_identity_text();
-        let line = key.expose_secret().lines().last().unwrap_or_default().to_owned();
+        let line = key
+            .expose_secret()
+            .lines()
+            .last()
+            .unwrap_or_default()
+            .to_owned();
         for (text, ok) in [
             (format!("# c\n\n{line}\n"), true),
             (format!("{line}\n{line}\n"), true),

@@ -38,9 +38,8 @@ fn parse(secret: &str) -> Result<totp_rs::Totp> {
     if secret.starts_with("otpauth://") {
         return totp_rs::Totp::from_url(secret).map_err(invalid);
     }
-    let secret = Secret::try_from_base32(secret).map_err(|e| {
-        Error::InvalidInput(format!("invalid TOTP base32 secret: {e}"))
-    })?;
+    let secret = Secret::try_from_base32(secret)
+        .map_err(|e| Error::InvalidInput(format!("invalid TOTP base32 secret: {e}")))?;
     totp_rs::Builder::new()
         .with_algorithm(Algorithm::SHA1)
         .with_digits(6)

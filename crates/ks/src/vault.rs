@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use age::secrecy::SecretString;
 use zeroize::Zeroizing;
 
-use crate::{header, Entry, Error, LocalKey, Name, Result};
+use crate::{Entry, Error, LocalKey, Name, Result, header};
 
 pub(crate) const IDENTITY_FILE: &str = ".identity.age";
 pub(crate) const CHECK_FILE: &str = ".check.age";
@@ -52,7 +52,10 @@ impl Vault {
             if e.kind() == std::io::ErrorKind::NotFound {
                 Error::NotFound(root.display().to_string())
             } else {
-                Error::Io { path: root.to_path_buf(), source: e }
+                Error::Io {
+                    path: root.to_path_buf(),
+                    source: e,
+                }
             }
         })?;
         let identity = root.join(IDENTITY_FILE);
@@ -78,10 +81,15 @@ impl Vault {
                 return Err(Error::Exists(root.display().to_string()));
             }
         }
-        std::fs::create_dir_all(root)
-            .map_err(|e| Error::Io { path: root.to_path_buf(), source: e })?;
+        std::fs::create_dir_all(root).map_err(|e| Error::Io {
+            path: root.to_path_buf(),
+            source: e,
+        })?;
         #[cfg(unix)]
-        drop(std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700)));
+        drop(std::fs::set_permissions(
+            root,
+            std::fs::Permissions::from_mode(0o700),
+        ));
         let vault = Self {
             root: root.canonicalize().map_err(|e| Error::Io {
                 path: root.to_path_buf(),
@@ -97,7 +105,11 @@ impl Vault {
             vault.atomic_write(&vault.root.join(".gitignore"), GITIGNORE.as_bytes())?;
             Ok(())
         })?;
-        Ok(Session { vault, key, warnings: Vec::new() })
+        Ok(Session {
+            vault,
+            key,
+            warnings: Vec::new(),
+        })
     }
 
     /// The canonicalized vault root.
@@ -117,8 +129,10 @@ impl Vault {
         let mut names = Vec::new();
         let mut stack = vec![self.root.clone()];
         while let Some(dir) = stack.pop() {
-            let entries = std::fs::read_dir(&dir)
-                .map_err(|e| Error::Io { path: dir.clone(), source: e })?;
+            let entries = std::fs::read_dir(&dir).map_err(|e| Error::Io {
+                path: dir.clone(),
+                source: e,
+            })?;
             for entry in entries.flatten() {
                 self.visit_list_entry(&mut stack, &mut names, &entry, prefix)?;
             }
@@ -142,9 +156,10 @@ impl Vault {
         if file_name.starts_with('.') {
             return Ok(());
         }
-        let file_type = entry
-            .file_type()
-            .map_err(|e| Error::Io { path: entry.path(), source: e })?;
+        let file_type = entry.file_type().map_err(|e| Error::Io {
+            path: entry.path(),
+            source: e,
+        })?;
         if file_type.is_symlink() {
             return Ok(());
         }
@@ -153,8 +168,12 @@ impl Vault {
             return Ok(());
         }
         let entry_path = entry.path();
-        let Ok(relative) = entry_path.strip_prefix(&self.root) else { return Ok(()) };
-        let Some(entry_name) = Name::from_relative(relative) else { return Ok(()) };
+        let Ok(relative) = entry_path.strip_prefix(&self.root) else {
+            return Ok(());
+        };
+        let Some(entry_name) = Name::from_relative(relative) else {
+            return Ok(());
+        };
         if prefix.is_none_or(|p| entry_name.is_under(p)) {
             names.push(entry_name);
         }
@@ -169,12 +188,21 @@ impl Vault {
             .symlink_metadata()
             .map_err(|e| io_or_notfound(path, e))?;
         if !meta.is_file() {
-            return Err(Error::Corrupt { path: path.to_path_buf(), reason: "not a regular file" });
+            return Err(Error::Corrupt {
+                path: path.to_path_buf(),
+                reason: "not a regular file",
+            });
         }
         if meta.len() > max_size {
-            return Err(Error::Corrupt { path: path.to_path_buf(), reason: "file too large" });
+            return Err(Error::Corrupt {
+                path: path.to_path_buf(),
+                reason: "file too large",
+            });
         }
-        std::fs::read(path).map_err(|e| Error::Io { path: path.to_path_buf(), source: e })
+        std::fs::read(path).map_err(|e| Error::Io {
+            path: path.to_path_buf(),
+            source: e,
+        })
     }
 
     /// Refuses symlinks in every component between the vault root and `path`
@@ -200,17 +228,17 @@ impl Vault {
     }
 
     /// Runs `f` holding the exclusive write lock on `<root>/.lock`.
-    pub(crate) fn with_write_lock<R>(
-        &self,
-        f: impl FnOnce() -> Result<R>,
-    ) -> Result<R> {
+    pub(crate) fn with_write_lock<R>(&self, f: impl FnOnce() -> Result<R>) -> Result<R> {
         let path = self.root.join(LOCK_FILE);
         let file = std::fs::OpenOptions::new()
             .create(true)
             .truncate(false)
             .write(true)
             .open(&path)
-            .map_err(|e| Error::Io { path: path.clone(), source: e })?;
+            .map_err(|e| Error::Io {
+                path: path.clone(),
+                source: e,
+            })?;
         #[cfg(unix)]
         drop(file.set_permissions(std::fs::Permissions::from_mode(0o600)));
         let mut lock = fd_lock::RwLock::new(file);
@@ -223,20 +251,33 @@ impl Vault {
     pub(crate) fn atomic_write(&self, path: &Path, bytes: &[u8]) -> Result<()> {
         self.check_no_symlinks(path)?;
         let dir = path.parent().unwrap_or(&self.root);
-        std::fs::create_dir_all(dir)
-            .map_err(|e| Error::Io { path: dir.to_path_buf(), source: e })?;
-        #[cfg(unix)]
-        drop(std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)));
-        let mut tmp = tempfile::Builder::new()
-            .prefix(".tmp")
-            .tempfile_in(dir)
-            .map_err(|e| Error::Io { path: path.to_path_buf(), source: e })?;
-        tmp.write_all(bytes).and_then(|()| tmp.as_file().sync_all()).map_err(|e| Error::Io {
-            path: path.to_path_buf(),
+        std::fs::create_dir_all(dir).map_err(|e| Error::Io {
+            path: dir.to_path_buf(),
             source: e,
         })?;
         #[cfg(unix)]
-        drop(tmp.as_file().set_permissions(std::fs::Permissions::from_mode(0o600)));
+        drop(std::fs::set_permissions(
+            dir,
+            std::fs::Permissions::from_mode(0o700),
+        ));
+        let mut tmp = tempfile::Builder::new()
+            .prefix(".tmp")
+            .tempfile_in(dir)
+            .map_err(|e| Error::Io {
+                path: path.to_path_buf(),
+                source: e,
+            })?;
+        tmp.write_all(bytes)
+            .and_then(|()| tmp.as_file().sync_all())
+            .map_err(|e| Error::Io {
+                path: path.to_path_buf(),
+                source: e,
+            })?;
+        #[cfg(unix)]
+        drop(
+            tmp.as_file()
+                .set_permissions(std::fs::Permissions::from_mode(0o600)),
+        );
         tmp.persist(path).map_err(|e| Error::Io {
             path: path.to_path_buf(),
             source: e.error,
@@ -253,7 +294,10 @@ fn io_or_notfound(path: &Path, e: std::io::Error) -> Error {
     if e.kind() == std::io::ErrorKind::NotFound {
         Error::NotFound(path.display().to_string())
     } else {
-        Error::Io { path: path.to_path_buf(), source: e }
+        Error::Io {
+            path: path.to_path_buf(),
+            source: e,
+        }
     }
 }
 
@@ -288,7 +332,9 @@ pub(crate) fn write_check(key: &LocalKey, root: &Path) -> Result<()> {
         .map_err(|e| io_or_notfound(&root.join(IDENTITY_FILE), e))?;
     let plaintext = format!("ks1 check {}\n", hex_sha256(&identity_bytes));
     let encrypted = encrypt_to(key, Zeroizing::new(plaintext.into_bytes()))?;
-    let vault = Vault { root: root.to_path_buf() };
+    let vault = Vault {
+        root: root.to_path_buf(),
+    };
     vault.atomic_write(&root.join(CHECK_FILE), &encrypted)
 }
 
@@ -298,13 +344,14 @@ pub(crate) fn hex_sha256(bytes: &[u8]) -> String {
 }
 
 /// Encrypts plaintext to the vault's current recipient.
-#[allow(clippy::needless_pass_by_value, reason = "owning the buffer guarantees zeroization on drop")]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "owning the buffer guarantees zeroization on drop"
+)]
 pub(crate) fn encrypt_to(key: &LocalKey, plaintext: Zeroizing<Vec<u8>>) -> Result<Vec<u8>> {
     let recipient: &dyn age::Recipient = key;
-    let encryptor = age::Encryptor::with_recipients(core::iter::once(
-        recipient,
-    ))
-    .map_err(|e| Error::InvalidInput(format!("encryption setup failed: {e}")))?;
+    let encryptor = age::Encryptor::with_recipients(core::iter::once(recipient))
+        .map_err(|e| Error::InvalidInput(format!("encryption setup failed: {e}")))?;
     let mut out = Vec::new();
     let mut writer = encryptor
         .wrap_output(&mut out)
@@ -312,7 +359,10 @@ pub(crate) fn encrypt_to(key: &LocalKey, plaintext: Zeroizing<Vec<u8>>) -> Resul
     writer
         .write_all(&plaintext)
         .and_then(|()| writer.finish().map(|_| ()))
-        .map_err(|e| Error::Io { path: "entry file".into(), source: e })?;
+        .map_err(|e| Error::Io {
+            path: "entry file".into(),
+            source: e,
+        })?;
     Ok(out)
 }
 
@@ -328,8 +378,7 @@ pub(crate) fn decrypt_entry(
         path: path.to_path_buf(),
         reason,
     };
-    let decryptor = age::Decryptor::new_buffered(bytes)
-        .map_err(|_| corrupt("not an age file"))?;
+    let decryptor = age::Decryptor::new_buffered(bytes).map_err(|_| corrupt("not an age file"))?;
     let identity: &dyn age::Identity = key;
     let reader = decryptor
         .decrypt(core::iter::once(identity))
@@ -352,7 +401,11 @@ pub struct Session {
 
 impl Session {
     pub(crate) const fn new(vault: Vault, key: LocalKey, warnings: Vec<String>) -> Self {
-        Self { vault, key, warnings }
+        Self {
+            vault,
+            key,
+            warnings,
+        }
     }
 
     /// Reads and decrypts an entry.
@@ -398,8 +451,10 @@ impl Session {
             return Err(Error::NotFound(name.to_string()));
         }
         self.vault.with_write_lock(|| {
-            std::fs::remove_file(&path)
-                .map_err(|e| Error::Io { path: path.clone(), source: e })
+            std::fs::remove_file(&path).map_err(|e| Error::Io {
+                path: path.clone(),
+                source: e,
+            })
         })?;
         let mut dir = path.parent();
         while let Some(d) = dir {
@@ -432,8 +487,10 @@ impl Session {
         self.vault.with_write_lock(|| {
             let encrypted = encrypt_to(&self.key, entry.encode(to))?;
             self.vault.atomic_write(&to_path, &encrypted)?;
-            std::fs::remove_file(&from_path)
-                .map_err(|e| Error::Io { path: from_path.clone(), source: e })?;
+            std::fs::remove_file(&from_path).map_err(|e| Error::Io {
+                path: from_path.clone(),
+                source: e,
+            })?;
             Ok(())
         })
     }
@@ -448,7 +505,8 @@ impl Session {
         crate::passphrase::check_new_passphrase(new_passphrase)?;
         self.vault.with_write_lock(|| {
             let identity_bytes = crate::passphrase::seal_identity(&self.key, new_passphrase)?;
-            self.vault.atomic_write(&self.vault.root.join(IDENTITY_FILE), &identity_bytes)?;
+            self.vault
+                .atomic_write(&self.vault.root.join(IDENTITY_FILE), &identity_bytes)?;
             write_check(&self.key, &self.vault.root)
         })
     }

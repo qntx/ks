@@ -73,7 +73,9 @@ impl Name {
         if self.0 == prefix.0 {
             return true;
         }
-        self.0.strip_prefix(prefix.0.as_str()).is_some_and(|tail| tail.starts_with('/'))
+        self.0
+            .strip_prefix(prefix.0.as_str())
+            .is_some_and(|tail| tail.starts_with('/'))
     }
 
     /// Builds a name from a path relative to the vault root, stripping a
@@ -98,7 +100,10 @@ impl Name {
 
 /// `.age` is a deliberately case-sensitive suffix: names are lowercase by rule,
 /// so `name.AGE` is already rejected by the character check below.
-#[allow(clippy::case_sensitive_file_extension_comparisons, reason = "names are guaranteed lowercase, so case folding is meaningless here")]
+#[allow(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "names are guaranteed lowercase, so case folding is meaningless here"
+)]
 fn ends_with_age(s: &str) -> bool {
     s.ends_with(".age")
 }
@@ -116,7 +121,10 @@ fn check_segment(full: &str, segment: &str) -> Result<()> {
             reason: "segment must not start or end with '.'",
         });
     }
-    if !segment.bytes().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-')) {
+    if !segment
+        .bytes()
+        .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-'))
+    {
         return Err(Error::InvalidName {
             name: full.to_owned(),
             reason: "only lowercase ascii, digits and ._- are allowed",
@@ -163,7 +171,13 @@ mod tests {
 
     #[test]
     fn valid_names() {
-        for name in ["a", "github/token", "aws/credentials.json", "a-b_c.d", "x/y/z"] {
+        for name in [
+            "a",
+            "github/token",
+            "aws/credentials.json",
+            "a-b_c.d",
+            "x/y/z",
+        ] {
             assert!(Name::parse(name).is_ok(), "{name}");
         }
     }
@@ -183,8 +197,14 @@ mod tests {
     #[test]
     fn path_mapping() {
         let root = Path::new("/v");
-        assert_eq!(Name::parse("github/token").unwrap().path_in(root), Path::new("/v/github/token.age"));
-        assert_eq!(Name::parse("a/b.c").unwrap().path_in(root), Path::new("/v/a/b.c.age"));
+        assert_eq!(
+            Name::parse("github/token").unwrap().path_in(root),
+            Path::new("/v/github/token.age")
+        );
+        assert_eq!(
+            Name::parse("a/b.c").unwrap().path_in(root),
+            Path::new("/v/a/b.c.age")
+        );
     }
 
     #[test]

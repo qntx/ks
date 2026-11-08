@@ -10,7 +10,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Messages never contain secret material; they may contain paths and names.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-#[allow(clippy::error_impl_error, reason = "the crate exports a single error type named Error")]
+#[allow(
+    clippy::error_impl_error,
+    reason = "the crate exports a single error type named Error"
+)]
 pub enum Error {
     /// A name violates the naming rules.
     #[error("invalid name {name:?}: {reason}")]

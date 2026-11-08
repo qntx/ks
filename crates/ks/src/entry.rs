@@ -63,15 +63,23 @@ impl Entry {
     /// # Errors
     ///
     /// [`Error::InvalidInput`] on empty payloads or payloads containing `\r`.
-    #[allow(clippy::needless_pass_by_value, reason = "owning the buffer guarantees zeroization on drop")]
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "owning the buffer guarantees zeroization on drop"
+    )]
     pub fn text(payload: Zeroizing<String>) -> Result<Self> {
         if payload.is_empty() {
             return Err(Error::InvalidInput("entry payload is empty".into()));
         }
         if payload.contains('\r') {
-            return Err(Error::InvalidInput("entry payload must not contain \\r".into()));
+            return Err(Error::InvalidInput(
+                "entry payload must not contain \\r".into(),
+            ));
         }
-        Ok(Self { kind: Kind::Text, payload: Zeroizing::new(payload.as_bytes().to_vec()) })
+        Ok(Self {
+            kind: Kind::Text,
+            payload: Zeroizing::new(payload.as_bytes().to_vec()),
+        })
     }
 
     /// A binary entry of at most 64 MiB.
@@ -79,12 +87,18 @@ impl Entry {
     /// # Errors
     ///
     /// [`Error::InvalidInput`] on oversized payloads.
-    #[allow(clippy::needless_pass_by_value, reason = "owning the buffer guarantees zeroization on drop")]
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "owning the buffer guarantees zeroization on drop"
+    )]
     pub fn binary(payload: Zeroizing<Vec<u8>>) -> Result<Self> {
         if payload.len() as u64 > MAX_ENTRY_PLAINTEXT {
             return Err(Error::InvalidInput("entry payload exceeds 64 MiB".into()));
         }
-        Ok(Self { kind: Kind::Binary, payload })
+        Ok(Self {
+            kind: Kind::Binary,
+            payload,
+        })
     }
 
     /// A mnemonic entry: first line is the BIP-39 mnemonic, optional
@@ -93,7 +107,10 @@ impl Entry {
     /// # Errors
     ///
     /// [`Error::InvalidInput`] on empty payloads or payloads containing `\r`.
-    #[allow(clippy::needless_pass_by_value, reason = "owning the buffer guarantees zeroization on drop")]
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "owning the buffer guarantees zeroization on drop"
+    )]
     pub fn mnemonic(payload: Zeroizing<String>) -> Result<Self> {
         Self::text_like(Kind::Mnemonic, Zeroizing::new(payload.as_bytes().to_vec()))
     }
@@ -104,7 +121,10 @@ impl Entry {
     /// # Errors
     ///
     /// [`Error::InvalidInput`] on empty payloads or payloads containing `\r`.
-    #[allow(clippy::needless_pass_by_value, reason = "owning the buffer guarantees zeroization on drop")]
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "owning the buffer guarantees zeroization on drop"
+    )]
     pub fn key(payload: Zeroizing<String>) -> Result<Self> {
         Self::text_like(Kind::Key, Zeroizing::new(payload.as_bytes().to_vec()))
     }
@@ -116,7 +136,9 @@ impl Entry {
             return Err(Error::InvalidInput("entry payload is empty".into()));
         }
         if text.contains('\r') {
-            return Err(Error::InvalidInput("entry payload must not contain \\r".into()));
+            return Err(Error::InvalidInput(
+                "entry payload must not contain \\r".into(),
+            ));
         }
         Ok(Self { kind, payload })
     }
@@ -162,10 +184,19 @@ impl Entry {
     ///
     /// [`Error::Corrupt`] on any deviation: wrong prefix, spacing, unknown
     /// kind, name mismatch, `\r`, or non-UTF-8 text.
-    #[allow(clippy::needless_pass_by_value, reason = "owning the buffer guarantees zeroization on drop")]
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "owning the buffer guarantees zeroization on drop"
+    )]
     pub(crate) fn decode(plain: Zeroizing<Vec<u8>>, expected: &Name, path: &Path) -> Result<Self> {
-        let corrupt = |reason: &'static str| Error::Corrupt { path: path.to_path_buf(), reason };
-        let header_end = plain.iter().position(|&b| b == b'\n').ok_or_else(|| corrupt("no header line"))?;
+        let corrupt = |reason: &'static str| Error::Corrupt {
+            path: path.to_path_buf(),
+            reason,
+        };
+        let header_end = plain
+            .iter()
+            .position(|&b| b == b'\n')
+            .ok_or_else(|| corrupt("no header line"))?;
         let header = core::str::from_utf8(plain.get(..header_end).unwrap_or_default())
             .map_err(|_| corrupt("header is not UTF-8"))?;
         let mut parts = header.splitn(3, ' ');
@@ -292,11 +323,21 @@ mod tests {
             ("ks1 text a/b\nx\ry", "CR rejected"),
             ("ks1 text a/b", "no newline"),
         ] {
-            assert!(Entry::decode(Zeroizing::new(plain.as_bytes().to_vec()), &n, Path::new("x")).is_err(), "{why}: {plain:?}");
+            assert!(
+                Entry::decode(
+                    Zeroizing::new(plain.as_bytes().to_vec()),
+                    &n,
+                    Path::new("x")
+                )
+                .is_err(),
+                "{why}: {plain:?}"
+            );
         }
         // non-UTF-8 text payload
         let mut bad = b"ks1 text a/b\n\xff\xfe".to_vec();
-        assert!(Entry::decode(Zeroizing::new(std::mem::take(&mut bad)), &n, Path::new("x")).is_err());
+        assert!(
+            Entry::decode(Zeroizing::new(std::mem::take(&mut bad)), &n, Path::new("x")).is_err()
+        );
     }
 
     #[test]
@@ -310,7 +351,10 @@ mod tests {
 
     #[test]
     fn text_fields() {
-        let entry = Entry::text(Zeroizing::new("v\nuser: u\nurl: https://x\nnote line\nport: 22".to_owned())).unwrap();
+        let entry = Entry::text(Zeroizing::new(
+            "v\nuser: u\nurl: https://x\nnote line\nport: 22".to_owned(),
+        ))
+        .unwrap();
         let t = entry.as_text().unwrap();
         assert_eq!(t.value(), "v");
         assert_eq!(t.field("user"), Some("u"));

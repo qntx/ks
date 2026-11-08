@@ -19,7 +19,6 @@
     reason = "integration test harness: panicking on fixture setup, terse assertions and indexing are intentional"
 )]
 
-
 use std::io::Read as _;
 use std::path::Path;
 
@@ -62,11 +61,15 @@ fn recover_vault_with_age_only() {
         let kind = entry["kind"].as_str().unwrap();
         let bytes = std::fs::read(root.join(format!("{name}.age"))).unwrap();
         let decryptor = age::Decryptor::new_buffered(&bytes[..]).unwrap();
-        let key_refs: Vec<&dyn age::Identity> =
-            keys.iter().collect::<Vec<&age::x25519::Identity>>().into_iter().map(|k| {
+        let key_refs: Vec<&dyn age::Identity> = keys
+            .iter()
+            .collect::<Vec<&age::x25519::Identity>>()
+            .into_iter()
+            .map(|k| {
                 let r: &dyn age::Identity = k;
                 r
-            }).collect();
+            })
+            .collect();
         let mut reader = decryptor.decrypt(key_refs.into_iter()).unwrap();
         let mut plaintext = Vec::new();
         reader.read_to_end(&mut plaintext).unwrap();

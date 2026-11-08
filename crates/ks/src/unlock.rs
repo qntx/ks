@@ -3,7 +3,7 @@
 
 use age::secrecy::SecretString;
 
-use crate::vault::{verify_check, write_check, IDENTITY_FILE, MAX_SMALL_FILE};
+use crate::vault::{IDENTITY_FILE, MAX_SMALL_FILE, verify_check, write_check};
 use crate::{Error, Result, Session, Vault};
 
 impl Vault {
@@ -20,10 +20,7 @@ impl Vault {
     /// - [`Error::Locked`] when no passphrase source is available.
     /// - [`Error::WrongPassphrase`], [`Error::Corrupt`], [`Error::Io`] as
     ///   applicable.
-    pub fn unlock(
-        &self,
-        passphrase: Option<&dyn Fn() -> Result<SecretString>>,
-    ) -> Result<Session> {
+    pub fn unlock(&self, passphrase: Option<&dyn Fn() -> Result<SecretString>>) -> Result<Session> {
         let Some(get_passphrase) = passphrase else {
             return Err(Error::Locked);
         };

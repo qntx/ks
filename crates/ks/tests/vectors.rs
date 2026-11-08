@@ -18,7 +18,6 @@
     reason = "integration test harness: panicking on fixture setup, terse assertions and indexing are intentional"
 )]
 
-
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -42,7 +41,10 @@ fn name_vectors() {
     for case in json["invalid"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let reason = case["reason"].as_str().unwrap();
-        assert!(Name::parse(name).is_err(), "invalid name accepted: {name} ({reason})");
+        assert!(
+            Name::parse(name).is_err(),
+            "invalid name accepted: {name} ({reason})"
+        );
     }
 }
 
@@ -61,7 +63,10 @@ fn header_vectors() {
         let result = decode_like_ks(plaintext, &name);
         assert_eq!(result.is_ok(), ok, "{plaintext:?} ({})", case["reason"]);
         if ok {
-            assert_eq!(result.unwrap().kind().as_str(), case["kind"].as_str().unwrap());
+            assert_eq!(
+                result.unwrap().kind().as_str(),
+                case["kind"].as_str().unwrap()
+            );
         }
     }
 }
@@ -70,7 +75,10 @@ fn header_vectors() {
 /// pieces, so the vector table stays honest about the wire format.
 fn decode_like_ks(plaintext: &str, expected: &Name) -> ks::Result<Entry> {
     let path = Path::new("vector");
-    let corrupt = || ks::Error::Corrupt { path: path.to_path_buf(), reason: "vector" };
+    let corrupt = || ks::Error::Corrupt {
+        path: path.to_path_buf(),
+        reason: "vector",
+    };
     let (header, payload) = plaintext.split_once('\n').ok_or_else(corrupt)?;
     let mut parts = header.splitn(3, ' ');
     if parts.next() != Some("ks1") {
@@ -117,7 +125,10 @@ fn fixture_vault() {
                 assert_eq!(got.payload(), &expected[..]);
             }
             _ => {
-                assert_eq!(got.as_text().unwrap().as_str(), entry["payload"].as_str().unwrap());
+                assert_eq!(
+                    got.as_text().unwrap().as_str(),
+                    entry["payload"].as_str().unwrap()
+                );
             }
         }
     }
@@ -135,11 +146,29 @@ fn regenerate_fixture() {
     }
     let session = Vault::create(&dir, &passphrase).unwrap();
     let set = |name: &str, entry: Entry| {
-        session.set(&Name::parse(name).unwrap(), &entry, false).unwrap();
+        session
+            .set(&Name::parse(name).unwrap(), &entry, false)
+            .unwrap();
     };
-    set("github/token", Entry::text(Zeroizing::new("ghp_fixture0\nuser: octocat\nurl: https://github.com".to_owned())).unwrap());
-    set("bin/blob", Entry::binary(Zeroizing::new(vec![0xde, 0xad, 0xbe, 0xef, 0x00, 0x01])).unwrap());
+    set(
+        "github/token",
+        Entry::text(Zeroizing::new(
+            "ghp_fixture0\nuser: octocat\nurl: https://github.com".to_owned(),
+        ))
+        .unwrap(),
+    );
+    set(
+        "bin/blob",
+        Entry::binary(Zeroizing::new(vec![0xde, 0xad, 0xbe, 0xef, 0x00, 0x01])).unwrap(),
+    );
     set("seed", Entry::mnemonic(Zeroizing::new("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\npassphrase: fixture".to_owned())).unwrap());
-    set("eth/deployer", Entry::key(Zeroizing::new("0101010101010101010101010101010101010101010101010101010101010101\nchain: evm".to_owned())).unwrap());
+    set(
+        "eth/deployer",
+        Entry::key(Zeroizing::new(
+            "0101010101010101010101010101010101010101010101010101010101010101\nchain: evm"
+                .to_owned(),
+        ))
+        .unwrap(),
+    );
     std::io::stdout().write_all(b"fixture regenerated").unwrap();
 }
