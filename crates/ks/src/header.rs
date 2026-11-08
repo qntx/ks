@@ -123,6 +123,22 @@ mod tests {
     }
 
     #[test]
+    fn rejects_stanza_overflow_and_terminated() {
+        // >64 stanzas -> corrupt
+        let mut many = b"age-encryption.org/v1\n".to_vec();
+        for _ in 0..65 {
+            many.extend_from_slice(b"-> grease x\nQQ\n");
+        }
+        many.extend_from_slice(b"-> X25519 a\nYWJj\n--- m\n");
+        assert!(check(&many).is_err());
+        // a body line followed by a blank line terminates the header;
+        // anything after it must reject
+        let terminated =
+            b"age-encryption.org/v1\n-> X25519 a\nYWJj\n\n-> X25519 b\n--- m\n".to_vec();
+        assert!(check(&terminated).is_err());
+    }
+
+    #[test]
     fn rejects_everything_else() {
         let base = b"age-encryption.org/v1\n-> X25519 abcdef\nYWJj\n--- mac\npayload".to_vec();
         check(&base).unwrap();

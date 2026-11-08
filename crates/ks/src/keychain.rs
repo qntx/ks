@@ -227,9 +227,23 @@ mod tests {
             ret
         }
 
+        /// UNLOCK-ORDER: an enabled device source is tried before the
+        /// passphrase — unlocking must not consult the source at all.
+        #[test]
+        fn unlock_order_device_before_passphrase() {
+            mock();
+            let (_d, s) = vault();
+            drop(enable(&s).unwrap());
+            let s2 = s
+                .vault()
+                .unlock_without_agent(Some(&|| panic!("passphrase source must not be consulted")))
+                .unwrap();
+            assert!(s2.warnings().is_empty(), "{:?}", s2.warnings());
+        }
+
         /// All keychain tests share one global store, so they run in one fn.
         #[test]
-        fn keychain_roundtrip_stale_and_errors() {
+        fn device_stale_keychain_roundtrip_and_errors() {
             mock();
             let (_d1, s1) = vault();
             drop(enable(&s1).unwrap());

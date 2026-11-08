@@ -8,24 +8,89 @@
     "deep/1/2/3/4/5/e"
   ],
   "invalid": [
-    { "name": "", "reason": "empty" },
-    { "name": "A", "reason": "uppercase" },
-    { "name": "a b", "reason": "space" },
-    { "name": "a//b", "reason": "empty segment" },
-    { "name": "/a", "reason": "empty segment" },
-    { "name": "a/", "reason": "empty segment" },
-    { "name": ".a", "reason": "segment starts with dot" },
-    { "name": "a.", "reason": "segment ends with dot" },
-    { "name": "a/.b", "reason": "segment starts with dot" },
-    { "name": "con", "reason": "reserved device name" },
-    { "name": "con.txt", "reason": "reserved device name with extension" },
-    { "name": "COM1", "reason": "reserved device name" },
-    { "name": "lpt9/x", "reason": "reserved device name" },
-    { "name": "x.age", "reason": "ends with .age" },
-    { "name": "a/b.age", "reason": "ends with .age" },
-    { "name": "../x", "reason": "parent traversal" },
-    { "name": "a\\b", "reason": "backslash" },
-    { "name": "a:b", "reason": "colon" },
-    { "name": "ünïcode", "reason": "non-ascii" }
+    {
+      "name": "",
+      "reason": "empty"
+    },
+    {
+      "name": "A",
+      "reason": "uppercase"
+    },
+    {
+      "name": "a b",
+      "reason": "space"
+    },
+    {
+      "name": "a//b",
+      "reason": "empty segment"
+    },
+    {
+      "name": "/a",
+      "reason": "empty segment"
+    },
+    {
+      "name": "a/",
+      "reason": "empty segment"
+    },
+    {
+      "name": ".a",
+      "reason": "segment starts with dot"
+    },
+    {
+      "name": "a.",
+      "reason": "segment ends with dot"
+    },
+    {
+      "name": "a/.b",
+      "reason": "segment starts with dot"
+    },
+    {
+      "name": "con",
+      "reason": "reserved device name"
+    },
+    {
+      "name": "con.txt",
+      "reason": "reserved device name with extension"
+    },
+    {
+      "name": "COM1",
+      "reason": "reserved device name"
+    },
+    {
+      "name": "lpt9/x",
+      "reason": "reserved device name"
+    },
+    {
+      "name": "x.age",
+      "reason": "ends with .age"
+    },
+    {
+      "name": "a/b.age",
+      "reason": "ends with .age"
+    },
+    {
+      "name": "../x",
+      "reason": "parent traversal"
+    },
+    {
+      "name": "a\\b",
+      "reason": "backslash"
+    },
+    {
+      "name": "a:b",
+      "reason": "colon"
+    },
+    {
+      "name": "ünïcode",
+      "reason": "non-ascii"
+    },
+    {
+      "name": "-a",
+      "reason": "segment must not start with '-'"
+    },
+    {
+      "name": "a/-b",
+      "reason": "segment must not start with '-'"
+    }
   ]
 }

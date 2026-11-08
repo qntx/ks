@@ -17,8 +17,10 @@ const LOCK_FILE: &str = ".lock";
 pub(crate) const MAX_SMALL_FILE: u64 = 64 * 1024;
 pub(crate) const MAX_ENTRY_FILE: u64 = 64 * 1024 * 1024 + 64 * 1024;
 
-const GITATTRIBUTES: &str = "*.age binary\n";
-const GITIGNORE: &str = "*\n!*/\n!*.age\n!.gitignore\n!.gitattributes\n";
+/// Canonical `.gitattributes` written on `init --git`.
+pub const GITATTRIBUTES: &str = "*.age binary\n";
+/// Canonical `.gitignore` whitelist written on `init --git`.
+pub const GITIGNORE: &str = "*\n!*/\n!*.age\n!.gitignore\n!.gitattributes\n";
 
 /// An open vault directory (the root is canonicalized).
 #[derive(Debug)]

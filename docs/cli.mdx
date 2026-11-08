@@ -20,28 +20,28 @@ Environment: `KS_VAULT`, `KS_PASSPHRASE`, `KS_PASSPHRASE_FILE`,
 
 ## Commands
 
-| Command | Unlocks | Summary |
+| Command | Usage | Command-specific options |
 | --- | --- | --- |
-| `ks init [--git] [--clone <url>]` | new passphrase | Create (or clone) a vault |
-| `ks ls [prefix]` | no | List entries |
-| `ks show <name>` | yes | Print an entry's text (or `payload`/`fields` with `--json`) |
-| `ks set <name> [-m\|-b] [--force]` | yes | Store: one line, `-m` multiline, `-b` binary stdin |
-| `ks edit <name>` | yes | Edit a text entry in `$VISUAL`/`$EDITOR`/`vi` |
-| `ks gen [opts]` | no | Generate a random password |
-| `ks rm <name>` | yes | Remove an entry |
-| `ks mv <a> <b>` | yes | Rename |
-| `ks otp <name>` | yes | TOTP code + seconds remaining |
-| `ks run [--env NAME=entry] -- cmd…` | yes | Inject secrets as env vars into a child (see note) |
-| `ks passwd` | yes (no agent) | Re-seal the identity under a new passphrase |
-| `ks doctor [--fix]` | yes | Vault health check |
-| `ks sync [--keep local\|remote]` | no | Commit, `pull --rebase`, push |
-| `ks rekey` | yes (no agent) | Rotate K; requires a *new* passphrase |
-| `ks unlock [--ttl 15m] [--max 8h]` | yes (no agent) | Start the session agent |
-| `ks lock` | no | Stop the agent |
-| `ks status` | no | Vault, agent, device factors, git state |
-| `ks touchid enable\|disable` | yes (no agent) | macOS Secure Enclave factor |
-| `ks keychain enable\|disable` | yes (no agent) | OS keychain factor |
-| `ks git <args…>` | no | Run `git` inside the vault |
+| `init` | `ks init` | `--git` init a repo; `--clone <url>` clone instead |
+| `ls` | `ks ls [prefix]` | — |
+| `show` | `ks show <name>` | `-f <field>` print one field; `-c` copy to clipboard |
+| `set` | `ks set <name>` | `-m` multiline from stdin; `-b` raw bytes from stdin; `--force` overwrite |
+| `edit` | `ks edit <name>` | — (needs a terminal; binary entries → usage) |
+| `gen` | `ks gen [name]` | `-s <set>` (alphanum\|hex\|printable\|slug, default alphanum); `-c` copy; `--force` overwrite |
+| `rm` | `ks rm <name>` | `--force` no confirmation |
+| `mv` | `ks mv <from> <to>` | `--force` overwrite destination |
+| `otp` | `ks otp <name>` | `-c` copy code to clipboard |
+| `run` | `ks run -e <var=name[#field]>… -- <cmd>` | `-e` repeatable env mappings |
+| `passwd` | `ks passwd` | — (K unchanged; use `rekey` to revoke) |
+| `doctor` | `ks doctor` | `--fix` remove temp files, fix perms + git metadata |
+| `sync` | `ks sync` | `--keep local\|remote` retry a conflicted rebase |
+| `rekey` | `ks rekey` | — (needs a NEW passphrase) |
+| `unlock` | `ks unlock` | `--ttl` idle timeout (default 15m); `--max` lifetime cap (default 8h, max 24h) |
+| `lock` | `ks lock` | — |
+| `status` | `ks status` | — |
+| `touchid` | `ks touchid <enable\|disable>` | — |
+| `keychain` | `ks keychain <enable\|disable>` | — |
+| `git` | `ks git <args…>` | passthrough inside the vault |
 
 > `ks run` note: injected values are visible to same-user processes via
 > the child's environment (e.g. `/proc/<pid>/environ` on Linux). Use `run`

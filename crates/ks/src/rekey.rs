@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn resume_a_after_identity_write() {
+    fn admin_rekey_resume_a_after_identity_write() {
         let (_d, session, names, old) = fixture();
         // (a) two-key identity + check written, no entry touched
         let two = mid_state(session.vault(), old, &names, 0);
@@ -330,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn resume_b_half_entries() {
+    fn admin_rekey_resume_b_half_entries() {
         let (_d, session, names, old) = fixture();
         // (b) first entry rotated, second still old-key
         let two = mid_state(session.vault(), old, &names, 1);
@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn resume_c_all_entries_two_keys() {
+    fn admin_rekey_resume_c_all_entries_two_keys() {
         let (_d, session, names, old) = fixture();
         // (c) every entry rotated; identity still holds two keys
         let two = mid_state(session.vault(), old, &names, names.len());
@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn resume_d_single_key_stale_check() {
+    fn admin_rekey_resume_d_single_key_stale_check() {
         let (_d, session, names, old) = fixture();
         // (d) entries rotated + single-key identity written, but the check
         // file still belongs to the two-key identity
@@ -421,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn resume_on_dirty_git_tree() {
+    fn admin_rekey_resume_on_dirty_git_tree() {
         let (_d, session, names, old) = fixture();
         let root = session.vault().root().to_path_buf();
         git(&root, &["init"]);

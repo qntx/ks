@@ -150,7 +150,6 @@ fn admin_rekey_full_cycle() {
     let (code, _, err) = ks(&t, &["unlock"], b"", Some(&t.pass));
     assert_eq!(code, 0, "unlock failed: {err}");
     let old_identity = open_identity_text(&t, PASS);
-    let old_check = std::fs::read(t.vault.join(".check.age")).unwrap();
 
     // rekey with the passphrase source + a new-passphrase file
     let mut c = Command::new(assert_cmd::cargo::cargo_bin!("ks"));
@@ -211,8 +210,30 @@ fn admin_rekey_full_cycle() {
     for f in ["a/b.age", "c.age", ".identity.age", ".check.age"] {
         assert!(files.contains(f), "missing {f} in commit: {files}");
     }
-    // device_rollback: restore the pre-rekey check file (new identity kept),
-    // an impostor agent holding the OLD key must not be trusted
+}
+
+/// DEVICE-ROLLBACK: a restored pre-rekey check must not let an impostor
+/// agent (holding the OLD identity) unlock; a passphrase unlock detects
+/// the stale source, warns, removes it, and heals the check.
+#[test]
+fn device_rollback_restored_check_not_trusted() {
+    let t = mk();
+    init(&t);
+    set(&t, "a/b", "v1");
+    let old_identity = open_identity_text(&t, PASS);
+    let old_check = std::fs::read(t.vault.join(".check.age")).unwrap();
+    let mut c = Command::new(assert_cmd::cargo::cargo_bin!("ks"));
+    isolate_git(&mut c, &t.gitcfg);
+    c.arg("--vault")
+        .arg(&t.vault)
+        .arg("rekey")
+        .env_remove("KS_PASSPHRASE")
+        .env("KS_PASSPHRASE_FILE", &t.pass)
+        .env("KS_NEW_PASSPHRASE_FILE", &t.new_pass)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    assert_eq!(c.output().unwrap().status.code(), Some(0));
     std::fs::write(t.vault.join(".check.age"), &old_check).unwrap();
     let mut agent = Command::new(assert_cmd::cargo::cargo_bin!("ks"))
         .arg("--vault")

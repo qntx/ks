@@ -425,6 +425,30 @@ fn sync_git_passthrough() {
 }
 
 #[test]
+fn sync_stages_only_entry_files() {
+    // A remote can weaken the whitelist .gitignore; sync must still stage
+    // only entry files (and the two git metadata files) by pathspec.
+    let t = mk();
+    init_git(&t, &t.a);
+    ks(
+        &t,
+        &t.a,
+        &["git", "remote", "add", "origin", t.remote.to_str().unwrap()],
+        b"",
+    );
+    // Tampered .gitignore un-ignores *.txt — like a remote would push it.
+    std::fs::write(t.a.join(".gitignore"), "*\n!*/\n!*.age\n!*.txt\n").unwrap();
+    std::fs::write(t.a.join("notes.txt"), b"do not commit").unwrap();
+    let (code, _, _) = ks(&t, &t.a, &["sync"], b"");
+    assert_eq!(code, 0);
+    let (_, tree, _) = git(&t, &t.a, &["ls-tree", "-r", "--name-only", "origin/main"]);
+    assert!(
+        !tree.lines().any(|l| l == "notes.txt"),
+        "notes.txt synced: {tree}"
+    );
+}
+
+#[test]
 fn sync_gitignore_excludes_non_age() {
     let t = mk();
     init_git(&t, &t.a);

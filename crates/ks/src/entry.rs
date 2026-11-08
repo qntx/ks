@@ -260,6 +260,21 @@ mod tests {
     }
 
     #[test]
+    fn text_rejects_empty_and_cr() {
+        assert!(Entry::text(Zeroizing::new(String::new())).is_err());
+        assert!(Entry::text(Zeroizing::new("a\rb".to_owned())).is_err());
+        assert!(Entry::text(Zeroizing::new("ok".to_owned())).is_ok());
+    }
+
+    #[test]
+    fn debug_impls_redact_and_display() {
+        let e = Entry::text(Zeroizing::new("secret line".to_owned())).unwrap();
+        let d = format!("{e:?}");
+        assert!(!d.contains("secret"));
+        assert!(d.contains("payload_len"));
+    }
+
+    #[test]
     fn decode_rejects() {
         let n = name();
         for (plain, why) in [

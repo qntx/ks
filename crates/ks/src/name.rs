@@ -121,6 +121,12 @@ fn check_segment(full: &str, segment: &str) -> Result<()> {
             reason: "segment must not start or end with '.'",
         });
     }
+    if segment.starts_with('-') {
+        return Err(Error::InvalidName {
+            name: full.to_owned(),
+            reason: "segment must not start with '-'",
+        });
+    }
     if !segment
         .bytes()
         .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-'))
@@ -218,7 +224,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn parse_never_panics(s in ".*") {
+    fn parse_never_panics(s in ".*") {
             let _ = Name::parse(&s);
         }
 
@@ -227,5 +233,11 @@ mod tests {
             let n = Name::parse(&s).unwrap();
             prop_assert_eq!(n.as_str(), s);
         }
+    }
+    #[test]
+    fn display_debug_roundtrip() {
+        let n = Name::parse("a/b.c").unwrap();
+        assert_eq!(n.to_string(), "a/b.c");
+        assert_eq!(format!("{n:?}"), "a/b.c");
     }
 }
