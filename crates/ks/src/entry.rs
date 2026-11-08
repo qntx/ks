@@ -38,7 +38,6 @@ impl FromStr for Kind {
             "text" => Ok(Self::Text),
             "binary" => Ok(Self::Binary),
 
-
             _ => Err(()),
         }
     }
@@ -95,20 +94,6 @@ impl Entry {
         })
     }
 
-    fn text_like(kind: Kind, payload: Zeroizing<Vec<u8>>) -> Result<Self> {
-        let text = core::str::from_utf8(&payload)
-            .map_err(|_| Error::InvalidInput("text payload is not UTF-8".into()))?;
-        if text.is_empty() {
-            return Err(Error::InvalidInput("entry payload is empty".into()));
-        }
-        if text.contains('\r') {
-            return Err(Error::InvalidInput(
-                "entry payload must not contain \\r".into(),
-            ));
-        }
-        Ok(Self { kind, payload })
-    }
-
     /// The entry kind.
     #[must_use]
     pub const fn kind(&self) -> Kind {
@@ -125,9 +110,7 @@ impl Entry {
     #[must_use]
     pub fn as_text(&self) -> Option<Text<'_>> {
         match self.kind {
-            Kind::Text => {
-                Some(Text(core::str::from_utf8(&self.payload).unwrap_or("")))
-            }
+            Kind::Text => Some(Text(core::str::from_utf8(&self.payload).unwrap_or(""))),
             Kind::Binary => None,
         }
     }
