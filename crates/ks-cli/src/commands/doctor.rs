@@ -166,4 +166,10 @@ fn check_perms(
 }
 
 #[cfg(not(unix))]
-const fn check_perms(_p: &Path, _perms: &std::fs::Permissions, _e: u32, _problems: &mut Vec<Problem>) {}
+const fn check_perms(
+    _p: &Path,
+    _perms: &std::fs::Permissions,
+    _e: u32,
+    _problems: &mut Vec<Problem>,
+) {
+}

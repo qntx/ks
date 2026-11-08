@@ -5,12 +5,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use interprocess::local_socket::{
-    Listener, ListenerOptions,
-    traits::Listener as _,
-};
 #[cfg(unix)]
 use interprocess::local_socket::traits::StreamCommon as _;
+use interprocess::local_socket::{Listener, ListenerOptions, traits::Listener as _};
 #[cfg(windows)]
 use interprocess::os::windows::local_socket::ListenerOptionsExt as _;
 use ks::ErrorCode;
