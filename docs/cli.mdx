@@ -22,7 +22,7 @@ Environment: `KS_VAULT`, `KS_PASSPHRASE`, `KS_PASSPHRASE_FILE`,
 
 | Command | Usage | Command-specific options |
 | --- | --- | --- |
-| `init` | `ks init` | `--git` init a repo; `--clone <url>` clone instead |
+| `init` | `ks init` | `--git` init a repo; `--clone <url>` clone instead; missing parent directories are created |
 | `ls` | `ks ls [prefix]` | — |
 | `show` | `ks show <name>` | `-f <field>` print one field; `-c` copy to clipboard |
 | `set` | `ks set <name>` | `-m` multiline from stdin; `-b` raw bytes from stdin; `--force` overwrite |
@@ -75,4 +75,4 @@ Environment: `KS_VAULT`, `KS_PASSPHRASE`, `KS_PASSPHRASE_FILE`,
 | 73 | entry already exists |
 | 74 | I/O error |
 | 75 | sync conflict (retry with `--keep`) |
-| 77 | locked, or wrong passphrase |
+| 77 | locked (unlock again — also after a key rotation raced your command), or wrong passphrase |

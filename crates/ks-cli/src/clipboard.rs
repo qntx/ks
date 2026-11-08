@@ -34,7 +34,7 @@ pub(crate) fn copy(value: &[u8]) -> CliResult<()> {
     let mut cmd = Command::new(exe);
     cmd.args(["__clipboard", &clip_time().to_string()])
         .stdin(Stdio::piped())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null());
     detach(&mut cmd);
     crate::harden::no_inherit_std_handles();
@@ -47,7 +47,33 @@ pub(crate) fn copy(value: &[u8]) -> CliResult<()> {
     if let Some(mut stdin) = child.stdin.take() {
         drop(stdin.write_all(value));
     }
+    // The helper prints `ok` once the clipboard actually holds the value;
+    // anything else (spawn-level clap errors included) means failure.
+    let waited = wait_ok(child.stdout.take());
+    if !waited {
+        return Err((
+            ErrorCode::Unavailable,
+            "could not set the clipboard".to_owned(),
+        ));
+    }
     Ok(())
+}
+
+/// Waits up to 3 s for the helper's `ok` line.
+fn wait_ok(stdout: Option<impl std::io::Read + Send + 'static>) -> bool {
+    let Some(mut out) = stdout else {
+        return false;
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 8];
+        let ok = out
+            .read(&mut buf)
+            .is_ok_and(|n| buf.get(..n) == Some(b"ok\n".as_slice()));
+        tx.send(ok).ok();
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(3))
+        .unwrap_or(false)
 }
 
 /// Sets the clipboard in this process, waits `secs`, clears if unchanged.
@@ -68,11 +94,11 @@ pub(crate) fn daemon(secs: u64) -> i32 {
         return 1;
     };
     let text = Zeroizing::new(utf8);
-    if set(&mut cb, &text, secs).is_err() {
+    if set(&mut cb, &text).is_err() {
         return 1;
     }
-    // wait_until on linux already blocked for `secs`; other platforms sleep.
-    #[cfg(not(target_os = "linux"))]
+    drop(std::io::stdout().write_all(b"ok\n"));
+    // Keeping `cb` alive keeps serving the selection on X11/Wayland too.
     std::thread::sleep(std::time::Duration::from_secs(secs));
     // Clear only if the clipboard still holds our value.
     if cb.get_text().ok().as_deref() == Some(text.as_str()) {
@@ -81,17 +107,10 @@ pub(crate) fn daemon(secs: u64) -> i32 {
     0
 }
 
-#[cfg(target_os = "linux")]
-fn set(cb: &mut arboard::Clipboard, text: &str, secs: u64) -> Result<(), arboard::Error> {
-    // wait_until keeps ownership until the deadline, then returns; the clear
-    // below still runs at `secs`, not an hour later.
-    use arboard::SetExtLinux as _;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
-    cb.set().wait_until(deadline).text(text)
-}
-
-#[cfg(not(target_os = "linux"))]
-fn set(cb: &mut arboard::Clipboard, text: &str, _secs: u64) -> Result<(), arboard::Error> {
+/// Sets the clipboard without blocking. On Linux arboard serves the
+/// selection from a background thread for as long as `cb` lives, so the
+/// helper reports `ok` immediately and keeps `cb` until the timeout.
+fn set(cb: &mut arboard::Clipboard, text: &str) -> Result<(), arboard::Error> {
     cb.set_text(text)
 }
 

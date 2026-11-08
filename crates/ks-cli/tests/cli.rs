@@ -147,10 +147,17 @@ fn vault_show_copy() {
     init(&t);
     run(&t, &["set", "a"], b"v");
     let (code, out, err) = run(&t, &["show", "a", "-c"], b"");
-    assert!(
-        code == 0 || err.contains("unavailable") || out.contains("unavailable"),
-        "{code} {out} {err}"
-    );
+    // A headless Linux runner has no clipboard: the helper must say so
+    // instead of pretending; everywhere else the copy must succeed.
+    let headless = cfg!(target_os = "linux")
+        && std::env::var_os("DISPLAY").is_none()
+        && std::env::var_os("WAYLAND_DISPLAY").is_none();
+    if headless {
+        assert_eq!(code, 69, "{out} {err}");
+        assert!(err.contains("could not set the clipboard"), "{err}");
+    } else {
+        assert_eq!(code, 0, "{out} {err}");
+    }
 }
 
 #[test]
@@ -622,4 +629,97 @@ fn cli_json_stderr_clean_and_broken_pipe() {
     drop(stdout);
     let status = reader.wait().unwrap();
     assert_ne!(status.code(), Some(101), "ks panicked on a broken pipe");
+}
+
+#[test]
+fn clipboard_daemon_is_hidden_but_recognised() {
+    let t = mk();
+    // `ks __clipboard` must parse (a bad arg -> usage, not "unrecognized")
+    let (code, _, _) = run(&t, &["__clipboard", "x"], b"");
+    assert_eq!(code, 64);
+    // hidden from --help
+    let (_, out, _) = run(&t, &["--help"], b"");
+    assert!(
+        !out.contains("__clipboard") && !out.contains("clipboard-daemon"),
+        "{out}"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "sync polling against a wall-clock clipboard TTL; there is no timer to await"
+)]
+fn clipboard_copy_roundtrips_and_clears() {
+    use std::time::Instant;
+    let t = mk();
+    init(&t);
+    run(&t, &["set", "doc", "-m"], b"l\nuser: u2");
+    let prev = Command::new("pbpaste").output().unwrap().stdout;
+    let out = ks(&t, &["show", "doc", "-f", "user", "-c"])
+        .env("KS_CLIP_TIME", "2")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let got = Command::new("pbpaste").output().unwrap().stdout;
+    assert_eq!(got, b"u2", "clipboard must hold the value");
+    let deadline = Instant::now() + std::time::Duration::from_secs(6);
+    while Instant::now() < deadline {
+        if Command::new("pbpaste").output().unwrap().stdout != b"u2" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    assert_ne!(
+        Command::new("pbpaste").output().unwrap().stdout,
+        b"u2",
+        "clipboard still holds the value after KS_CLIP_TIME=2"
+    );
+    let mut p = Command::new("pbcopy")
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(p.stdin.take().unwrap().write_all(&prev));
+    drop(p.wait());
+}
+#[cfg(unix)]
+#[test]
+fn unlock_soft_fails_on_loose_state_dir() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let t = mk();
+    init(&t);
+    run(&t, &["set", "a"], b"v");
+    // Loosen the directory holding the agent endpoint. Linux: a private
+    // XDG_RUNTIME_DIR owned by this test. macOS: the shared run dir under
+    // Application Support (directories ignores env), restored afterwards.
+    let xdg = tempfile::tempdir().unwrap();
+    let dir = if cfg!(target_os = "macos") {
+        std::env::home_dir()
+            .unwrap()
+            .join("Library/Application Support/ks/run")
+    } else {
+        xdg.path().join("ks")
+    };
+    std::fs::create_dir_all(&dir).unwrap();
+    let mode = dir.symlink_metadata().unwrap().permissions().mode() & 0o777;
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let with_pass = ks(&t, &["show", "a"])
+        .env("XDG_RUNTIME_DIR", xdg.path())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let without = ks(&t, &["show", "a"])
+        .env("XDG_RUNTIME_DIR", xdg.path())
+        .env_remove("KS_PASSPHRASE_FILE")
+        .env_remove("KS_PASSPHRASE")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode)).unwrap();
+    let err = String::from_utf8_lossy(&with_pass.stderr);
+    assert_eq!(with_pass.status.code(), Some(0), "{err}");
+    assert!(err.contains("agent"), "expected an agent warning: {err}");
+    assert_eq!(without.status.code(), Some(77));
 }

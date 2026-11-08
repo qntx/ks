@@ -2,12 +2,16 @@
 
 use std::process::Command;
 
-use super::{Cli, CliResult, Out, err, vault};
+use super::{Cli, CliResult, Out, vault};
 
 /// Reports the vault path, agent liveness and git repo/dirty state.
 pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {
     let v = vault(cli)?;
-    let agent = ks::agent::status(&v).map_err(|e| err(&e))?;
+    let mut warnings = Vec::new();
+    let agent = ks::agent::status(&v).unwrap_or_else(|e| {
+        warnings.push(format!("could not read the agent state: {e}"));
+        None
+    });
     let git = ks::git::Git::new(v.root(), false);
     let repo = git.is_repo();
     let dirty = repo
@@ -28,6 +32,7 @@ pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {
         "touchid": touchid,
         "keychain": keychain,
         "git": { "repo": repo, "dirty": dirty },
+        "warnings": warnings,
     });
     let agent_line = agent.map_or_else(
         || "agent: not running".to_owned(),

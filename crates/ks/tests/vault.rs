@@ -498,3 +498,30 @@ fn unlock_without_source_is_locked() {
         Err(Error::Locked)
     ));
 }
+
+#[test]
+fn admin_rekey_concurrent_writer_gets_key_changed() {
+    let (_d, r) = root();
+    let session = Vault::create(&r, &passphrase()).unwrap();
+    let name = name("a");
+    let v = Vault::open(&r).unwrap();
+    v.rekey(&passphrase(), &|| {
+        Ok(SecretString::from("a completely different new passphrase"))
+    })
+    .unwrap();
+    match session.set(&name, &text("v"), false) {
+        Err(Error::KeyChanged) => {}
+        other => panic!("expected KeyChanged, got {other:?}"),
+    }
+    assert!(!r.join("a.age").exists());
+}
+
+#[test]
+fn change_passphrase_then_writes_work() {
+    let (_d, r) = root();
+    let session = Vault::create(&r, &passphrase()).unwrap();
+    session
+        .change_passphrase(&SecretString::from("a completely different new passphrase"))
+        .unwrap();
+    session.set(&name("k"), &text("v"), false).unwrap();
+}

@@ -7,6 +7,11 @@ pub(crate) fn run(cli: &Cli, out: &Out, from: &str, to: &str, force: bool) -> Cl
     let session = unlock(cli, out)?;
     let from = name(from)?;
     let to = name(to)?;
+    if from == to {
+        return Err(err(&ks::Error::InvalidInput(
+            "source and destination are the same".to_owned(),
+        )));
+    }
     let dest_exists = to.path_in(session.vault().root()).exists();
     if dest_exists && !force {
         if out.interactive {

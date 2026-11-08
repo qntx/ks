@@ -9,10 +9,11 @@ files, synced with git, and always recoverable with the official `age`
 tool and the master passphrase alone.
 
 ```bash
-ks init                       # new vault
-ks set github/token           # store a secret
-ks show github/token          # read it back
-ks sync                       # commit, rebase, push
+ks init --git                       # new vault backed by git
+ks git remote add origin <url>      # any git remote (or a local bare repo)
+printf 's3cret' | ks set github/token
+ks show github/token                # read it back
+ks sync                             # commit, rebase, push
 ```
 
 ## The model

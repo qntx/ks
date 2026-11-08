@@ -1699,7 +1699,7 @@ dependencies = [
 
 [[package]]
 name = "ks"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "age",
  "age-core",
@@ -1726,7 +1726,7 @@ dependencies = [
 
 [[package]]
 name = "ks-cli"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "age",
  "arboard",
