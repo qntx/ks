@@ -108,7 +108,12 @@ fn device_touchid_missing_plugin() {
         String::from_utf8_lossy(&o.stdout)
     );
     let err = String::from_utf8_lossy(&o.stderr);
-    assert!(err.contains("age-plugin-se"), "missing hint: {err}");
+    let hint = if cfg!(target_os = "macos") {
+        "age-plugin-se"
+    } else {
+        "requires macOS"
+    };
+    assert!(err.contains(hint), "missing hint {hint:?}: {err}");
     // status reports disabled without unlocking
     let (code, out, _) = ks(&t, &["status", "--json"], b"", false);
     assert_eq!(code, 0);
