@@ -408,6 +408,11 @@ fn tighten_one(stack: &mut Vec<PathBuf>, path: &Path) {
     let Ok(meta) = path.symlink_metadata() else {
         return;
     };
+    // `set_permissions` follows symlinks: a remote-committed link must never
+    // let ks chmod a file outside the vault. Doctor reports the link itself.
+    if meta.file_type().is_symlink() {
+        return;
+    }
     let mode = if meta.is_dir() { 0o700 } else { 0o600 };
     drop(std::fs::set_permissions(
         path,
@@ -459,6 +464,37 @@ pub(crate) fn unmerged_paths(porcelain: &[u8]) -> (Vec<String>, ConflictKind) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    #[allow(
+        clippy::unwrap_used,
+        reason = "test fixture setup may panic on filesystem errors"
+    )]
+    fn tighten_perms_never_follows_symlinks() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("tool");
+        std::fs::write(&target, b"#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let vault = tempfile::tempdir().unwrap();
+        std::fs::write(vault.path().join("x.age"), b"").unwrap();
+        std::os::unix::fs::symlink(&target, vault.path().join("link.age")).unwrap();
+
+        Git::new(vault.path(), false).tighten_perms();
+
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode(&target),
+            0o755,
+            "symlink target outside the vault was changed"
+        );
+        assert_eq!(
+            mode(&vault.path().join("x.age")),
+            0o600,
+            "entry was not tightened"
+        );
+    }
 
     #[test]
     fn unmerged_parsing() {
