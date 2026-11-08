@@ -16,6 +16,7 @@
 #![forbid(unsafe_code)]
 
 mod entry;
+pub mod git;
 mod error;
 mod header;
 mod key;
@@ -42,6 +43,7 @@ fn hex<const N: usize>(bytes: [u8; N]) -> String {
 }
 
 pub use entry::{Entry, Kind, Text};
+pub use error::ConflictKind;
 pub use error::{Error, ErrorCode, Result};
 pub use key::LocalKey;
 pub use name::Name;
