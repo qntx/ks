@@ -93,6 +93,23 @@ readable while the desktop session is unlocked (warned at enable).
 Device factors that hold a stale key are skipped with a warning and
 removed after a passphrase unlock — re-enable them afterwards.
 
+## key rotation
+
+```bash
+ks sync                       # on every available device first
+ks rekey                      # needs a NEW passphrase (KS_NEW_PASSPHRASE_FILE)
+ks sync                       # push the rotation
+```
+
+`rekey` is the ONLY revocation measure (a lost device keeps git
+credentials, so the passphrase must change — `passwd` does not revoke).
+It refuses a dirty tree, aborts listing any undecryptable entry, stops
+the agent and removes local Touch ID/keychain state. A crashed run
+resumes on the next `ks rekey` (the identity file temporarily holds two
+keys). On other devices: sync, unlock with the new passphrase, then
+`ks touchid enable` / `ks keychain enable` again, and revoke the lost
+device's git credentials on the host.
+
 A sync conflict exits **75** with `{"error":{"code":"conflict","entries":[...],
 "kind":"content"|"delete"}}`. `content` → rerun with `--keep local` or
 `--keep remote`. `delete` (one side deleted, the other modified) → resolve by

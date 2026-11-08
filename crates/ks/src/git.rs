@@ -55,6 +55,19 @@ impl Git {
         self.root.join(".git").exists()
     }
 
+    /// `git status --porcelain` is empty (or `root` is not a repo).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Unavailable`] when git fails.
+    pub fn is_clean(&self) -> Result<bool> {
+        if !self.is_repo() {
+            return Ok(true);
+        }
+        let out = self.git(&["status", "--porcelain"])?;
+        Ok(out.stdout.is_empty())
+    }
+
     /// `git init` + `git add -A` + one initial commit.
     ///
     /// # Errors

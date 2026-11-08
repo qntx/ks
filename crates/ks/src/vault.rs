@@ -15,7 +15,7 @@ pub(crate) const IDENTITY_FILE: &str = ".identity.age";
 pub(crate) const CHECK_FILE: &str = ".check.age";
 const LOCK_FILE: &str = ".lock";
 pub(crate) const MAX_SMALL_FILE: u64 = 64 * 1024;
-const MAX_ENTRY_FILE: u64 = 64 * 1024 * 1024 + 64 * 1024;
+pub(crate) const MAX_ENTRY_FILE: u64 = 64 * 1024 * 1024 + 64 * 1024;
 
 const GITATTRIBUTES: &str = "*.age binary\n";
 const GITIGNORE: &str = "*\n!*/\n!*.age\n!.gitignore\n!.gitattributes\n";
@@ -555,6 +555,17 @@ impl Session {
                 .atomic_write(&self.vault.root.join(IDENTITY_FILE), &identity_bytes)?;
             self.vault.write_check(key)
         })
+    }
+
+    /// Number of vault keys in the identity file: `2` means an unfinished
+    /// `ks rekey` rotation (finish with the new passphrase).
+    #[must_use]
+    pub const fn key_count(&self) -> usize {
+        match &self.key {
+            Key::Local(k) => k.key_count(),
+            #[cfg(feature = "agent")]
+            Key::Agent(_) => 1,
+        }
     }
 
     /// The vault key as identity text, for `ks __agent` over a pipe only.

@@ -34,6 +34,12 @@ pub enum Error {
         /// What is wrong with it.
         reason: &'static str,
     },
+    /// Entries that could not be decrypted during a rekey pre-check.
+    #[error("cannot decrypt entries: {}", .entries.join(", "))]
+    Undecryptable {
+        /// The failing entry names.
+        entries: Vec<String>,
+    },
     /// A new passphrase failed the policy checks.
     #[error("weak passphrase: {0}")]
     WeakPassphrase(String),
@@ -83,7 +89,7 @@ impl Error {
     pub const fn code(&self) -> ErrorCode {
         match self {
             Self::InvalidName { .. } | Self::InvalidInput(_) => ErrorCode::Usage,
-            Self::Corrupt { .. } => ErrorCode::Corrupt,
+            Self::Corrupt { .. } | Self::Undecryptable { .. } => ErrorCode::Corrupt,
             Self::WeakPassphrase(_) => ErrorCode::WeakPassphrase,
             Self::NotFound(_) => ErrorCode::NotFound,
             Self::Exists(_) => ErrorCode::Exists,

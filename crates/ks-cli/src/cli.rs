@@ -146,6 +146,8 @@ pub(crate) enum Command {
         #[arg(long, value_enum)]
         keep: Option<KeepSide>,
     },
+    /// Rotate the vault key: revocation requires a new passphrase.
+    Rekey,
     /// Unlock the vault key into the session agent.
     Unlock {
         /// Idle timeout (e.g. 15m, 300s, 1h).

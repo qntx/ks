@@ -25,6 +25,7 @@ mod key;
 pub mod local;
 mod name;
 mod passphrase;
+mod rekey;
 mod unlock;
 mod vault;
 
@@ -55,4 +56,5 @@ pub use key::Key;
 pub use key::LocalKey;
 pub use name::Name;
 pub use passphrase::check_new_passphrase;
+pub use rekey::RekeyReport;
 pub use vault::{Session, Vault};
