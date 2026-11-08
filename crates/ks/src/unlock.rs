@@ -93,6 +93,10 @@ impl Vault {
         // Read the identity file first so a broken vault never prompts.
         let identity_path = self.root().join(IDENTITY_FILE);
         let bytes = self.read_file(&identity_path, MAX_SMALL_FILE)?;
+        let identity_hash: [u8; 32] = {
+            use sha2::Digest as _;
+            sha2::Sha256::digest(&bytes).into()
+        };
         let mut warnings = Vec::new();
         let mut stale = Vec::new();
 
@@ -100,7 +104,7 @@ impl Vault {
         if with_agent {
             // A broken agent endpoint (permissions, ownership, socket) must
             // never block the passphrase: warn and keep going.
-            match self.agent_probe() {
+            match self.agent_probe(identity_hash) {
                 Ok(AgentProbe::Absent) => {}
                 Ok(AgentProbe::Stale) => stale.push(Stale::Agent),
                 Ok(AgentProbe::Ready(session)) => return Ok(session),
@@ -111,6 +115,7 @@ impl Vault {
         }
 
         if let Some(s) = self.apply_probe(
+            identity_hash,
             crate::touchid::probe(self),
             Stale::TouchId,
             "Touch ID holds an outdated vault key; it will be removed after a passphrase unlock",
@@ -121,6 +126,7 @@ impl Vault {
         }
         #[cfg(feature = "keychain")]
         if let Some(s) = self.apply_probe(
+            identity_hash,
             crate::keychain::probe(self),
             Stale::Keychain,
             "the OS keychain holds an outdated vault key; it will be removed after a passphrase unlock",
@@ -146,6 +152,7 @@ impl Vault {
             Self::open(self.root())?,
             Key::Local(key),
             warnings,
+            identity_hash,
         ))
     }
 
@@ -190,6 +197,7 @@ impl Vault {
     /// produce a warning.
     fn apply_probe(
         &self,
+        identity_hash: [u8; 32],
         probe: Probe,
         stale_src: Stale,
         stale_warn: &str,
@@ -206,6 +214,7 @@ impl Vault {
                 Self::open(self.root())?,
                 Key::Local(k),
                 std::mem::take(warnings),
+                identity_hash,
             ))),
             Probe::Key(_) => {
                 warnings.push(stale_warn.to_owned());
@@ -217,7 +226,7 @@ impl Vault {
 
     /// Connects to the agent and classifies the result.
     #[cfg(feature = "agent")]
-    fn agent_probe(&self) -> Result<AgentProbe> {
+    fn agent_probe(&self, identity_hash: [u8; 32]) -> Result<AgentProbe> {
         let Some(key) = crate::agent::AgentKey::connect(self)? else {
             return Ok(AgentProbe::Absent);
         };
@@ -228,6 +237,7 @@ impl Vault {
             Self::open(self.root())?,
             Key::Agent(key),
             Vec::new(),
+            identity_hash,
         )))
     }
 }

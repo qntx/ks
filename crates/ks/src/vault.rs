@@ -114,6 +114,10 @@ impl Vault {
             vault,
             key: Key::Local(key),
             warnings: Vec::new(),
+            identity_hash: std::sync::Mutex::new({
+                use sha2::Digest as _;
+                sha2::Sha256::digest(&identity_bytes).into()
+            }),
         })
     }
 
@@ -461,15 +465,60 @@ pub struct Session {
     vault: Vault,
     key: Key,
     warnings: Vec<String>,
+    identity_hash: std::sync::Mutex<[u8; 32]>,
 }
 
 impl Session {
-    pub(crate) const fn new(vault: Vault, key: Key, warnings: Vec<String>) -> Self {
+    pub(crate) const fn new(
+        vault: Vault,
+        key: Key,
+        warnings: Vec<String>,
+        identity_hash: [u8; 32],
+    ) -> Self {
         Self {
             vault,
             key,
             warnings,
+            identity_hash: std::sync::Mutex::new(identity_hash),
         }
+    }
+
+    /// Re-reads `.identity.age` and fails with [`Error::KeyChanged`]
+    /// when it no longer matches the file this session unlocked: a
+    /// concurrent rotation must not let us write old-key entries.
+    fn check_key(&self) -> Result<()> {
+        use sha2::Digest as _;
+        let bytes =
+            std::fs::read(self.vault.root().join(IDENTITY_FILE)).map_err(|e| Error::Io {
+                path: self.vault.root().join(IDENTITY_FILE),
+                source: e,
+            })?;
+        let now: [u8; 32] = sha2::Sha256::digest(&bytes).into();
+        let stored = *self
+            .identity_hash
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if now != stored {
+            return Err(Error::KeyChanged);
+        }
+        Ok(())
+    }
+
+    /// After a successful passphrase change records the new identity
+    /// hash so later writes in this session stay valid.
+    fn update_key(&self) -> Result<()> {
+        use sha2::Digest as _;
+        let bytes =
+            std::fs::read(self.vault.root().join(IDENTITY_FILE)).map_err(|e| Error::Io {
+                path: self.vault.root().join(IDENTITY_FILE),
+                source: e,
+            })?;
+        *self
+            .identity_hash
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            sha2::Sha256::digest(&bytes).into();
+        Ok(())
     }
 
     /// Reads and decrypts an entry.
@@ -495,6 +544,7 @@ impl Session {
             return Err(Error::Exists(name.to_string()));
         }
         self.vault.with_write_lock(|| {
+            self.check_key()?;
             if !overwrite && path.exists() {
                 return Err(Error::Exists(name.to_string()));
             }
@@ -515,6 +565,7 @@ impl Session {
             return Err(Error::NotFound(name.to_string()));
         }
         self.vault.with_write_lock(|| {
+            self.check_key()?;
             std::fs::remove_file(&path).map_err(|e| Error::Io {
                 path: path.clone(),
                 source: e,
@@ -564,6 +615,7 @@ impl Session {
     pub fn change_passphrase(&self, new_passphrase: &SecretString) -> Result<()> {
         crate::passphrase::check_new_passphrase(new_passphrase)?;
         self.vault.with_write_lock(|| {
+            self.check_key()?;
             #[cfg_attr(
                 not(feature = "agent"),
                 allow(
@@ -585,7 +637,8 @@ impl Session {
             let identity_bytes = crate::passphrase::seal_identity(key, new_passphrase)?;
             self.vault
                 .atomic_write(&self.vault.root.join(IDENTITY_FILE), &identity_bytes)?;
-            self.vault.write_check(key)
+            self.vault.write_check(key)?;
+            self.update_key()
         })
     }
 

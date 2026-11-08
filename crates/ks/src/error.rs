@@ -55,6 +55,12 @@ pub enum Error {
     /// No usable key source was available.
     #[error("vault is locked")]
     Locked,
+    /// `.identity.age` changed mid-command (a concurrent key rotation).
+    #[error(
+        "the vault key changed while this command ran (key rotation?); \
+         unlock and run it again"
+    )]
+    KeyChanged,
     /// The passphrase did not decrypt the identity file.
     #[error("wrong passphrase")]
     WrongPassphrase,
@@ -93,7 +99,7 @@ impl Error {
             Self::WeakPassphrase(_) => ErrorCode::WeakPassphrase,
             Self::NotFound(_) => ErrorCode::NotFound,
             Self::Exists(_) => ErrorCode::Exists,
-            Self::Locked => ErrorCode::Locked,
+            Self::Locked | Self::KeyChanged => ErrorCode::Locked,
             Self::Cancelled => ErrorCode::Cancelled,
             Self::WrongPassphrase => ErrorCode::WrongPassphrase,
             Self::Io { .. } => ErrorCode::Io,
