@@ -677,3 +677,34 @@ fn clipboard_copy_roundtrips_and_clears() {
     drop(p.stdin.take().unwrap().write_all(&prev));
     drop(p.wait());
 }
+#[cfg(unix)]
+#[test]
+fn unlock_soft_fails_on_loose_state_dir() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let t = mk();
+    init(&t);
+    run(&t, &["set", "a"], b"v");
+    let mut shared = {
+        let base = std::env::home_dir().unwrap();
+        if cfg!(target_os = "macos") {
+            base.join("Library/Application Support/ks")
+        } else {
+            base.join(".local/share/ks")
+        }
+    };
+    if shared.join("run").is_dir() {
+        shared = shared.join("run");
+    }
+    let mode = shared.symlink_metadata().unwrap().permissions().mode() & 0o777;
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let (code, out, err) = run(&t, &["show", "a"], b"");
+    let p = ks(&t, &["show", "a"])
+        .env_remove("KS_PASSPHRASE_FILE")
+        .env_remove("KS_PASSPHRASE")
+        .output()
+        .unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(mode)).unwrap();
+    assert_eq!(code, 0, "{out} {err}");
+    assert!(err.contains("agent"), "expected an agent warning: {err}");
+    assert_eq!(p.status.code(), Some(77));
+}

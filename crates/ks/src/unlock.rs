@@ -98,10 +98,15 @@ impl Vault {
 
         #[cfg(feature = "agent")]
         if with_agent {
-            match self.agent_probe()? {
-                AgentProbe::Absent => {}
-                AgentProbe::Stale => stale.push(Stale::Agent),
-                AgentProbe::Ready(session) => return Ok(session),
+            // A broken agent endpoint (permissions, ownership, socket) must
+            // never block the passphrase: warn and keep going.
+            match self.agent_probe() {
+                Ok(AgentProbe::Absent) => {}
+                Ok(AgentProbe::Stale) => stale.push(Stale::Agent),
+                Ok(AgentProbe::Ready(session)) => return Ok(session),
+                Err(e) => {
+                    warnings.push(format!("the session agent could not be reached: {e}"));
+                }
             }
         }
 
