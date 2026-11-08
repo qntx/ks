@@ -13,6 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vault`: the Touch ID blob lives in the local state directory, which the
   vault-scoped atomic write rejected.
 
+## [0.8.1] — 2025-11-09
+
+### Fixed
+
+- `ks touchid enable` no longer writes state into the vault
+- `show -c`/`otp -c`/`gen -c` never reached the clipboard: the hidden
+  helper was spawned under the wrong subcommand name and its exit was
+  ignored — copying now verifies the helper actually set the value
+- a loosened agent state directory no longer blocks the passphrase:
+  device probes warn and fall back, `ks status` reports `agent: null`
+- `ks mv a a` is a usage error (64), not `exists` (73)
+- a write that races `ks rekey`/`passwd` now fails `locked` (77)
+  instead of silently writing an old-key entry
+
 ## [0.8.0] — 2026-11-08
 
 Complete rewrite. The on-disk format, library API and CLI are new and
