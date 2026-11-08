@@ -18,10 +18,6 @@ categories = ["cryptography"]
 [workspace.dependencies]
 ks = { version = "0.8", path = "crates/ks" }
 
-clap = { version = "4.6.7", features = ["derive"] }
-
-ks = { version = "0.8", path = "crates/ks" }
-
 age        = "0.12.1"
 age-core   = "0.12.0"
 sha2       = "0.10.9"
@@ -38,6 +34,7 @@ clap = { version = "4.6.7", features = ["derive"] }
 
 proptest   = "1.12.0"
 serde_json = "1"
+
 [profile.release]
 codegen-units = 1
 lto = "thin"
