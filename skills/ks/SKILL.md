@@ -67,7 +67,6 @@ A sync conflict exits **75** with `{"error":{"code":"conflict","entries":[...],
 `--keep remote`. `delete` (one side deleted, the other modified) → resolve by
 hand: `ks git pull --rebase`, `ks git rm|add <file>`, `ks git rebase --continue`.
 
-
 ## Exit codes
 
 0 ok · 64 usage (bad name/args, missing `--force`) · 65 corrupt or
