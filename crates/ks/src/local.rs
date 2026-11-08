@@ -50,9 +50,10 @@ pub fn state_dir(vault: &Vault) -> Result<PathBuf> {
         use std::os::unix::fs::DirBuilderExt as _;
         builder.mode(0o700);
     }
-    builder
-        .create(&dir)
-        .map_err(|e| Error::Io { path: dir.clone(), source: e })?;
+    builder.create(&dir).map_err(|e| Error::Io {
+        path: dir.clone(),
+        source: e,
+    })?;
     check_dir_perms(&dir)?;
     Ok(dir)
 }
@@ -75,7 +76,12 @@ pub(crate) fn check_dir_perms(dir: &std::path::Path) -> Result<()> {
 }
 
 /// Windows: ownership enforcement comes from NTFS ACLs on the user profile.
+/// `Result` keeps the cross-platform signature; the unix branch can fail.
 #[cfg(windows)]
-pub(crate) fn check_dir_perms(_dir: &std::path::Path) -> Result<()> {
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "unix branch can fail; Result is the cross-platform contract"
+)]
+pub(crate) const fn check_dir_perms(_dir: &std::path::Path) -> Result<()> {
     Ok(())
 }

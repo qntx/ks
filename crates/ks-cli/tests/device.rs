@@ -25,7 +25,7 @@ use std::process::{Command, Stdio};
 const PASS: &str = "correct horse battery staple fixture";
 
 struct T {
-    dir: tempfile::TempDir,
+    _dir: tempfile::TempDir,
     vault: std::path::PathBuf,
     pass: std::path::PathBuf,
 }
@@ -42,7 +42,7 @@ fn mk() -> T {
     T {
         vault: dir.path().join("v"),
         pass,
-        dir,
+        _dir: dir,
     }
 }
 
@@ -101,7 +101,12 @@ fn device_touchid_missing_plugin() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let o = c.output().unwrap();
-    assert_eq!(o.status.code(), Some(69), "stdout: {}", String::from_utf8_lossy(&o.stdout));
+    assert_eq!(
+        o.status.code(),
+        Some(69),
+        "stdout: {}",
+        String::from_utf8_lossy(&o.stdout)
+    );
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(err.contains("age-plugin-se"), "missing hint: {err}");
     // status reports disabled without unlocking

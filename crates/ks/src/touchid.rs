@@ -7,16 +7,25 @@
 //! Enclave.
 
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::str::FromStr as _;
+#[cfg(target_os = "macos")]
 use std::sync::{Arc, Mutex};
 
-use age::secrecy::{ExposeSecret as _, SecretString};
+#[cfg(target_os = "macos")]
+use age::secrecy::ExposeSecret as _;
+#[cfg(target_os = "macos")]
+use age::secrecy::SecretString;
+#[cfg(target_os = "macos")]
 use zeroize::Zeroizing;
 
+#[cfg(target_os = "macos")]
+use crate::LocalKey;
 use crate::unlock::Probe;
-use crate::{Error, LocalKey, Result, Vault};
+use crate::{Error, Result, Vault};
 
 /// The plugin's short name (`age-plugin-se`, `age1se1…` recipients).
+#[cfg(target_os = "macos")]
 const PLUGIN: &str = "se";
 /// `age-plugin-se keygen` output (the `AGE-PLUGIN-SE-…` identity file).
 const IDENTITY_FILE: &str = "touchid.identity";
@@ -27,10 +36,12 @@ const BLOB_FILE: &str = "touchid.age";
 /// library never prints); confirmations and input requests always return
 /// `None` — the SE plugin uses the macOS system dialog itself.
 #[derive(Clone, Default)]
+#[cfg(target_os = "macos")]
 struct PluginCallbacks {
     messages: Arc<Mutex<Vec<String>>>,
 }
 
+#[cfg(target_os = "macos")]
 impl age::Callbacks for PluginCallbacks {
     fn display_message(&self, message: &str) {
         if let Ok(mut m) = self.messages.lock() {
@@ -70,6 +81,7 @@ pub fn is_enabled(vault: &Vault) -> Result<bool> {
 }
 
 /// Parses every `AGE-PLUGIN-SE-…` identity line from `touchid.identity`.
+#[cfg(target_os = "macos")]
 fn parse_identities(text: &str) -> Result<Vec<age::plugin::Identity>> {
     let mut identities = Vec::new();
     for line in text.lines() {
@@ -93,6 +105,7 @@ fn parse_identities(text: &str) -> Result<Vec<age::plugin::Identity>> {
 
 /// Decrypts `touchid.age` with the `AGE-PLUGIN-SE-…` identities (runs the
 /// plugin; the OS decides how to authenticate — Touch ID or password).
+#[cfg(target_os = "macos")]
 fn decrypt_blob(vault: &Vault) -> Result<Zeroizing<Vec<u8>>> {
     let identity_text = std::fs::read_to_string(identity_path(vault)?).map_err(|e| Error::Io {
         path: identity_path(vault).unwrap_or_default(),
@@ -126,9 +139,13 @@ fn decrypt_blob(vault: &Vault) -> Result<Zeroizing<Vec<u8>>> {
 /// stanza; no authentication needed).
 #[cfg(target_os = "macos")]
 fn seal_to_se(recipient: &age::plugin::Recipient, plaintext: &[u8]) -> Result<Vec<u8>> {
-    let plugin =
-        age::plugin::RecipientPluginV1::new(PLUGIN, core::slice::from_ref(recipient), &[], PluginCallbacks::default())
-            .map_err(|e| Error::Unavailable(format!("age-plugin-se: {e}")))?;
+    let plugin = age::plugin::RecipientPluginV1::new(
+        PLUGIN,
+        core::slice::from_ref(recipient),
+        &[],
+        PluginCallbacks::default(),
+    )
+    .map_err(|e| Error::Unavailable(format!("age-plugin-se: {e}")))?;
     let as_recipient: &dyn age::Recipient = &plugin;
     let encryptor = age::Encryptor::with_recipients(core::iter::once(as_recipient))
         .map_err(|_| Error::Internal("age encryption setup failed"))?;
@@ -139,7 +156,10 @@ fn seal_to_se(recipient: &age::plugin::Recipient, plaintext: &[u8]) -> Result<Ve
     })?;
     std::io::Write::write_all(&mut writer, plaintext)
         .and_then(|()| writer.finish().map(|_| ()))
-        .map_err(|e| Error::Io { path: BLOB_FILE.into(), source: e })?;
+        .map_err(|e| Error::Io {
+            path: BLOB_FILE.into(),
+            source: e,
+        })?;
     Ok(out)
 }
 
@@ -208,7 +228,9 @@ fn enable_inner(
     // Verify once: the plugin must hand back exactly the vault key text.
     match decrypt_blob(session.vault()) {
         Ok(plain) if *plain == *text.expose_secret().as_bytes() => Ok(()),
-        Ok(_) => Err(Error::Internal("Touch ID verify decrypt returned a different key")),
+        Ok(_) => Err(Error::Internal(
+            "Touch ID verify decrypt returned a different key",
+        )),
         Err(e) => Err(e),
     }
 }
@@ -262,7 +284,7 @@ pub fn disable(vault: &Vault) -> Result<bool> {
 /// check-file verification. Every failure is a soft skip — cancellation,
 /// a missing plugin and read errors are never treated as stale.
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn probe(_vault: &Vault) -> Probe {
+pub(crate) const fn probe(_vault: &Vault) -> Probe {
     Probe::Absent
 }
 
@@ -282,15 +304,21 @@ fn probe_macos(vault: &Vault) -> Result<Probe> {
     }
     let bytes = match decrypt_blob(vault) {
         Ok(b) => b,
-        Err(e) => return Ok(Probe::Skip(format!("Touch ID unlock failed or was cancelled: {e}"))),
+        Err(e) => {
+            return Ok(Probe::Skip(format!(
+                "Touch ID unlock failed or was cancelled: {e}"
+            )));
+        }
     };
     let Ok(text) = String::from_utf8(bytes.to_vec()) else {
         return Ok(Probe::Skip("Touch ID vault key is not UTF-8".to_owned()));
     };
-    Ok(LocalKey::from_identity_text(&SecretString::from(text)).map_or_else(
-        |_| Probe::Skip("Touch ID vault key is corrupt".to_owned()),
-        Probe::Key,
-    ))
+    Ok(
+        LocalKey::from_identity_text(&SecretString::from(text)).map_or_else(
+            |_| Probe::Skip("Touch ID vault key is corrupt".to_owned()),
+            Probe::Key,
+        ),
+    )
 }
 
 #[cfg(test)]
@@ -330,7 +358,10 @@ mod tests {
                 return;
             }
             let err = r.unwrap_err();
-            assert!(matches!(err, Error::Unavailable(_)), "expected Unavailable: {err}");
+            assert!(
+                matches!(err, Error::Unavailable(_)),
+                "expected Unavailable: {err}"
+            );
             assert!(err.to_string().contains("age-plugin-se"), "{err}");
             // nothing was left behind
             assert!(!is_enabled(session.vault()).unwrap());
@@ -338,7 +369,10 @@ mod tests {
         #[cfg(not(target_os = "macos"))]
         {
             let err = r.unwrap_err();
-            assert!(matches!(err, Error::Unavailable(_)), "expected Unavailable: {err}");
+            assert!(
+                matches!(err, Error::Unavailable(_)),
+                "expected Unavailable: {err}"
+            );
             assert!(err.to_string().contains("Secure Enclave"), "{err}");
         }
     }

@@ -151,6 +151,7 @@ impl Endpoint {
     }
 }
 
+#[cfg(unix)]
 use crate::local::check_dir_perms;
 
 /// Resolves (and creates, unix) the agent endpoint for `vault`, enforcing the

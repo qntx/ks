@@ -6,7 +6,7 @@
 //! Linux Secret Service via the pure-Rust zbus store.
 //!
 //! The platform default store is installed once in this library; tests
-//! install [`keyring_core::mock::MockCredentialStore`] instead.
+//! install `keyring_core::mock::Store` instead.
 
 use std::sync::Arc;
 
@@ -21,9 +21,8 @@ const SERVICE: &str = "ks";
 
 fn entry(vault: &Vault) -> Result<keyring_core::Entry> {
     ensure_store()?;
-    keyring_core::Entry::new(SERVICE, &crate::local::id(vault)).map_err(|e| {
-        Error::Unavailable(format!("cannot open the OS keychain: {e}"))
-    })
+    keyring_core::Entry::new(SERVICE, &crate::local::id(vault))
+        .map_err(|e| Error::Unavailable(format!("cannot open the OS keychain: {e}")))
 }
 
 /// Installs the platform default store once (first use wins; a test may
@@ -53,9 +52,8 @@ fn platform_store() -> Result<Arc<keyring_core::CredentialStore>> {
 
 #[cfg(target_os = "linux")]
 fn platform_store() -> Result<Arc<keyring_core::CredentialStore>> {
-    let store: Arc<keyring_core::CredentialStore> =
-        zbus_secret_service_keyring_store::Store::new()
-            .map_err(|e| Error::Unavailable(format!("Secret Service store: {e}")))?;
+    let store: Arc<keyring_core::CredentialStore> = zbus_secret_service_keyring_store::Store::new()
+        .map_err(|e| Error::Unavailable(format!("Secret Service store: {e}")))?;
     Ok(store)
 }
 
@@ -112,6 +110,7 @@ pub fn enable(session: &Session) -> Result<Vec<String>> {
             "keychain read-back does not match the stored key".into(),
         ));
     }
+    #[cfg(not(target_os = "linux"))]
     let warnings = Vec::new();
     #[cfg(target_os = "linux")]
     let warnings = vec![
@@ -166,6 +165,8 @@ mod tests {
         reason = "test harness: panicking fixtures are intentional"
     )]
 
+    use std::sync::Arc;
+
     use age::secrecy::SecretString;
 
     use super::*;
@@ -184,10 +185,12 @@ mod tests {
         SecretString::from(PASS)
     }
 
-    fn mock() -> std::sync::Arc<keyring_core::mock::Store> {
+    fn mock() -> Arc<keyring_core::mock::Store> {
         let store = keyring_core::mock::Store::new().unwrap();
-        keyring_core::set_default_store(store.clone() as std::sync::Arc<keyring_core::CredentialStore>);
-        store
+        let ret = Arc::clone(&store);
+        let as_store: Arc<keyring_core::CredentialStore> = store;
+        keyring_core::set_default_store(as_store);
+        ret
     }
 
     /// All keychain tests share one global store, so they run in one fn.
@@ -214,9 +217,7 @@ mod tests {
             .unlock_without_agent(Some(&|| Ok(source())))
             .unwrap();
         assert!(
-            s3.warnings()
-                .iter()
-                .any(|w| w.contains("keychain")),
+            s3.warnings().iter().any(|w| w.contains("keychain")),
             "expected a stale-keychain warning, got {:?}",
             s3.warnings()
         );
@@ -248,7 +249,11 @@ mod tests {
 
         // valid keychain key works with no passphrase source at all
         let s6 = s4.vault().unlock_without_agent(None).unwrap();
-        assert!(s6.warnings().is_empty(), "unexpected warnings: {:?}", s6.warnings());
+        assert!(
+            s6.warnings().is_empty(),
+            "unexpected warnings: {:?}",
+            s6.warnings()
+        );
         disable(s4.vault()).unwrap();
         disable(s1.vault()).unwrap();
         disable(other.vault()).unwrap();

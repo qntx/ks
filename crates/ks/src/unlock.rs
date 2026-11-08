@@ -100,34 +100,24 @@ impl Vault {
             }
         }
 
-        for (probe, stale_src, warn) in [
-            (
-                crate::touchid::probe(self),
-                Stale::TouchId,
-                "Touch ID holds an outdated vault key; it will be removed after a passphrase unlock",
-            ),
-            #[cfg(feature = "keychain")]
-            (
-                crate::keychain::probe(self),
-                Stale::Keychain,
-                "the OS keychain holds an outdated vault key; it will be removed after a passphrase unlock",
-            ),
-        ] {
-            match probe {
-                Probe::Absent => {}
-                Probe::Skip(w) => warnings.push(w),
-                Probe::Key(k) if self.verify_check(&k) => {
-                    return Ok(Session::new(
-                        Self::open(self.root())?,
-                        Key::Local(k),
-                        warnings,
-                    ));
-                }
-                Probe::Key(_) => {
-                    warnings.push(warn.to_owned());
-                    stale.push(stale_src);
-                }
-            }
+        if let Some(s) = self.apply_probe(
+            crate::touchid::probe(self),
+            Stale::TouchId,
+            "Touch ID holds an outdated vault key; it will be removed after a passphrase unlock",
+            &mut warnings,
+            &mut stale,
+        )? {
+            return Ok(s);
+        }
+        #[cfg(feature = "keychain")]
+        if let Some(s) = self.apply_probe(
+            crate::keychain::probe(self),
+            Stale::Keychain,
+            "the OS keychain holds an outdated vault key; it will be removed after a passphrase unlock",
+            &mut warnings,
+            &mut stale,
+        )? {
+            return Ok(s);
         }
 
         let Some(get_passphrase) = passphrase else {
@@ -170,6 +160,37 @@ impl Vault {
             Key::Local(key),
             warnings,
         ))
+    }
+
+    /// Applies one device-source probe to the chain: a key passing the
+    /// check-file verification becomes the session, a stale key is warned
+    /// about and remembered for post-passphrase removal, soft failures only
+    /// produce a warning.
+    fn apply_probe(
+        &self,
+        probe: Probe,
+        stale_src: Stale,
+        stale_warn: &str,
+        warnings: &mut Vec<String>,
+        stale: &mut Vec<Stale>,
+    ) -> Result<Option<Session>> {
+        match probe {
+            Probe::Absent => Ok(None),
+            Probe::Skip(w) => {
+                warnings.push(w);
+                Ok(None)
+            }
+            Probe::Key(k) if self.verify_check(&k) => Ok(Some(Session::new(
+                Self::open(self.root())?,
+                Key::Local(k),
+                std::mem::take(warnings),
+            ))),
+            Probe::Key(_) => {
+                warnings.push(stale_warn.to_owned());
+                stale.push(stale_src);
+                Ok(None)
+            }
+        }
     }
 
     /// Connects to the agent and classifies the result.

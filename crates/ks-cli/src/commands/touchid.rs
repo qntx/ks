@@ -14,15 +14,10 @@ pub(crate) fn run(cli: &Cli, out: &Out, enable: bool) -> CliResult<i32> {
         ));
     }
     let source = prompt::passphrase_source(cli, out);
-    let session = v
-        .unlock_without_agent(Some(&source))
-        .map_err(|e| err(&e))?;
+    let session = v.unlock_without_agent(Some(&source)).map_err(|e| err(&e))?;
     for w in session.warnings() {
         out.warn(w.clone());
     }
     ks::touchid::enable(&session).map_err(|e| err(&e))?;
-    Ok(out.ok_value(
-        "Touch ID enabled",
-        serde_json::json!({ "enabled": true }),
-    ))
+    Ok(out.ok_value("Touch ID enabled", serde_json::json!({ "enabled": true })))
 }
