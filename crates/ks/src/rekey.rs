@@ -35,10 +35,16 @@ impl Vault {
     /// fresh run (the identity file holds one key); on a resumed run the
     /// given passphrase is already the new one.
     ///
-    /// Steps: dirty-tree check, passphrase unlock, decryptable-entry
-    /// pre-check, device-source removal, then under the write lock —
-    /// two-key identity + check (fresh run only), per-entry re-encryption
-    /// to the new current key, single-key identity + check.
+    /// Steps: passphrase unlock, dirty-tree check (fresh runs only — a
+    /// crash mid-rotation leaves the tree dirty and must still resume),
+    /// decryptable-entry pre-check (before asking for a new passphrase),
+    /// device-source removal, then under the write lock — two-key
+    /// identity + check (fresh runs), per-entry re-encryption to the new
+    /// current key, single-key identity + check.
+    ///
+    /// A single-key identity whose check file was not rewritten is a
+    /// FINISHED rotation: a normal unlock heals the check, and running
+    /// `rekey` again starts a second rotation.
     ///
     /// # Errors
     ///
@@ -53,32 +59,25 @@ impl Vault {
         new_passphrase: &dyn Fn() -> Result<SecretString>,
     ) -> Result<RekeyReport> {
         let mut warnings = Vec::new();
-        let git = crate::git::Git::new(self.root(), false);
-        if git.is_repo() && !git.is_clean()? {
-            return Err(Error::InvalidInput(
-                "commit or sync pending changes before rotating the key".into(),
-            ));
-        }
         let identity_bytes = self.read_file(
             &self.root().join(IDENTITY_FILE),
             crate::vault::MAX_SMALL_FILE,
         )?;
         let key = crate::passphrase::open_identity(&identity_bytes, passphrase)?;
         let resumed = key.key_count() > 1;
-        let new_pass = if resumed {
-            passphrase.clone()
-        } else {
-            let p = new_passphrase()?;
-            warnings.extend(crate::passphrase::check_new_passphrase(&p)?);
-            if p.expose_secret() == passphrase.expose_secret() {
-                return Err(Error::WeakPassphrase(
-                    "the new passphrase must differ from the current one".into(),
+        // A crash mid-rotation leaves the tree dirty and must still resume,
+        // so the clean-tree rule applies to fresh runs only.
+        if !resumed {
+            let git = crate::git::Git::new(self.root(), false);
+            if git.is_repo() && !git.is_clean()? {
+                return Err(Error::InvalidInput(
+                    "commit or sync pending changes before rotating the key".into(),
                 ));
             }
-            p
-        };
-        // Pre-check: every entry must decrypt — after step 6 the old key is
-        // gone, so a file that fails now would be lost silently.
+        }
+        // Pre-check: every entry must decrypt — after the final write the
+        // old key is gone, so a file that fails now would be lost silently.
+        // Runs BEFORE asking for a new passphrase.
         let names = self.list(None)?;
         let mut failed = Vec::new();
         for name in &names {
@@ -91,6 +90,18 @@ impl Vault {
         if !failed.is_empty() {
             return Err(Error::Undecryptable { entries: failed });
         }
+        let new_pass = if resumed {
+            passphrase.clone()
+        } else {
+            let p = new_passphrase()?;
+            warnings.extend(crate::passphrase::check_new_passphrase(&p)?);
+            if p.expose_secret() == passphrase.expose_secret() {
+                return Err(Error::WeakPassphrase(
+                    "the new passphrase must differ from the current one".into(),
+                ));
+            }
+            p
+        };
         // Remove device sources; "not enabled" is fine, other failures warn.
         #[cfg(feature = "agent")]
         if let Err(e) = crate::agent::lock(self) {
@@ -380,6 +391,55 @@ mod tests {
             .unwrap();
         assert!(!report.resumed);
         let new_key = on_disk_key(session.vault(), NEW_PASS2);
+        assert!(key_reads_all(session.vault(), &new_key, &names));
+        assert!(session.vault().verify_check(&new_key));
+    }
+
+    /// `git` with an isolated config: no system/global files, fixed
+    /// identity, main as the default branch.
+    fn git(root: &std::path::Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args([
+                "-c",
+                "user.email=rekey@test",
+                "-c",
+                "user.name=rekey",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "init.defaultBranch=main",
+            ])
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {:?} failed", args);
+    }
+
+    #[test]
+    fn resume_on_dirty_git_tree() {
+        let (_d, session, names, old) = fixture();
+        let root = session.vault().root().to_path_buf();
+        git(&root, &["init"]);
+        git(&root, &["add", "-A"]);
+        git(&root, &["commit", "-q", "-m", "init"]);
+        // interrupted state (b): two-key identity, first entry rotated —
+        // nothing committed, so the tree IS dirty
+        let two = mid_state(session.vault(), old, &names, 1);
+        assert!(key_reads_all(session.vault(), &two, &names));
+        let report = session
+            .vault()
+            .rekey(&SecretString::from(NEW_PASS), &|| {
+                unreachable!("no new passphrase on resume")
+            })
+            .unwrap();
+        assert!(report.resumed);
+        let new_key = on_disk_key(session.vault(), NEW_PASS);
+        assert_eq!(new_key.key_count(), 1);
         assert!(key_reads_all(session.vault(), &new_key, &names));
         assert!(session.vault().verify_check(&new_key));
     }
