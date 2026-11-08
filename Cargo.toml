@@ -1,4 +1,5 @@
 [workspace]
+exclude = ["fuzz"]
 members         = ["crates/ks", "crates/ks-cli"]
 default-members = ["crates/ks-cli"]
 resolver        = "3"
@@ -75,6 +76,7 @@ debug    = true
 inherits = "release"
 
 [workspace.lints.rust]
+unexpected_cfgs               = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 unsafe_code                   = "deny"
 elided_lifetimes_in_paths     = "warn"
 single_use_lifetimes          = "warn"

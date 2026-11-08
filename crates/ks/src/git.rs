@@ -376,7 +376,7 @@ fn concat_args(a: &[&str], b: &[&str], c: &[String]) -> Vec<String> {
 /// Parses `git status --porcelain=v1 -z` for unmerged entries:
 /// `(entry names with .age stripped, kind)`. Unmerged XY codes are DD AU UD
 /// UA DU AA UU; any `D` in XY marks a delete conflict.
-fn unmerged_paths(porcelain: &[u8]) -> (Vec<String>, ConflictKind) {
+pub(crate) fn unmerged_paths(porcelain: &[u8]) -> (Vec<String>, ConflictKind) {
     let mut entries = Vec::new();
     let mut kind = ConflictKind::Content;
     for record in porcelain.split(|b| *b == 0).filter(|r| !r.is_empty()) {
