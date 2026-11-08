@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD033 MD041 -->
+
 # ks
 
 Personal local secret vault with an age-compatible on-disk format.
@@ -14,3 +16,15 @@ no dependency on `ks` itself.
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
 [MIT license](LICENSE-MIT) at your option.
+
+---
+
+<div align="center">
+
+A **[QuantX](https://qntx.org)** open-source project.
+
+<a href="https://qntx.org"><img alt="QuantX" width="369" src="https://raw.githubusercontent.com/qntx/.github/main/profile/qntx.svg" /></a>
+
+Code is law. We write both.
+
+</div>

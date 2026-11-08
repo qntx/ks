@@ -16,7 +16,28 @@ keywords = ["age", "secrets", "password-manager", "vault"]
 categories = ["cryptography"]
 
 [workspace.dependencies]
+ks = { version = "0.8", path = "crates/ks" }
+
 clap = { version = "4.6.7", features = ["derive"] }
+
+ks = { version = "0.8", path = "crates/ks" }
+
+age        = "0.12.1"
+age-core   = "0.12.0"
+sha2       = "0.10.9"
+zxcvbn     = "3.1.1"
+tempfile   = "3.27.0"
+fd-lock    = "4.0.4"
+zeroize    = { version = "1.9.1", features = ["derive"] }
+thiserror  = "2.0.21"
+rand       = "0.10.3"
+directories = "6.0.0"
+totp-rs    = { version = "6.0.0", features = ["otpauth"] }
+
+clap = { version = "4.6.7", features = ["derive"] }
+
+proptest   = "1.12.0"
+serde_json = "1"
 [profile.release]
 codegen-units = 1
 lto = "thin"
