@@ -59,8 +59,10 @@ impl Vault {
                 "commit or sync pending changes before rotating the key".into(),
             ));
         }
-        let identity_bytes =
-            self.read_file(&self.root().join(IDENTITY_FILE), crate::vault::MAX_SMALL_FILE)?;
+        let identity_bytes = self.read_file(
+            &self.root().join(IDENTITY_FILE),
+            crate::vault::MAX_SMALL_FILE,
+        )?;
         let key = crate::passphrase::open_identity(&identity_bytes, passphrase)?;
         let resumed = key.key_count() > 1;
         let new_pass = if resumed {
@@ -142,7 +144,12 @@ mod tests {
         clippy::unwrap_used,
         clippy::panic,
         clippy::assert_is_empty,
-        reason = "test harness: panicking fixtures are intentional"
+        clippy::items_after_statements,
+        clippy::shadow_unrelated,
+        clippy::indexing_slicing,
+        clippy::needless_collect,
+        clippy::doc_markdown,
+        reason = "test harness: panicking fixtures, terse assertions and indexing are intentional"
     )]
 
     use std::io::Read as _;
@@ -159,8 +166,7 @@ mod tests {
 
     fn vault() -> (tempfile::TempDir, crate::Session) {
         let dir = tempfile::tempdir().unwrap();
-        let session =
-            Vault::create(&dir.path().join("v"), &SecretString::from(PASS)).unwrap();
+        let session = Vault::create(&dir.path().join("v"), &SecretString::from(PASS)).unwrap();
         (dir, session)
     }
 
@@ -170,8 +176,7 @@ mod tests {
 
     /// The LocalKey held by the on-disk identity file right now.
     fn on_disk_key(v: &Vault, pass: &str) -> LocalKey {
-        let bytes =
-            std::fs::read(v.root().join(crate::vault::IDENTITY_FILE)).unwrap();
+        let bytes = std::fs::read(v.root().join(IDENTITY_FILE)).unwrap();
         open_identity(&bytes, &SecretString::from(pass)).unwrap()
     }
 
@@ -179,8 +184,7 @@ mod tests {
     /// identity file with `pass`, then decrypt each entry with the
     /// identities inside — what `age -d -i` does mid-rotation.
     fn assert_entries_age_only(v: &Vault, pass: &str, names: &[Name]) {
-        let identity_bytes =
-            std::fs::read(v.root().join(crate::vault::IDENTITY_FILE)).unwrap();
+        let identity_bytes = std::fs::read(v.root().join(IDENTITY_FILE)).unwrap();
         let decryptor = age::Decryptor::new_buffered(&identity_bytes[..]).unwrap();
         let mut scrypt = age::scrypt::Identity::new(SecretString::from(pass));
         scrypt.set_max_work_factor(20);
@@ -195,7 +199,7 @@ mod tests {
             .collect();
         for n in names {
             let bytes = std::fs::read(n.path_in(v.root())).unwrap();
-            let decryptor = age::Decryptor::new_buffered(&bytes[..]).unwrap();
+            let entry_decryptor = age::Decryptor::new_buffered(&bytes[..]).unwrap();
             let refs: Vec<&dyn age::Identity> = keys
                 .iter()
                 .map(|k| {
@@ -203,7 +207,7 @@ mod tests {
                     r
                 })
                 .collect();
-            decryptor.decrypt(refs.into_iter()).unwrap();
+            entry_decryptor.decrypt(refs.into_iter()).unwrap();
         }
     }
 
@@ -211,9 +215,7 @@ mod tests {
     fn key_reads_all(v: &Vault, key: &LocalKey, names: &[Name]) -> bool {
         names.iter().all(|n| {
             let path = n.path_in(v.root());
-            std::fs::read(&path)
-                .map(|b| decrypt_entry(key, &b, n, &path).is_ok())
-                .unwrap_or(false)
+            std::fs::read(&path).is_ok_and(|b| decrypt_entry(key, &b, n, &path).is_ok())
         })
     }
 
@@ -234,7 +236,7 @@ mod tests {
     fn mid_state(v: &Vault, old: LocalKey, names: &[Name], n: usize) -> LocalKey {
         let two = old.with_new_current();
         let sealed = seal_identity(&two, &SecretString::from(NEW_PASS)).unwrap();
-        v.atomic_write(&v.root().join(crate::vault::IDENTITY_FILE), &sealed)
+        v.atomic_write(&v.root().join(IDENTITY_FILE), &sealed)
             .unwrap();
         v.write_check(&two).unwrap();
         rotate_entries(v, &two, &names[..n]);
@@ -244,10 +246,18 @@ mod tests {
     fn fixture() -> (tempfile::TempDir, crate::Session, Vec<Name>, LocalKey) {
         let (dir, session) = vault();
         session
-            .set(&name("a/b"), &Entry::text(Zeroizing::new("v1".to_owned())).unwrap(), false)
+            .set(
+                &name("a/b"),
+                &Entry::text(Zeroizing::new("v1".to_owned())).unwrap(),
+                false,
+            )
             .unwrap();
         session
-            .set(&name("c"), &Entry::text(Zeroizing::new("v2".to_owned())).unwrap(), false)
+            .set(
+                &name("c"),
+                &Entry::text(Zeroizing::new("v2".to_owned())).unwrap(),
+                false,
+            )
             .unwrap();
         let names = vec![name("a/b"), name("c")];
         let old = on_disk_key(session.vault(), PASS);
@@ -273,7 +283,7 @@ mod tests {
         assert!(key_reads_all(session.vault(), &new_key, &names));
         assert!(session.vault().verify_check(&new_key));
         open_identity(
-            &std::fs::read(session.vault().root().join(crate::vault::IDENTITY_FILE)).unwrap(),
+            &std::fs::read(session.vault().root().join(IDENTITY_FILE)).unwrap(),
             &SecretString::from(PASS),
         )
         .unwrap_err();
@@ -284,9 +294,7 @@ mod tests {
         let (_d, session, _, _) = fixture();
         let e = session
             .vault()
-            .rekey(&SecretString::from(PASS), &|| {
-                Ok(SecretString::from(PASS))
-            })
+            .rekey(&SecretString::from(PASS), &|| Ok(SecretString::from(PASS)))
             .unwrap_err();
         assert!(matches!(e, Error::WeakPassphrase(_)), "{e}");
     }
@@ -300,7 +308,9 @@ mod tests {
         assert!(key_reads_all(session.vault(), &two, &names));
         let report = session
             .vault()
-            .rekey(&SecretString::from(NEW_PASS), &|| unreachable!("no new passphrase on resume"))
+            .rekey(&SecretString::from(NEW_PASS), &|| {
+                unreachable!("no new passphrase on resume")
+            })
             .unwrap();
         assert!(report.resumed);
         let new_key = on_disk_key(session.vault(), NEW_PASS);
@@ -317,7 +327,9 @@ mod tests {
         assert!(key_reads_all(session.vault(), &two, &names));
         let report = session
             .vault()
-            .rekey(&SecretString::from(NEW_PASS), &|| unreachable!("no new passphrase on resume"))
+            .rekey(&SecretString::from(NEW_PASS), &|| {
+                unreachable!("no new passphrase on resume")
+            })
             .unwrap();
         assert!(report.resumed);
         let new_key = on_disk_key(session.vault(), NEW_PASS);
@@ -333,7 +345,9 @@ mod tests {
         assert!(key_reads_all(session.vault(), &two, &names));
         let report = session
             .vault()
-            .rekey(&SecretString::from(NEW_PASS), &|| unreachable!("no new passphrase on resume"))
+            .rekey(&SecretString::from(NEW_PASS), &|| {
+                unreachable!("no new passphrase on resume")
+            })
             .unwrap();
         assert!(report.resumed);
         let new_key = on_disk_key(session.vault(), NEW_PASS);
@@ -351,10 +365,7 @@ mod tests {
         let sealed = seal_identity(&single, &SecretString::from(NEW_PASS)).unwrap();
         session
             .vault()
-            .atomic_write(
-                &session.vault().root().join(crate::vault::IDENTITY_FILE),
-                &sealed,
-            )
+            .atomic_write(&session.vault().root().join(IDENTITY_FILE), &sealed)
             .unwrap();
         // no write_check here — check is stale now
         assert_entries_age_only(session.vault(), NEW_PASS, &names);
@@ -375,20 +386,17 @@ mod tests {
 
     #[test]
     fn undecryptable_entry_aborts() {
-        let (_d, session, names, _) = fixture();
+        let (_d, session, _names, _) = fixture();
         // a valid single-X25519 age file to a random foreign recipient
         let foreign = age::x25519::Identity::generate().to_public();
         let recipient: &dyn age::Recipient = &foreign;
-        let encryptor =
-            age::Encryptor::with_recipients(core::iter::once(recipient)).unwrap();
+        let encryptor = age::Encryptor::with_recipients(core::iter::once(recipient)).unwrap();
         let path = session.vault().root().join("rogue.age");
         let mut out = Vec::new();
         let mut w = encryptor.wrap_output(&mut out).unwrap();
         std::io::Write::write_all(&mut w, b"ks1 text rogue\nx").unwrap();
         w.finish().unwrap();
         std::fs::write(&path, &out).unwrap();
-        let mut names = names;
-        names.push(name("rogue"));
         let e = session
             .vault()
             .rekey(&SecretString::from(PASS), &|| {
@@ -404,7 +412,10 @@ mod tests {
             .vault()
             .unlock_without_agent(Some(&|| Ok(SecretString::from(PASS))))
             .unwrap();
-        assert_eq!(s.get(&name("a/b")).unwrap().as_text().unwrap().as_str(), "v1");
+        assert_eq!(
+            s.get(&name("a/b")).unwrap().as_text().unwrap().as_str(),
+            "v1"
+        );
         std::fs::remove_file(&path).unwrap();
     }
 }

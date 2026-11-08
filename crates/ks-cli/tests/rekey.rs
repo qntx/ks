@@ -17,6 +17,7 @@
     clippy::cast_possible_truncation,
     clippy::assert_is_empty,
     clippy::string_lit_as_bytes,
+    clippy::cognitive_complexity,
     reason = "integration test harness: panicking fixtures and terse assertions are intentional"
 )]
 
@@ -89,15 +90,6 @@ fn set(t: &T, n: &str, v: &str) {
     assert!(code == 0, "set {n} failed: {out} {err}");
 }
 
-/// The vault key as `age` identity text (library unlock; no agent).
-fn identity_text(t: &T, pass: &str) -> age::secrecy::SecretString {
-    let v = ks::Vault::open(&t.vault).unwrap();
-    let s = v
-        .unlock_without_agent(Some(&|| Ok(age::secrecy::SecretString::from(pass))))
-        .unwrap();
-    s.agent_identity().expect("a passphrase unlock is a local key")
-}
-
 /// Decrypts `.identity.age` with `pass` via the `age` crate alone.
 fn open_identity_text(t: &T, pass: &str) -> String {
     let bytes = std::fs::read(t.vault.join(".identity.age")).unwrap();
@@ -118,18 +110,15 @@ fn decrypt_with_identity(bytes: &[u8], identity_text: &str) -> bool {
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(|l| l.parse().unwrap())
         .collect();
-    let decryptor = match age::Decryptor::new_buffered(bytes) {
-        Ok(d) => d,
-        Err(_) => return false,
+    let Ok(decryptor) = age::Decryptor::new_buffered(bytes) else {
+        return false;
     };
-    let refs: Vec<&dyn age::Identity> = keys
-        .iter()
-        .map(|k| {
+    decryptor
+        .decrypt(keys.iter().map(|k| {
             let r: &dyn age::Identity = k;
             r
-        })
-        .collect();
-    decryptor.decrypt(refs.into_iter()).is_ok()
+        }))
+        .is_ok()
 }
 
 #[test]
@@ -156,7 +145,12 @@ fn admin_rekey_full_cycle() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let o = c.output().unwrap();
-    assert_eq!(o.status.code(), Some(0), "rekey: {}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "rekey: {}",
+        String::from_utf8_lossy(&o.stderr)
+    );
 
     // old passphrase is dead; new works
     let (code, _, err) = ks(&t, &["show", "a/b"], b"", Some(&t.pass));
@@ -215,7 +209,17 @@ fn admin_rekey_full_cycle() {
         .unwrap()
         .write_all(old_identity.as_bytes())
         .unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let (_, out, _) = ks(&t, &["status", "--json"], b"", None);
+        if serde_json::from_str::<serde_json::Value>(&out).is_ok_and(|v| !v["agent"].is_null()) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "impostor agent did not come up"
+        );
+    }
     // no passphrase -> locked (the stale agent is not trusted)
     let (code, _, _) = ks(&t, &["show", "a/b"], b"", None);
     assert_eq!(code, 77);
@@ -257,7 +261,10 @@ fn admin_rekey_same_passphrase_rejected() {
         "{}",
         String::from_utf8_lossy(&o.stderr)
     );
-    assert_eq!(std::fs::read(t.vault.join(".identity.age")).unwrap(), before);
+    assert_eq!(
+        std::fs::read(t.vault.join(".identity.age")).unwrap(),
+        before
+    );
 }
 
 #[test]

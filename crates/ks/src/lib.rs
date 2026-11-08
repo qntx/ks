@@ -54,7 +54,7 @@ pub use error::ConflictKind;
 pub use error::{Error, ErrorCode, Result};
 pub use key::Key;
 pub use key::LocalKey;
-pub use rekey::RekeyReport;
 pub use name::Name;
 pub use passphrase::check_new_passphrase;
+pub use rekey::RekeyReport;
 pub use vault::{Session, Vault};

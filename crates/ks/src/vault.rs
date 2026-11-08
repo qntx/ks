@@ -560,7 +560,7 @@ impl Session {
     /// Number of vault keys in the identity file: `2` means an unfinished
     /// `ks rekey` rotation (finish with the new passphrase).
     #[must_use]
-    pub fn key_count(&self) -> usize {
+    pub const fn key_count(&self) -> usize {
         match &self.key {
             Key::Local(k) => k.key_count(),
             #[cfg(feature = "agent")]

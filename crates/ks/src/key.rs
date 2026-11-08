@@ -63,7 +63,7 @@ impl LocalKey {
 
     /// Number of identities (`1`, or `2` mid-rotation).
     #[must_use]
-    pub(crate) fn key_count(&self) -> usize {
+    pub(crate) const fn key_count(&self) -> usize {
         self.keys.len()
     }
 
