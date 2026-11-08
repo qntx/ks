@@ -22,13 +22,17 @@ mod error;
 pub mod git;
 mod header;
 mod key;
+pub mod local;
 mod name;
 mod passphrase;
 mod unlock;
 mod vault;
 
+#[cfg(feature = "keychain")]
+pub mod keychain;
 pub mod pwgen;
 pub mod totp;
+pub mod touchid;
 
 #[cfg(test)]
 use proptest as _;

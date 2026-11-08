@@ -12,8 +12,9 @@ keywords     = { workspace = true }
 categories   = { workspace = true }
 
 [features]
-default = []
-agent   = ["dep:interprocess", "dep:serde", "dep:base64", "dep:serde_json", "dep:rustix"]
+default  = []
+agent    = ["dep:interprocess", "dep:serde", "dep:base64", "dep:serde_json"]
+keychain = ["dep:keyring-core", "dep:apple-native-keyring-store", "dep:windows-native-keyring-store"]
 
 [dependencies]
 age          = { workspace = true }
@@ -33,7 +34,16 @@ rand         = { workspace = true }
 zxcvbn       = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { workspace = true, optional = true, features = ["process"] }
+rustix = { workspace = true, features = ["process"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+which                      = { workspace = true }
+keyring-core               = { workspace = true, optional = true }
+apple-native-keyring-store = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+keyring-core                 = { workspace = true, optional = true }
+windows-native-keyring-store = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest   = { workspace = true }

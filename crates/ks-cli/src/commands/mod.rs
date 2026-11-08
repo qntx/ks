@@ -8,6 +8,7 @@ pub(crate) mod edit;
 pub(crate) mod generate;
 pub(crate) mod git;
 pub(crate) mod init;
+pub(crate) mod keychain;
 pub(crate) mod lock;
 pub(crate) mod ls;
 pub(crate) mod mv;
@@ -19,6 +20,7 @@ pub(crate) mod set;
 pub(crate) mod show;
 pub(crate) mod status;
 pub(crate) mod sync;
+pub(crate) mod touchid;
 pub(crate) mod unlock;
 
 pub(crate) use crate::cli::Cli;

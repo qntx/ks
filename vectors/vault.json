@@ -1,9 +1,15 @@
 {
   "passphrase": "fixture passphrase: correct-horse-7f3a9c2e",
   "entries": [
-    { "name": "github/token", "kind": "text", "payload": "ghp_fixture0\nuser: octocat\nurl: https://github.com" },
-    { "name": "bin/blob", "kind": "binary", "hex": "deadbeef0001" },
-    { "name": "seed", "kind": "mnemonic", "payload": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\npassphrase: fixture" },
-    { "name": "eth/deployer", "kind": "key", "payload": "0101010101010101010101010101010101010101010101010101010101010101\nchain: evm" }
+    {
+      "name": "github/token",
+      "kind": "text",
+      "payload": "ghp_fixture0\nuser: octocat\nurl: https://github.com"
+    },
+    {
+      "name": "bin/blob",
+      "kind": "binary",
+      "hex": "deadbeef0001"
+    }
   ]
 }

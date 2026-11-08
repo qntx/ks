@@ -22,7 +22,7 @@
   code does not panic — no `unwrap`, `expect`, indexing panics, or `panic!`
   outside tests.
 - Dependencies are declared once in `[workspace.dependencies]`; new or updated
-  dependencies must be released for at least 7 days, except qntx-owned `kobe`
+  dependencies must be released for at least 7 days
   and `signer`, which are pinned with `=` requirements.
 
 ## Commands

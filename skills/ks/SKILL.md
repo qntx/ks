@@ -77,6 +77,22 @@ max, or `ks lock`. `locked` (77) means unlock first or supply a passphrase
 source. `--no-agent` bypasses it; `passwd`/`unlock`/`rekey` always need the
 real passphrase (the agent never hands out the vault key).
 
+## device unlock
+
+```bash
+ks touchid enable        # human step: Touch ID now confirms every unlock
+ks keychain enable       # or store the key in the OS keychain
+ks status --json         # "touchid": bool, "keychain": bool
+ks touchid disable / ks keychain disable
+```
+
+A human enables a factor once; afterwards every command (AI agents
+included) unlocks without a passphrase source — Touch ID pops its own
+system dialog, the keychain needs nothing. On Linux the keychain is
+readable while the desktop session is unlocked (warned at enable).
+Device factors that hold a stale key are skipped with a warning and
+removed after a passphrase unlock — re-enable them afterwards.
+
 A sync conflict exits **75** with `{"error":{"code":"conflict","entries":[...],
 "kind":"content"|"delete"}}`. `content` → rerun with `--keep local` or
 `--keep remote`. `delete` (one side deleted, the other modified) → resolve by

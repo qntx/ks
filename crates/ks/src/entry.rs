@@ -18,10 +18,6 @@ pub enum Kind {
     Text,
     /// Arbitrary bytes.
     Binary,
-    /// A BIP-39 mnemonic with an optional `passphrase` field.
-    Mnemonic,
-    /// A hex private key with a mandatory `chain` field.
-    Key,
 }
 
 impl Kind {
@@ -31,8 +27,6 @@ impl Kind {
         match self {
             Self::Text => "text",
             Self::Binary => "binary",
-            Self::Mnemonic => "mnemonic",
-            Self::Key => "key",
         }
     }
 }
@@ -43,8 +37,7 @@ impl FromStr for Kind {
         match s {
             "text" => Ok(Self::Text),
             "binary" => Ok(Self::Binary),
-            "mnemonic" => Ok(Self::Mnemonic),
-            "key" => Ok(Self::Key),
+
             _ => Err(()),
         }
     }
@@ -101,48 +94,6 @@ impl Entry {
         })
     }
 
-    /// A mnemonic entry: first line is the BIP-39 mnemonic, optional
-    /// `passphrase` field. Same text rules as [`Entry::text`].
-    ///
-    /// # Errors
-    ///
-    /// [`Error::InvalidInput`] on empty payloads or payloads containing `\r`.
-    #[allow(
-        clippy::needless_pass_by_value,
-        reason = "owning the buffer guarantees zeroization on drop"
-    )]
-    pub fn mnemonic(payload: Zeroizing<String>) -> Result<Self> {
-        Self::text_like(Kind::Mnemonic, Zeroizing::new(payload.as_bytes().to_vec()))
-    }
-
-    /// A private-key entry: first line is a hex key, mandatory `chain` field.
-    /// Same text rules as [`Entry::text`].
-    ///
-    /// # Errors
-    ///
-    /// [`Error::InvalidInput`] on empty payloads or payloads containing `\r`.
-    #[allow(
-        clippy::needless_pass_by_value,
-        reason = "owning the buffer guarantees zeroization on drop"
-    )]
-    pub fn key(payload: Zeroizing<String>) -> Result<Self> {
-        Self::text_like(Kind::Key, Zeroizing::new(payload.as_bytes().to_vec()))
-    }
-
-    fn text_like(kind: Kind, payload: Zeroizing<Vec<u8>>) -> Result<Self> {
-        let text = core::str::from_utf8(&payload)
-            .map_err(|_| Error::InvalidInput("text payload is not UTF-8".into()))?;
-        if text.is_empty() {
-            return Err(Error::InvalidInput("entry payload is empty".into()));
-        }
-        if text.contains('\r') {
-            return Err(Error::InvalidInput(
-                "entry payload must not contain \\r".into(),
-            ));
-        }
-        Ok(Self { kind, payload })
-    }
-
     /// The entry kind.
     #[must_use]
     pub const fn kind(&self) -> Kind {
@@ -155,13 +106,11 @@ impl Entry {
         &self.payload
     }
 
-    /// Text view for `text`, `mnemonic` and `key` entries.
+    /// Text view for `text` entries.
     #[must_use]
     pub fn as_text(&self) -> Option<Text<'_>> {
         match self.kind {
-            Kind::Text | Kind::Mnemonic | Kind::Key => {
-                Some(Text(core::str::from_utf8(&self.payload).unwrap_or("")))
-            }
+            Kind::Text => Some(Text(core::str::from_utf8(&self.payload).unwrap_or(""))),
             Kind::Binary => None,
         }
     }
@@ -217,7 +166,7 @@ impl Entry {
         }
         let payload = Zeroizing::new(plain.get(header_end + 1..).unwrap_or_default().to_vec());
         match kind {
-            Kind::Text | Kind::Mnemonic | Kind::Key => {
+            Kind::Text => {
                 let text = core::str::from_utf8(&payload).map_err(|_| corrupt("not UTF-8"))?;
                 if text.contains('\r') {
                     return Err(corrupt("contains CR"));
@@ -243,7 +192,7 @@ impl fmt::Debug for Entry {
 
 use std::path::Path;
 
-/// Text view over a `text`, `mnemonic` or `key` payload.
+/// Text view over a `text` payload.
 #[derive(Debug, Clone, Copy)]
 pub struct Text<'a>(&'a str);
 

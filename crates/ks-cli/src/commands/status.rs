@@ -18,11 +18,15 @@ pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {
             .env("GIT_TERMINAL_PROMPT", "0")
             .output()
             .is_ok_and(|o| !o.stdout.is_empty());
+    let touchid = ks::touchid::is_enabled(&v).unwrap_or(false);
+    let keychain = ks::keychain::is_enabled(&v).unwrap_or(false);
     let value = serde_json::json!({
         "vault": v.root().display().to_string(),
         "agent": agent.map(|a| serde_json::json!({
             "ttl_left": a.ttl_left, "life_left": a.life_left,
         })),
+        "touchid": touchid,
+        "keychain": keychain,
         "git": { "repo": repo, "dirty": dirty },
     });
     let agent_line = agent.map_or_else(
@@ -31,8 +35,10 @@ pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {
     );
     Ok(out.ok_value(
         &format!(
-            "vault: {}\n{agent_line}\ngit: {}",
+            "vault: {}\n{agent_line}\ntouchid: {}\nkeychain: {}\ngit: {}",
             v.root().display(),
+            if touchid { "enabled" } else { "disabled" },
+            if keychain { "enabled" } else { "disabled" },
             if repo {
                 format!("repo, {}", if dirty { "dirty" } else { "clean" })
             } else {

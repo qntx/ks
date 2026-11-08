@@ -23,6 +23,15 @@ pub(crate) struct Cli {
     pub(crate) command: Command,
 }
 
+/// `enable`/`disable` for the device-unlock commands.
+#[derive(Clone, Debug, clap::ValueEnum)]
+pub(crate) enum DeviceAction {
+    /// Store the vault key behind the device factor.
+    Enable,
+    /// Remove the stored device factor.
+    Disable,
+}
+
 #[derive(Debug, Subcommand)]
 /// Subcommands.
 pub(crate) enum Command {
@@ -148,8 +157,19 @@ pub(crate) enum Command {
     },
     /// Stop the session agent for this vault.
     Lock,
-    /// Show vault, agent and git status (no unlock).
+    /// Show vault, agent, device unlock and git status (no unlock).
     Status,
+    /// Enable or remove Touch ID device unlock (macOS).
+    #[command(name = "touchid")]
+    TouchId {
+        /// `enable` or `disable`.
+        action: DeviceAction,
+    },
+    /// Enable or remove OS keychain device unlock.
+    Keychain {
+        /// `enable` or `disable`.
+        action: DeviceAction,
+    },
     /// Session agent daemon (internal, spawned by `ks unlock`).
     #[command(name = "__agent", hide = true)]
     Agent {
