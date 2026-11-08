@@ -17,6 +17,14 @@ pub(crate) fn run(cli: &Cli, out: &Out, fix: bool) -> CliResult<i32> {
     let session = unlock(cli, out)?;
     let root = session.vault().root().to_path_buf();
     let mut problems = Vec::new();
+    if session.key_count() > 1 {
+        problems.push(Problem {
+            path: root.join(".identity.age"),
+            problem: "unfinished key rotation; run `ks rekey` with the new passphrase to finish"
+                .to_owned(),
+            fixable: false,
+        });
+    }
     scan(&root, &mut problems);
 
     // Every listed entry must decrypt with a matching name.

@@ -14,6 +14,7 @@ pub(crate) mod ls;
 pub(crate) mod mv;
 pub(crate) mod otp;
 pub(crate) mod passwd;
+pub(crate) mod rekey;
 pub(crate) mod rm;
 pub(crate) mod run;
 pub(crate) mod set;

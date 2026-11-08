@@ -88,6 +88,7 @@ fn dispatch(cli: &cli::Cli, out: &output::Out) -> CliResult<i32> {
         C::Run { env, command } => commands::run::run(cli, out, env, command),
         C::Passwd => commands::passwd::run(cli, out),
         C::Doctor { fix } => commands::doctor::run(cli, out, *fix),
+        C::Rekey => commands::rekey::run(cli, out),
         C::Unlock { ttl, max } => commands::unlock::run(cli, out, ttl, max),
         C::Lock => commands::lock::run(cli, out),
         C::Status => commands::status::run(cli, out),
