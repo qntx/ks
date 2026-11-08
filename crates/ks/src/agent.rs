@@ -186,6 +186,13 @@ fn check_dir_perms(dir: &std::path::Path) -> Result<()> {
 /// [`Error::Unavailable`] when the state directory cannot be resolved, the
 /// directory fails the permission checks, or the socket path exceeds 100
 /// bytes (the `sockaddr_un` limit on some platforms).
+#[cfg_attr(
+    windows,
+    allow(
+        clippy::unnecessary_wraps,
+        reason = "the unix branch can fail; Result is the cross-platform contract"
+    )
+)]
 pub fn endpoint(vault: &Vault) -> Result<Endpoint> {
     let id = vault_id(vault.root());
     #[cfg(unix)]

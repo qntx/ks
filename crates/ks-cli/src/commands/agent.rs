@@ -7,8 +7,12 @@ use std::time::{Duration, Instant};
 
 use interprocess::local_socket::{
     Listener, ListenerOptions,
-    traits::{Listener as _, StreamCommon as _},
+    traits::Listener as _,
 };
+#[cfg(unix)]
+use interprocess::local_socket::traits::StreamCommon as _;
+#[cfg(windows)]
+use interprocess::os::windows::local_socket::ListenerOptionsExt as _;
 use ks::ErrorCode;
 use ks::agent::{ConnectionEnd, Handler};
 use zeroize::Zeroizing;
@@ -206,7 +210,7 @@ fn own_uid() -> u32 {
 }
 
 #[cfg(windows)]
-fn own_uid() -> u32 {
+const fn own_uid() -> u32 {
     0
 }
 
@@ -217,7 +221,7 @@ fn same_user(stream: &interprocess::local_socket::Stream, own_uid: u32) -> bool 
 }
 
 /// Builds the SDDL `D:P(A;;GA;;;OW)` descriptor: a protected DACL granting
-/// GENERIC_ALL to the pipe object's owner (the current user) only.
+/// `GENERIC_ALL` to the pipe object's owner (the current user) only.
 #[cfg(windows)]
 fn owner_only_dacl() -> CliResult<interprocess::os::windows::security_descriptor::SecurityDescriptor>
 {
@@ -230,6 +234,6 @@ fn owner_only_dacl() -> CliResult<interprocess::os::windows::security_descriptor
 
 /// Windows relies on the listener's owner-only security descriptor.
 #[cfg(windows)]
-fn same_user(_stream: &interprocess::local_socket::Stream, _own_uid: u32) -> bool {
+const fn same_user(_stream: &interprocess::local_socket::Stream, _own_uid: u32) -> bool {
     true
 }

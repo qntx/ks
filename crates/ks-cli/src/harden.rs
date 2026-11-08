@@ -52,7 +52,7 @@ fn harden_platform() {
 }
 
 #[cfg(not(unix))]
-fn harden_platform() {}
+const fn harden_platform() {}
 
 /// Extra hardening for the `ks __agent` daemon: detach the session, and on
 /// Linux pin memory, on macOS refuse debugger attachment. Best-effort.
@@ -80,4 +80,4 @@ pub(crate) fn agent() {
 /// Windows has no equivalent of setsid/ptrace hardening here; the daemon is
 /// already spawned detached.
 #[cfg(windows)]
-pub(crate) fn agent() {}
+pub(crate) const fn agent() {}
