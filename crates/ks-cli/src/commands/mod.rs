@@ -1,34 +1,34 @@
 //! Command implementations.
 
-pub mod daemon;
-pub mod doctor;
-pub mod edit;
+pub(crate) mod daemon;
+pub(crate) mod doctor;
+pub(crate) mod edit;
 #[path = "gen.rs"]
-pub mod generate;
-pub mod init;
-pub mod ls;
-pub mod mv;
-pub mod otp;
-pub mod passwd;
-pub mod rm;
-pub mod run;
-pub mod set;
-pub mod show;
+pub(crate) mod generate;
+pub(crate) mod init;
+pub(crate) mod ls;
+pub(crate) mod mv;
+pub(crate) mod otp;
+pub(crate) mod passwd;
+pub(crate) mod rm;
+pub(crate) mod run;
+pub(crate) mod set;
+pub(crate) mod show;
 
-pub use crate::cli::Cli;
-pub use crate::clipboard;
-pub use crate::output::{CliResult, Out, err};
-pub use crate::prompt;
-pub use ks::{ErrorCode, Name, Vault};
+pub(crate) use crate::cli::Cli;
+pub(crate) use crate::clipboard;
+pub(crate) use crate::output::{CliResult, Out, err};
+pub(crate) use crate::prompt;
+pub(crate) use ks::{ErrorCode, Name, Vault};
 
 /// Opens the vault directory (no unlock).
-pub fn vault(cli: &Cli) -> CliResult<Vault> {
+pub(crate) fn vault(cli: &Cli) -> CliResult<Vault> {
     let path = cli.vault_path().map_err(|e| err(&e))?;
     Vault::open(&path).map_err(|e| err(&e))
 }
 
 /// Unlocks the vault with the passphrase source chain.
-pub fn unlock(cli: &Cli, out: &mut Out) -> CliResult<ks::Session> {
+pub(crate) fn unlock(cli: &Cli, out: &Out) -> CliResult<ks::Session> {
     let v = vault(cli)?;
     let source = prompt::passphrase_source(cli, out);
     let session = v.unlock(Some(&source)).map_err(|e| err(&e))?;
@@ -39,11 +39,11 @@ pub fn unlock(cli: &Cli, out: &mut Out) -> CliResult<ks::Session> {
 }
 
 /// Parses an entry name, mapping failures to `usage`.
-pub fn name(s: &str) -> CliResult<Name> {
+pub(crate) fn name(s: &str) -> CliResult<Name> {
     Name::parse(s).map_err(|e| err(&e))
 }
 
 /// Maps a raw (code, message) for non-library errors.
-pub fn fail<T>(code: ErrorCode, msg: impl Into<String>) -> CliResult<T> {
+pub(crate) fn fail<T>(code: ErrorCode, msg: impl Into<String>) -> CliResult<T> {
     Err((code, msg.into()))
 }

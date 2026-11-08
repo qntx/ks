@@ -2,10 +2,10 @@
 
 use std::time::SystemTime;
 
-use super::*;
+use super::{Cli, CliResult, Out, clipboard, err, name, unlock};
 
 /// Prints `code` and `valid_for`; `-c` copies the code.
-pub fn run(cli: &Cli, out: &mut Out, n: &str, copy: bool) -> CliResult<i32> {
+pub(crate) fn run(cli: &Cli, out: &Out, n: &str, copy: bool) -> CliResult<i32> {
     let session = unlock(cli, out)?;
     let name = name(n)?;
     let entry = session.get(&name).map_err(|e| err(&e))?;

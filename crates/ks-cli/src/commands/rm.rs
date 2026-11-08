@@ -1,9 +1,9 @@
 //! `ks rm <name> [--force]` — delete an entry.
 
-use super::*;
+use super::{Cli, CliResult, ErrorCode, Out, err, name, prompt, unlock};
 
 /// Removes the entry after confirmation (or `--force`).
-pub fn run(cli: &Cli, out: &mut Out, n: &str, force: bool) -> CliResult<i32> {
+pub(crate) fn run(cli: &Cli, out: &Out, n: &str, force: bool) -> CliResult<i32> {
     let session = unlock(cli, out)?;
     let name = name(n)?;
     if !force {

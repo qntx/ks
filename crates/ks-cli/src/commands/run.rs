@@ -4,20 +4,22 @@ use std::process::{Command, Stdio};
 
 use ks::{ErrorCode, Kind};
 
-use super::*;
+use super::{Cli, CliResult, Out, err, fail, name, unlock};
 
 /// Resolves each mapping, spawns with inherited stdio, passes the exit code.
-pub fn run(cli: &Cli, out: &mut Out, env: &[String], command: &[String]) -> CliResult<i32> {
+pub(crate) fn run(cli: &Cli, out: &Out, env: &[String], command: &[String]) -> CliResult<i32> {
     if env.is_empty() {
         return fail(ErrorCode::Usage, "at least one -e VAR=name is required");
     }
     let session = unlock(cli, out)?;
     let mut vars: Vec<(String, zeroize::Zeroizing<String>)> = Vec::with_capacity(env.len());
     for spec in env {
-        let (var, target) = spec.split_once('=').ok_or((
-            ErrorCode::Usage,
-            format!("invalid mapping {spec:?}, expected VAR=name[#field]"),
-        ))?;
+        let (var, target) = spec.split_once('=').ok_or_else(|| {
+            (
+                ErrorCode::Usage,
+                format!("invalid mapping {spec:?}, expected VAR=name[#field]"),
+            )
+        })?;
         if !var
             .chars()
             .next()
@@ -32,7 +34,7 @@ pub fn run(cli: &Cli, out: &mut Out, env: &[String], command: &[String]) -> CliR
         let value = if field.is_empty() {
             let text = entry
                 .as_text()
-                .ok_or((ErrorCode::Usage, format!("{entry_name} is binary")))?;
+                .ok_or_else(|| (ErrorCode::Usage, format!("{entry_name} is binary")))?;
             text.value().to_owned()
         } else {
             if entry.kind() == Kind::Binary {

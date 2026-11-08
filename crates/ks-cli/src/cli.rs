@@ -5,27 +5,27 @@ use clap::{Parser, Subcommand};
 /// Personal local secret vault with an age-compatible on-disk format.
 #[derive(Debug, Parser)]
 #[command(name = "ks", version, about, disable_help_subcommand = true)]
-pub struct Cli {
+pub(crate) struct Cli {
     /// Vault directory (env: `KS_VAULT`; default `~/.ks`).
     #[arg(long, global = true)]
-    pub vault: Option<String>,
+    pub(crate) vault: Option<String>,
     /// Non-interactive machine-readable output: exactly one JSON object.
     #[arg(long, global = true)]
-    pub json: bool,
+    pub(crate) json: bool,
     /// Read the master passphrase from this file (env: `KS_PASSPHRASE_FILE`).
     #[arg(long, global = true)]
-    pub passphrase_file: Option<String>,
+    pub(crate) passphrase_file: Option<String>,
     /// Skip the session agent when unlocking.
     #[arg(long, global = true)]
-    pub no_agent: bool,
+    pub(crate) no_agent: bool,
     #[command(subcommand)]
     /// The subcommand to run.
-    pub command: Command,
+    pub(crate) command: Command,
 }
 
 #[derive(Debug, Subcommand)]
 /// Subcommands.
-pub enum Command {
+pub(crate) enum Command {
     /// Create a new vault.
     Init,
     /// List entries (no unlock needed).
@@ -138,7 +138,7 @@ impl Cli {
     /// # Errors
     ///
     /// [`ks::Error::InvalidInput`] when the home directory cannot be found.
-    pub fn vault_path(&self) -> ks::Result<std::path::PathBuf> {
+    pub(crate) fn vault_path(&self) -> ks::Result<std::path::PathBuf> {
         self.vault
             .as_ref()
             .map_or_else(ks::Vault::default_path, |v| Ok(std::path::PathBuf::from(v)))

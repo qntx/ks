@@ -10,7 +10,12 @@ static CAPTURED: OnceLock<Option<SecretString>> = OnceLock::new();
 /// Runs at the very start of `main`, before any thread is spawned: captures
 /// `KS_PASSPHRASE` into memory, scrubs it from the process environment, and
 /// applies platform hardening. All failures are silent best-effort.
-pub fn run() {
+#[allow(
+    unsafe_code,
+    clippy::disallowed_methods,
+    reason = "scrubbing KS_PASSPHRASE requires env mutation before threads spawn"
+)]
+pub(crate) fn run() {
     let captured = std::env::var("KS_PASSPHRASE").ok().map(SecretString::from);
     if captured.is_some() {
         // SAFETY: called before any other thread exists in this process.
@@ -21,7 +26,7 @@ pub fn run() {
 }
 
 /// The passphrase captured from `KS_PASSPHRASE` at startup (if any).
-pub fn captured_passphrase() -> Option<SecretString> {
+pub(crate) fn captured_passphrase() -> Option<SecretString> {
     CAPTURED
         .get()
         .and_then(|o| o.as_ref().map(|s| SecretString::from(s.expose())))
@@ -38,6 +43,10 @@ impl SecretExpose for SecretString {
 }
 
 #[cfg(unix)]
+#[allow(
+    unsafe_code,
+    reason = "setrlimit/prctl require libc; single-op blocks with SAFETY notes"
+)]
 fn harden_platform() {
     // SAFETY: setrlimit and prctl are async-signal-safe, take no pointers into
     // Rust memory, and are called before any thread exists.
@@ -46,7 +55,7 @@ fn harden_platform() {
             rlim_cur: 0,
             rlim_max: 0,
         };
-        libc::setrlimit(libc::RLIMIT_CORE, &limit);
+        libc::setrlimit(libc::RLIMIT_CORE, &raw const limit);
         #[cfg(target_os = "linux")]
         libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
     }

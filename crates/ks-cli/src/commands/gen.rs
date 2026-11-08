@@ -4,12 +4,12 @@ use ks::pwgen::{Charset, generate};
 use ks::{Entry, ErrorCode};
 use zeroize::Zeroizing;
 
-use super::*;
+use super::{Cli, CliResult, Out, clipboard, err, fail, name, prompt, unlock};
 
 /// Generates a password; prints it, stores it under `name`, or copies it.
-pub fn run(
+pub(crate) fn run(
     cli: &Cli,
-    out: &mut Out,
+    out: &Out,
     n: Option<&str>,
     length: usize,
     charset: &str,

@@ -12,7 +12,7 @@ use crate::output::CliResult;
 
 /// Seconds to keep the clipboard (`KS_CLIP_TIME`, default 45).
 #[must_use]
-pub fn clip_time() -> u64 {
+pub(crate) fn clip_time() -> u64 {
     std::env::var("KS_CLIP_TIME")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -24,7 +24,7 @@ pub fn clip_time() -> u64 {
 /// # Errors
 ///
 /// `unavailable` when the helper cannot be spawned or fed.
-pub fn copy(value: &[u8]) -> CliResult<()> {
+pub(crate) fn copy(value: &[u8]) -> CliResult<()> {
     let exe = std::env::current_exe().map_err(|e| {
         (
             ErrorCode::Unavailable,
@@ -51,7 +51,11 @@ pub fn copy(value: &[u8]) -> CliResult<()> {
 
 /// Sets the clipboard in this process, waits `secs`, clears if unchanged.
 /// Used by the `__clipboard` daemon subcommand.
-pub fn daemon(secs: u64) -> i32 {
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the daemon intentionally blocks for the TTL; there is no event loop to yield to"
+)]
+pub(crate) fn daemon(secs: u64) -> i32 {
     let mut value = Zeroizing::new(Vec::new());
     if std::io::stdin().read_to_end(&mut value).is_err() {
         return 1;

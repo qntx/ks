@@ -1,9 +1,9 @@
 //! `ks mv <from> <to> [--force]` — rename an entry.
 
-use super::*;
+use super::{Cli, CliResult, Out, err, name, prompt, unlock};
 
 /// Re-encrypts under the new name, then deletes the old file.
-pub fn run(cli: &Cli, out: &mut Out, from: &str, to: &str, force: bool) -> CliResult<i32> {
+pub(crate) fn run(cli: &Cli, out: &Out, from: &str, to: &str, force: bool) -> CliResult<i32> {
     let session = unlock(cli, out)?;
     let from = name(from)?;
     let to = name(to)?;

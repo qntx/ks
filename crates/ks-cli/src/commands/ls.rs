@@ -1,9 +1,9 @@
 //! `ks ls [<prefix>]` — list entries, no unlock.
 
-use super::*;
+use super::{Cli, CliResult, Out, err, name, vault};
 
 /// Lists names sorted; human mode renders an indented tree.
-pub fn run(cli: &Cli, out: &mut Out, prefix: Option<&str>) -> CliResult<i32> {
+pub(crate) fn run(cli: &Cli, out: &Out, prefix: Option<&str>) -> CliResult<i32> {
     let v = vault(cli)?;
     let prefix = prefix.map(name).transpose()?;
     let names = v.list(prefix.as_ref()).map_err(|e| err(&e))?;

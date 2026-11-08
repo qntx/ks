@@ -5,10 +5,10 @@ use std::io::Write as _;
 use ks::{Entry, ErrorCode, Kind};
 use zeroize::Zeroizing;
 
-use super::*;
+use super::{Cli, CliResult, Out, err, fail, name, unlock};
 
 /// Opens the entry in `$VISUAL`/`$EDITOR`/`vi` inside a private temp dir.
-pub fn run(cli: &Cli, out: &mut Out, n: &str) -> CliResult<i32> {
+pub(crate) fn run(cli: &Cli, out: &Out, n: &str) -> CliResult<i32> {
     if !out.interactive {
         return fail(ErrorCode::Usage, "edit requires an interactive terminal");
     }
@@ -19,10 +19,10 @@ pub fn run(cli: &Cli, out: &mut Out, n: &str) -> CliResult<i32> {
         Err(ks::Error::NotFound(_)) => None,
         Err(e) => return Err(err(&e)),
     };
-    if let Some(e) = &existing {
-        if e.kind() == Kind::Binary {
-            return fail(ErrorCode::Usage, "binary entries cannot be edited");
-        }
+    if let Some(e) = &existing
+        && e.kind() == Kind::Binary
+    {
+        return fail(ErrorCode::Usage, "binary entries cannot be edited");
     }
     let current = existing
         .as_ref()
@@ -41,7 +41,7 @@ pub fn run(cli: &Cli, out: &mut Out, n: &str) -> CliResult<i32> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        let _ = std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700));
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).ok();
     }
     let file = dir.path().join(name.as_str().replace('/', "_"));
     {
@@ -51,10 +51,13 @@ pub fn run(cli: &Cli, out: &mut Out, n: &str) -> CliResult<i32> {
                 source: e,
             })
         })?;
+        // tempfile::NamedTempFile would give 0600; File::create honors umask
+        // inside a 0700 dir, enforce 0600 for parity with vault writes.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
-            let _ = f.set_permissions(std::fs::Permissions::from_mode(0o600));
+            f.set_permissions(std::fs::Permissions::from_mode(0o600))
+                .ok();
         }
         f.write_all(current.as_bytes()).map_err(|e| {
             err(&ks::Error::Io {

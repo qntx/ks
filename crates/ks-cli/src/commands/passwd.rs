@@ -1,9 +1,9 @@
 //! `ks passwd` — change the master passphrase (not a revocation measure).
 
-use super::*;
+use super::{Cli, CliResult, Out, err, prompt, unlock};
 
 /// Unlocks, takes the new passphrase, re-seals the identity file.
-pub fn run(cli: &Cli, out: &mut Out) -> CliResult<i32> {
+pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {
     let session = unlock(cli, out)?;
     let new = prompt::new_passphrase(out)?;
     let warnings = ks::check_new_passphrase(&new).map_err(|e| err(&e))?;

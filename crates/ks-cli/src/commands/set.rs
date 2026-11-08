@@ -3,12 +3,12 @@
 use ks::{Entry, ErrorCode};
 use zeroize::Zeroizing;
 
-use super::*;
+use super::{Cli, CliResult, Out, err, fail, name, prompt, unlock};
 
 /// Reads the secret and stores it.
-pub fn run(
+pub(crate) fn run(
     cli: &Cli,
-    out: &mut Out,
+    out: &Out,
     n: &str,
     multiline: bool,
     binary: bool,

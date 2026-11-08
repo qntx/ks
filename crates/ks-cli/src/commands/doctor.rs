@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::*;
+use super::{Cli, CliResult, Out, err, unlock};
 
 #[derive(Debug)]
 struct Problem {
@@ -13,7 +13,7 @@ struct Problem {
 
 /// Reports structural problems; `--fix` removes `.tmp*` files and repairs
 /// permissions.
-pub fn run(cli: &Cli, out: &mut Out, fix: bool) -> CliResult<i32> {
+pub(crate) fn run(cli: &Cli, out: &Out, fix: bool) -> CliResult<i32> {
     let session = unlock(cli, out)?;
     let root = session.vault().root().to_path_buf();
     let mut problems = Vec::new();
@@ -66,21 +66,23 @@ pub fn run(cli: &Cli, out: &mut Out, fix: bool) -> CliResult<i32> {
     if ok { Ok(code) } else { Ok(65) }
 }
 
+#[cfg(unix)]
+fn fix_perms(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mode = if path.is_dir() { 0o700 } else { 0o600 };
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).is_ok()
+}
+
+#[cfg(not(unix))]
+fn fix_perms(_path: &Path) -> bool {
+    false
+}
+
 /// Applies a `--fix` for one problem; returns true when resolved.
 fn apply_fix(p: &Problem) -> bool {
     match p.problem.as_str() {
         s if s.starts_with("leftover temp file") => std::fs::remove_file(&p.path).is_ok(),
-        s if s.starts_with("wrong permissions") => {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt as _;
-                let mode = if p.path.is_dir() { 0o700 } else { 0o600 };
-                return std::fs::set_permissions(&p.path, std::fs::Permissions::from_mode(mode))
-                    .is_ok();
-            }
-            #[cfg(not(unix))]
-            return false;
-        }
+        s if s.starts_with("wrong permissions") => fix_perms(&p.path),
         _ => false,
     }
 }
@@ -117,7 +119,7 @@ fn scan(root: &Path, problems: &mut Vec<Problem>) {
             }
             if meta.is_dir() {
                 stack.push(path.clone());
-                check_perms(&path, meta.permissions(), 0o700, problems);
+                check_perms(&path, &meta.permissions(), 0o700, problems);
                 continue;
             }
             if name.starts_with(".tmp") {
@@ -129,7 +131,7 @@ fn scan(root: &Path, problems: &mut Vec<Problem>) {
                 continue;
             }
             let is_internal = INTERNAL.contains(&name);
-            let is_entry = name.ends_with(".age") && !name.starts_with('.');
+            let is_entry = name.rsplit('.').next() == Some("age") && !name.starts_with('.');
             if !is_internal && !is_entry {
                 problems.push(Problem {
                     path: path.clone(),
@@ -141,7 +143,7 @@ fn scan(root: &Path, problems: &mut Vec<Problem>) {
             if name == ".lock" {
                 continue; // lock file perms don't matter
             }
-            check_perms(&path, meta.permissions(), 0o600, problems);
+            check_perms(&path, &meta.permissions(), 0o600, problems);
         }
     }
 }
@@ -149,7 +151,7 @@ fn scan(root: &Path, problems: &mut Vec<Problem>) {
 #[cfg(unix)]
 fn check_perms(
     path: &Path,
-    perms: std::fs::Permissions,
+    perms: &std::fs::Permissions,
     expected: u32,
     problems: &mut Vec<Problem>,
 ) {
@@ -164,4 +166,4 @@ fn check_perms(
 }
 
 #[cfg(not(unix))]
-fn check_perms(_p: &Path, _perms: std::fs::Permissions, _e: u32, _problems: &mut Vec<Problem>) {}
+fn check_perms(_p: &Path, _perms: &std::fs::Permissions, _e: u32, _problems: &mut Vec<Problem>) {}

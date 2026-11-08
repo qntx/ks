@@ -15,7 +15,7 @@ use crate::output::{CliResult, Out, err};
 /// Order: `--passphrase-file` -> `KS_PASSPHRASE_FILE` -> `KS_PASSPHRASE`
 /// (captured at startup and removed from the environment) -> interactive
 /// hidden prompt. Absent everything: `locked`.
-pub fn passphrase_source<'a>(
+pub(crate) fn passphrase_source<'a>(
     cli: &'a Cli,
     out: &'a Out,
 ) -> impl Fn() -> ks::Result<SecretString> + 'a {
@@ -51,7 +51,8 @@ fn read_passphrase_file(path: &Path, out: &Out) -> ks::Result<SecretString> {
             && meta.permissions().mode() & 0o077 != 0
         {
             out.warn(format!(
-                "passphrase file {path:?} is readable by group/other"
+                "passphrase file {} is readable by group/other",
+                path.display()
             ));
         }
     }
@@ -79,7 +80,7 @@ fn prompt_hidden(label: &str) -> ks::Result<SecretString> {
 
 /// Acquires a NEW passphrase: interactive -> typed twice; non-interactive ->
 /// `KS_NEW_PASSPHRASE_FILE`, else `usage`.
-pub fn new_passphrase(out: &Out) -> CliResult<SecretString> {
+pub(crate) fn new_passphrase(out: &Out) -> CliResult<SecretString> {
     if out.interactive {
         let first = cliclack::password("new passphrase")
             .interact()
@@ -92,17 +93,19 @@ pub fn new_passphrase(out: &Out) -> CliResult<SecretString> {
         }
         return Ok(SecretString::from(first));
     }
-    match env_nonempty("KS_NEW_PASSPHRASE_FILE") {
-        Some(file) => read_passphrase_file(Path::new(&file), out).map_err(|e| err(&e)),
-        None => Err((
-            ErrorCode::Usage,
-            "new passphrase required: set KS_NEW_PASSPHRASE_FILE non-interactively".to_owned(),
-        )),
-    }
+    env_nonempty("KS_NEW_PASSPHRASE_FILE").map_or_else(
+        || {
+            Err((
+                ErrorCode::Usage,
+                "new passphrase required: set KS_NEW_PASSPHRASE_FILE non-interactively".to_owned(),
+            ))
+        },
+        |file| read_passphrase_file(Path::new(&file), out).map_err(|e| err(&e)),
+    )
 }
 
 /// Reads the first line of stdin for `set` (trailing `\n`/`\r\n` removed).
-pub fn stdin_first_line() -> CliResult<Zeroizing<String>> {
+pub(crate) fn stdin_first_line() -> CliResult<Zeroizing<String>> {
     let mut line = String::new();
     let n = std::io::stdin()
         .read_line(&mut line)
@@ -119,7 +122,7 @@ pub fn stdin_first_line() -> CliResult<Zeroizing<String>> {
 }
 
 /// Reads all of stdin as bytes.
-pub fn stdin_all() -> CliResult<Zeroizing<Vec<u8>>> {
+pub(crate) fn stdin_all() -> CliResult<Zeroizing<Vec<u8>>> {
     let mut buf = Vec::new();
     std::io::stdin()
         .read_to_end(&mut buf)
@@ -129,7 +132,7 @@ pub fn stdin_all() -> CliResult<Zeroizing<Vec<u8>>> {
 
 /// Interactive yes/no confirmation; non-interactive returns the `missing`
 /// error supplied by the caller.
-pub fn confirm(out: &Out, question: &str) -> CliResult<()> {
+pub(crate) fn confirm(out: &Out, question: &str) -> CliResult<()> {
     if !out.interactive {
         return Err((
             ErrorCode::Usage,
