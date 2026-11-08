@@ -215,7 +215,7 @@ fn same_user(_stream: &interprocess::local_socket::Stream) -> bool {
 #[allow(unsafe_code, reason = "setsid is a syscall")]
 fn harden_agent() {
     // SAFETY: setsid detaches the daemon from its controlling terminal.
-    drop(unsafe { libc::setsid() });
+    let _ = unsafe { libc::setsid() };
 }
 
 #[cfg(target_os = "linux")]
@@ -225,7 +225,7 @@ fn harden_agent() {
 )]
 fn harden_agent() {
     // SAFETY: setsid detaches the daemon from its controlling terminal.
-    drop(unsafe { libc::setsid() });
+    let _ = unsafe { libc::setsid() };
     // SAFETY: mlockall pins current and future memory; best-effort, and the
     // calls touch no memory themselves.
     unsafe {
