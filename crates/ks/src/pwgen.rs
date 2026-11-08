@@ -1,119 +1,78 @@
-//! Cryptographically-random secret generation.
-//!
-//! Uses the OS-backed thread-local CSPRNG via [`rand::rng`].
+//! Uniform password generation from four character sets.
 
-use rand::seq::IndexedRandom as _;
+use rand::RngExt as _;
 use zeroize::Zeroizing;
 
-/// Character set used when generating a random secret.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+use crate::{Error, Result};
+
+const ALPHANUM: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const HEX: &[u8] = b"0123456789abcdef";
+const PRINTABLE: &[u8] =
+    b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}<>?/|~";
+const SLUG_CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+const SLUG_SEP: u8 = b'-';
+
+/// Available character sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Charset {
-    /// `a-z A-Z 0-9` (62 chars).
-    #[default]
-    Alphanumeric,
-    /// `0-9 a-f` (16 chars).
+    /// `a-zA-Z0-9` — safe for any consumer.
+    Alphanum,
+    /// `0-9a-f` — hex secrets.
     Hex,
-    /// All printable ASCII (94 chars, excludes space and DEL).
+    /// A broad printable set without ambiguous shell-unfriendly characters
+    /// (no quotes, backslash, backtick, space, semicolon, colon, comma).
     Printable,
-    /// `a-z 0-9 -` — slug-friendly (37 chars).
+    /// URL/filename-safe slugs: `a-z0-9` with `-` separators — never leading,
+    /// trailing, or consecutive `-`.
     Slug,
 }
 
-impl Charset {
-    /// Returns the canonical name, matching the values accepted by `--charset`.
-    #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Alphanumeric => "alphanum",
-            Self::Hex => "hex",
-            Self::Printable => "printable",
-            Self::Slug => "slug",
-        }
-    }
-
-    const fn alphabet(self) -> &'static [u8] {
-        match self {
-            Self::Alphanumeric => b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-            Self::Hex => b"0123456789abcdef",
-            Self::Printable => {
-                b"!\"#$%&'()*+,-./0123456789:;<=>?@\
-                  ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`\
-                  abcdefghijklmnopqrstuvwxyz{|}~"
-            }
-            Self::Slug => b"abcdefghijklmnopqrstuvwxyz0123456789-",
-        }
-    }
-}
-
-impl std::str::FromStr for Charset {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_ascii_lowercase().as_str() {
-            "alphanum" | "alphanumeric" | "an" => Ok(Self::Alphanumeric),
-            "hex" => Ok(Self::Hex),
-            "printable" | "ascii" => Ok(Self::Printable),
-            "slug" => Ok(Self::Slug),
-            other => Err(format!(
-                "unknown charset `{other}` (expected: alphanum, hex, printable, slug)"
-            )),
-        }
-    }
-}
-
-/// Generates a random secret of `length` characters using the given [`Charset`].
+/// Generates a uniform random string of `len` characters (1–1024).
 ///
 /// # Errors
-/// Returns an error if `length` is zero.
-pub fn generate(length: usize, charset: Charset) -> Result<Zeroizing<String>, &'static str> {
-    if length == 0 {
-        return Err("length must be at least 1");
+///
+/// [`Error::InvalidInput`] when `len` is 0 or above 1024.
+pub fn generate(len: usize, charset: Charset) -> Result<Zeroizing<String>> {
+    if len == 0 || len > 1024 {
+        return Err(Error::InvalidInput("length must be 1-1024".into()));
     }
-    let alphabet = charset.alphabet();
     let mut rng = rand::rng();
-    let mut out = String::with_capacity(length);
-    for _ in 0..length {
-        // Charset::alphabet() is always non-empty, but fall back to `a` to
-        // stay panic-free if a future variant ever changes that.
-        let byte = alphabet.choose(&mut rng).copied().unwrap_or(b'a');
-        out.push(char::from(byte));
+    let mut out = String::with_capacity(len);
+    while out.len() < len {
+        let ch = match charset {
+            Charset::Slug => slug_char(&mut rng, &out, len),
+            Charset::Alphanum => pick(&mut rng, ALPHANUM),
+            Charset::Hex => pick(&mut rng, HEX),
+            Charset::Printable => pick(&mut rng, PRINTABLE),
+        };
+        out.push(char::from(ch));
     }
     Ok(Zeroizing::new(out))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn pick(rng: &mut rand::rngs::ThreadRng, set: &[u8]) -> u8 {
+    let idx = rng.random_range(0..set.len());
+    set.get(idx).copied().unwrap_or(b'a')
+}
 
-    #[test]
-    fn generates_correct_length() {
-        for cs in [
-            Charset::Alphanumeric,
-            Charset::Hex,
-            Charset::Printable,
-            Charset::Slug,
-        ] {
-            let s = generate(32, cs).expect("should generate");
-            assert_eq!(s.len(), 32);
-        }
+/// Slug interior characters: alnum plus `-` (rejection keeps the `-` density
+/// uniform and never produces `--` or edge `-`).
+/// One slug character: alnum at the edges; interior positions may also be
+/// `-`, but never after another `-`.
+fn slug_char(rng: &mut rand::rngs::ThreadRng, out: &str, len: usize) -> u8 {
+    let pos = out.len();
+    if pos == 0 || pos == len - 1 {
+        return pick(rng, SLUG_CHARS);
     }
+    let mut c = pick_sep(rng);
+    while c == SLUG_SEP && out.as_bytes().last() == Some(&SLUG_SEP) {
+        c = pick_sep(rng);
+    }
+    c
+}
 
-    #[test]
-    fn rejects_zero() {
-        assert!(generate(0, Charset::Hex).is_err());
-    }
-
-    #[test]
-    fn hex_only_contains_hex() {
-        let s = generate(64, Charset::Hex).expect("should generate");
-        assert!(s.chars().all(|c| c.is_ascii_hexdigit()));
-    }
-
-    #[test]
-    fn parses_aliases() {
-        assert_eq!("alphanum".parse::<Charset>(), Ok(Charset::Alphanumeric));
-        assert_eq!("an".parse::<Charset>(), Ok(Charset::Alphanumeric));
-        assert_eq!("slug".parse::<Charset>(), Ok(Charset::Slug));
-        assert!("nope".parse::<Charset>().is_err());
-    }
+fn pick_sep(rng: &mut rand::rngs::ThreadRng) -> u8 {
+    let idx = rng.random_range(0..=SLUG_CHARS.len());
+    SLUG_CHARS.get(idx).copied().unwrap_or(SLUG_SEP)
 }

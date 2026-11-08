@@ -1,30 +1,32 @@
 [package]
-name = "ks"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-homepage.workspace = true
-authors.workspace = true
-description.workspace = true
-keywords.workspace = true
-categories.workspace = true
-
-[lib]
-name = "ks"
-
-[features]
-# Exposes `ks::fuzzing` helpers for external cargo-fuzz targets (optional).
-fuzzing = []
+name         = "ks"
+version      = { workspace = true }
+edition      = { workspace = true }
+rust-version = { workspace = true }
+license      = { workspace = true }
+repository   = { workspace = true }
+homepage     = { workspace = true }
+authors      = { workspace = true }
+description  = { workspace = true }
+keywords     = { workspace = true }
+categories   = { workspace = true }
 
 [dependencies]
-age.workspace         = true
-directories.workspace = true
-zeroize.workspace     = true
-thiserror.workspace   = true
-rand.workspace        = true
-totp-rs.workspace     = true
-fd-lock.workspace     = true
+age         = { workspace = true }
+age-core    = { workspace = true }
+sha2        = { workspace = true }
+tempfile    = { workspace = true }
+fd-lock     = { workspace = true }
+directories = { workspace = true }
+totp-rs     = { workspace = true }
+thiserror   = { workspace = true }
+zeroize     = { workspace = true }
+rand        = { workspace = true }
+zxcvbn      = { workspace = true }
+
+[dev-dependencies]
+proptest   = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

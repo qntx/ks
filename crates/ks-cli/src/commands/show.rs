@@ -1,124 +1,95 @@
-//! `ks show` — print, copy, or inspect a secret.
+//! `ks show <name> [-f field] [-c]` — display or copy an entry.
 
-use std::process::ExitCode;
+use ks::{ErrorCode, Kind};
 
-use ks::{Config, Error, Result, Secret};
-use owo_colors::{OwoColorize as _, Stream};
+use base64::Engine as _;
+use std::io::Write as _;
 
-use crate::clipboard;
-use crate::commands;
-use crate::terminal;
+use super::{Cli, CliResult, Out, clipboard, err, fail, name, unlock};
 
-pub fn run(
-    config: &Config,
-    path: &str,
-    copy: bool,
+/// Prints the entry: full text, one field, raw binary bytes, or `-c` copies.
+pub(crate) fn run(
+    cli: &Cli,
+    out: &Out,
+    n: &str,
     field: Option<&str>,
-    meta: bool,
-) -> Result<ExitCode> {
-    let store = commands::open_store(config)?;
-    let identity = commands::unlock(config)?;
-    let secret = commands::get_secret(&store, path, &identity)?;
-
-    if crate::output::is_json() {
-        return show_json(path, &secret, field, meta);
-    }
-
-    if meta {
-        print_meta(path, &secret);
-        return Ok(ExitCode::SUCCESS);
-    }
-
-    if secret.is_binary() {
-        return show_binary(path, &secret, copy, field);
-    }
-
-    let value = match field {
-        Some(name) => secret
-            .get(name)
-            .ok_or_else(|| Error::SecretNotFound(format!("{path}#{name}")))?,
-        // Copying the whole multi-line file is rarely useful, so copy targets the
-        // primary value; printing shows the entire secret like `pass show`.
-        None if copy => secret.password(),
-        None => secret.expose(),
-    };
+    copy: bool,
+) -> CliResult<i32> {
+    let session = unlock(cli, out)?;
+    let name = name(n)?;
+    let entry = session.get(&name).map_err(|e| err(&e))?;
 
     if copy {
-        let secs = clipboard::copy_with_autoclear(value, commands::clip_secs())?;
-        let what = field.map_or_else(|| path.to_owned(), |f| format!("{path}#{f}"));
-        terminal::info(&format!("Copied {what} to clipboard (clears in {secs}s)"));
-    } else {
-        println!("{}", value.trim_end_matches('\n'));
+        let value = copy_value(&entry, field)?;
+        clipboard::copy(value.as_bytes())?;
+        return Ok(out.ok_value(
+            "copied",
+            serde_json::json!({ "name": name.to_string(), "copied": true }),
+        ));
     }
-    Ok(ExitCode::SUCCESS)
-}
 
-/// Builds the `--json` representation of a secret. `--meta` lists field names
-/// only (no values); `--field` returns one field; binary secrets are base64;
-/// otherwise the primary value, full text, and parsed fields are returned.
-fn show_json(path: &str, secret: &Secret, field: Option<&str>, meta: bool) -> Result<ExitCode> {
-    let value = if meta {
-        serde_json::json!({ "path": path, "fields": secret.keys() })
-    } else if let Some(name) = field {
-        let field_value = secret
-            .get(name)
-            .ok_or_else(|| Error::SecretNotFound(format!("{path}#{name}")))?;
-        serde_json::json!({ "path": path, "field": name, "value": field_value })
-    } else if secret.is_binary() {
-        use base64::Engine as _;
-        let b64 = base64::engine::general_purpose::STANDARD.encode(secret.as_bytes());
-        serde_json::json!({ "path": path, "kind": "binary", "base64": b64 })
-    } else {
-        let fields: serde_json::Map<String, serde_json::Value> = secret
-            .fields()
-            .map(|(k, v)| (k.to_owned(), serde_json::Value::String(v.to_owned())))
-            .collect();
-        serde_json::json!({
-            "path": path,
-            "kind": "text",
-            "value": secret.password(),
-            "text": secret.expose(),
-            "fields": fields,
-        })
-    };
-    crate::output::emit(&value);
-    Ok(ExitCode::SUCCESS)
-}
-
-/// Writes a binary secret's raw bytes to stdout. `--field` and `--copy` do not
-/// apply to opaque binary payloads, so they are rejected as usage errors.
-fn show_binary(path: &str, secret: &Secret, copy: bool, field: Option<&str>) -> Result<ExitCode> {
-    use std::io::Write as _;
-    if field.is_some() || copy {
-        return Err(Error::InvalidArgument(format!(
-            "{path} is a binary secret; --field and --copy do not apply"
-        )));
-    }
-    std::io::stdout()
-        .write_all(secret.as_bytes())
-        .map_err(Error::Io)?;
-    Ok(ExitCode::SUCCESS)
-}
-
-fn print_meta(path: &str, secret: &Secret) {
-    eprintln!("{}", path.if_supports_color(Stream::Stderr, |t| t.bold()));
-    let keys = secret.keys();
-    if keys.is_empty() {
-        eprintln!(
-            "  {}",
-            "(no fields)".if_supports_color(Stream::Stderr, |t| t.dimmed()),
-        );
-    } else {
-        eprintln!(
-            "  {}:",
-            "fields".if_supports_color(Stream::Stderr, |t| t.dimmed()),
-        );
-        for key in keys {
-            eprintln!(
-                "    {} = {}",
-                key.if_supports_color(Stream::Stderr, |t| t.cyan()),
-                "•••••••".if_supports_color(Stream::Stderr, |t| t.dimmed()),
-            );
+    if entry.kind() == Kind::Binary {
+        if field.is_some() {
+            return fail(ErrorCode::Usage, "-f is not supported for binary entries");
         }
+        let b64 = base64::engine::general_purpose::STANDARD.encode(entry.payload());
+        if out.json {
+            return Ok(out.ok_value(
+                "",
+                serde_json::json!({ "name": name.to_string(), "type": "binary", "base64": b64 }),
+            ));
+        }
+        std::io::stdout()
+            .write_all(entry.payload())
+            .and_then(|()| std::io::stdout().flush())
+            .map_err(|e| {
+                err(&ks::Error::Io {
+                    path: "stdout".into(),
+                    source: e,
+                })
+            })?;
+        return Ok(0);
+    }
+
+    let text = entry
+        .as_text()
+        .ok_or_else(|| (ErrorCode::Internal, "text entry without text".to_owned()))?;
+    if let Some(field) = field {
+        let value = text
+            .field(field)
+            .ok_or_else(|| err(&ks::Error::NotFound(format!("field {field:?} in {name}"))))?;
+        return Ok(out.ok_value(
+            value,
+            serde_json::json!({ "name": name.to_string(), "field": field, "value": value }),
+        ));
+    }
+    let fields: serde_json::Map<String, serde_json::Value> = text
+        .fields()
+        .map(|(k, v)| (k.to_owned(), serde_json::Value::from(v)))
+        .collect();
+    Ok(out.ok_value(
+        text.as_str(),
+        serde_json::json!({
+            "name": name.to_string(),
+            "type": entry.kind().as_str(),
+            "value": text.value(),
+            "fields": fields,
+            "text": text.as_str(),
+        }),
+    ))
+}
+
+fn copy_value(entry: &ks::Entry, field: Option<&str>) -> CliResult<String> {
+    match (entry.kind(), entry.as_text()) {
+        (Kind::Binary, _) => fail(ErrorCode::Usage, "-c is not supported for binary entries"),
+        (_, Some(text)) => field.map_or_else(
+            || Ok(text.value().to_owned()),
+            |f| {
+                text.field(f)
+                    .map(str::to_owned)
+                    .ok_or_else(|| err(&ks::Error::NotFound(format!("field {f:?}"))))
+            },
+        ),
+        (_, None) => fail(ErrorCode::Internal, "text entry without text"),
     }
 }

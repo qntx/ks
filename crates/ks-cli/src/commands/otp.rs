@@ -1,41 +1,24 @@
-//! `ks otp` — generate a TOTP code from a secret's `otpauth://` source.
+//! `ks otp <name> [-c]` — TOTP code.
 
-use std::process::ExitCode;
+use std::time::SystemTime;
 
-use ks::{Config, Error, Result, totp};
+use super::{Cli, CliResult, Out, clipboard, err, name, unlock};
 
-use crate::clipboard;
-use crate::commands;
-use crate::terminal;
-
-pub fn run(config: &Config, path: &str, copy: bool) -> Result<ExitCode> {
-    let store = commands::open_store(config)?;
-    let identity = commands::unlock(config)?;
-    let secret = commands::get_secret(&store, path, &identity)?;
-
-    let source = secret
-        .otp()
-        .ok_or_else(|| Error::InvalidTotp(format!("no TOTP source in {path}")))?;
-    let code = totp::current(source)?;
-
-    if crate::output::is_json() {
-        crate::output::emit(&serde_json::json!({
-            "path": path,
-            "code": code.value,
-            "valid_for_secs": code.remaining_secs,
-        }));
-        return Ok(ExitCode::SUCCESS);
-    }
-
+/// Prints `code` and `valid_for`; `-c` copies the code.
+pub(crate) fn run(cli: &Cli, out: &Out, n: &str, copy: bool) -> CliResult<i32> {
+    let session = unlock(cli, out)?;
+    let name = name(n)?;
+    let entry = session.get(&name).map_err(|e| err(&e))?;
+    let (code, valid_for) = ks::totp::code(&entry, SystemTime::now()).map_err(|e| err(&e))?;
     if copy {
-        let secs = clipboard::copy_with_autoclear(&code.value, commands::clip_secs())?;
-        terminal::info(&format!(
-            "Copied OTP (valid {}s, clears in {secs}s)",
-            code.remaining_secs
+        clipboard::copy(code.as_bytes())?;
+        return Ok(out.ok_value(
+            "copied",
+            serde_json::json!({ "name": name.to_string(), "copied": true }),
         ));
-    } else {
-        println!("{}", code.value);
-        terminal::info(&format!("valid for {}s", code.remaining_secs));
     }
-    Ok(ExitCode::SUCCESS)
+    Ok(out.ok_value(
+        &format!("{code} (valid for {valid_for}s)"),
+        serde_json::json!({ "name": name.to_string(), "code": code, "valid_for": valid_for }),
+    ))
 }

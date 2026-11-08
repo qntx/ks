@@ -7,3 +7,35 @@
 - Prefer established, well-maintained libraries when they reduce overall complexity or improve reliability. Do not reimplement common functionality without a clear reason.
 - Lean on the dependencies already in the project before writing your own implementation or adding packages. Do not assume a library lacks a capability without checking its documentation and types.
 - Make architectural decisions for the long term. Do not accept a stopgap that only works for now and is meant to be replaced later.
+
+## Architecture invariants
+
+- `ks` is rewritten from scratch for 0.8.0; the 0.7 code and formats are gone
+  without migration. `design/` is local-only and never committed.
+- The `ks` library is `#![forbid(unsafe_code)]`. `ks-cli` may use `unsafe` only
+  in `harden.rs` and in the agent peer-credential check, each with a `SAFETY`
+  comment. `ks-cli` only uses the library's public API.
+- Secret material lives in `Zeroizing`/`age::secrecy` types and is redacted
+  from `Debug`. The vault recipient `R` is never written to disk, printed, or
+  sent over the agent protocol.
+- Every vault entry file has exactly one `X25519` recipient stanza; production
+  code does not panic — no `unwrap`, `expect`, indexing panics, or `panic!`
+  outside tests.
+- Dependencies are declared once in `[workspace.dependencies]`; new or updated
+  dependencies must be released for at least 7 days, except qntx-owned `kobe`
+  and `signer`, which are pinned with `=` requirements.
+
+## Commands
+
+Local gate before a pull request (`just gate` runs all of it):
+
+```bash
+npx --yes @taplo/cli@0.7.0 fmt --check
+npx --yes markdownlint-cli2@0.23.3 "*.md" "skills/**/*.md"
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo clippy -p ks --all-targets --no-default-features -- -D warnings
+cargo test --workspace --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
+cargo deny check
+```

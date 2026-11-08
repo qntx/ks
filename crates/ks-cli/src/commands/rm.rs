@@ -1,35 +1,24 @@
-//! `ks rm` — remove a secret.
+//! `ks rm <name> [--force]` — delete an entry.
 
-use std::process::ExitCode;
+use super::{Cli, CliResult, ErrorCode, Out, err, name, prompt, unlock};
 
-use ks::{Config, Error, Result};
-
-use crate::commands;
-use crate::prompt;
-use crate::terminal;
-
-pub fn run(config: &Config, path: &str, force: bool) -> Result<ExitCode> {
-    let store = commands::open_store(config)?;
-    let json = crate::output::is_json();
-    if !store.exists(path) {
-        return Err(Error::SecretNotFound(path.to_owned()));
-    }
+/// Removes the entry after confirmation (or `--force`).
+pub(crate) fn run(cli: &Cli, out: &Out, n: &str, force: bool) -> CliResult<i32> {
+    let session = unlock(cli, out)?;
+    let name = name(n)?;
     if !force {
-        if json {
-            return Err(Error::InvalidArgument(format!(
-                "refusing to remove `{path}` without --force in --json mode"
-            )));
-        }
-        if !prompt::confirm(&format!("Delete {path}?"), false)? {
-            terminal::warn("Aborted");
-            return Ok(ExitCode::SUCCESS);
+        if out.interactive {
+            prompt::confirm(out, &format!("remove {name}?"))?;
+        } else {
+            return Err((
+                ErrorCode::Usage,
+                "removing an entry requires --force non-interactively".to_owned(),
+            ));
         }
     }
-    store.delete(path)?;
-    if json {
-        crate::output::emit(&serde_json::json!({ "path": path, "removed": true }));
-    } else {
-        terminal::success(&format!("Removed {path}"));
-    }
-    Ok(ExitCode::SUCCESS)
+    session.remove(&name).map_err(|e| err(&e))?;
+    Ok(out.ok_value(
+        &format!("removed {name}"),
+        serde_json::json!({ "name": name.to_string(), "removed": true }),
+    ))
 }

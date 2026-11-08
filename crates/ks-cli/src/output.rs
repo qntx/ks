@@ -1,53 +1,96 @@
-//! Agent-facing JSON output mode (`--json`).
-//!
-//! When enabled, every command emits a single JSON object on stdout and runs
-//! fully non-interactively. The mode is process-global, set once from the parsed
-//! `--json` flag, and consulted by command handlers, [`commands::unlock`] and the
-//! prompt helpers so no interactive prompt can ever fire under `--json`.
-//!
-//! Convention: successful results and `{"error": "..."}` failures both go to
-//! **stdout**, distinguished by the `error` key plus a non-zero exit code, so an
-//! agent can parse a single stream.
+//! Output: exactly one JSON object on stdout in `--json` mode; human output
+//! sends values to stdout and everything else to stderr.
 
-use std::sync::OnceLock;
+use std::io::Write as _;
 
-use ks::Error;
-use serde_json::Value;
+use ks::ErrorCode;
 
-static JSON_MODE: OnceLock<bool> = OnceLock::new();
+/// CLI-level result: exit code or (error code, message).
+pub(crate) type CliResult<T> = Result<T, (ErrorCode, String)>;
 
-/// Records whether `--json` was given. Call once at startup, before dispatch.
-pub fn init(json: bool) {
-    JSON_MODE.set(json).ok();
-}
-
-/// Returns `true` when running in `--json` (non-interactive) mode.
-#[must_use]
-pub fn is_json() -> bool {
-    JSON_MODE.get().copied().unwrap_or(false)
-}
-
-/// Prints a successful command result as a single pretty-printed JSON object.
-pub fn emit(value: &Value) {
-    if let Ok(text) = serde_json::to_string_pretty(value) {
-        println!("{text}");
+/// Maps an [`ErrorCode`] to its process exit code.
+pub(crate) const fn exit_code(code: ErrorCode) -> i32 {
+    match code {
+        ErrorCode::Usage => 64,
+        ErrorCode::Corrupt | ErrorCode::WeakPassphrase => 65,
+        ErrorCode::NotFound => 66,
+        ErrorCode::Unavailable => 69,
+        ErrorCode::Exists => 73,
+        ErrorCode::Io => 74,
+        ErrorCode::Locked | ErrorCode::WrongPassphrase => 77,
+        ErrorCode::Cancelled => 1,
+        _ => 70,
     }
 }
 
-/// Renders a failed command: `{"error": "..."}` on stdout in JSON mode, or the
-/// usual red diagnostic on stderr otherwise.
-pub fn error(err: &Error) {
-    if is_json() {
-        emit(&serde_json::json!({ "error": err.to_string() }));
+/// Converts a library error into the CLI error shape.
+pub(crate) fn err(e: &ks::Error) -> (ErrorCode, String) {
+    (e.code(), e.to_string())
+}
+
+/// Prints an error and returns its exit code (used before `Out` exists).
+pub(crate) fn exit_error(json: bool, code: ErrorCode, message: &str) -> i32 {
+    if json {
+        let obj = serde_json::json!({ "error": { "code": code.as_str(), "message": message } });
+        writeln!(std::io::stdout(), "{obj}").ok();
     } else {
-        crate::terminal::error(&err.to_string());
+        writeln!(std::io::stderr(), "error: {message}").ok();
     }
+    exit_code(code)
 }
 
-/// Error returned when an interactive-only command is invoked under `--json`.
-#[must_use]
-pub fn interactive_only(command: &str) -> Error {
-    Error::InvalidArgument(format!(
-        "`{command}` is interactive and cannot run in --json mode"
-    ))
+/// Output sink bound to the display mode.
+#[derive(Debug)]
+pub(crate) struct Out {
+    /// True when `--json` was passed.
+    pub json: bool,
+    /// Warnings collected on the way to a result.
+    pub warnings: std::cell::RefCell<Vec<String>>,
+    /// Whether stdin and stderr are terminals and `--json` is absent.
+    pub interactive: bool,
+}
+
+impl Out {
+    /// Builds the sink; `interactive` mirrors the cli.mdx rule.
+    pub(crate) fn new(json: bool) -> Self {
+        use std::io::IsTerminal as _;
+        let interactive =
+            !json && std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+        Self {
+            json,
+            warnings: std::cell::RefCell::new(Vec::new()),
+            interactive,
+        }
+    }
+
+    /// Adds a warning; human mode also echoes it on stderr immediately.
+    pub(crate) fn warn(&self, msg: impl Into<String>) {
+        let msg = msg.into();
+        if !self.json {
+            writeln!(std::io::stderr(), "warning: {msg}").ok();
+        }
+        self.warnings.borrow_mut().push(msg);
+    }
+
+    /// Emits a successful result: `human` on stdout (or JSON object).
+    pub(crate) fn ok_value(&self, human: &str, value: serde_json::Value) -> i32 {
+        if self.json {
+            let mut obj = value;
+            let warnings = self.warnings.borrow();
+            if !warnings.is_empty()
+                && let Some(map) = obj.as_object_mut()
+            {
+                map.insert("warnings".to_owned(), serde_json::json!(*warnings));
+            }
+            writeln!(std::io::stdout(), "{obj}").ok();
+        } else if !human.is_empty() {
+            writeln!(std::io::stdout(), "{human}").ok();
+        }
+        0
+    }
+
+    /// Emits an error and returns its exit code.
+    pub(crate) fn error(&self, code: ErrorCode, message: &str) -> i32 {
+        exit_error(self.json, code, message)
+    }
 }

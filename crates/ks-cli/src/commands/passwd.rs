@@ -1,19 +1,15 @@
-//! `ks passwd` — change the identity passphrase.
+//! `ks passwd` — change the master passphrase (not a revocation measure).
 
-use std::process::ExitCode;
+use super::{Cli, CliResult, Out, err, prompt, unlock};
 
-use ks::{Config, Result, crypto};
-
-use crate::prompt;
-use crate::terminal;
-
-pub fn run(config: &Config) -> Result<ExitCode> {
-    if crate::output::is_json() {
-        return Err(crate::output::interactive_only("passwd"));
+/// Unlocks, takes the new passphrase, re-seals the identity file.
+pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {
+    let session = unlock(cli, out)?;
+    let new = prompt::new_passphrase(out)?;
+    let warnings = ks::check_new_passphrase(&new).map_err(|e| err(&e))?;
+    session.change_passphrase(&new).map_err(|e| err(&e))?;
+    for w in warnings {
+        out.warn(w);
     }
-    let current = prompt::passphrase("Current passphrase")?;
-    let new = prompt::new_passphrase("New passphrase")?;
-    crypto::change_passphrase(&config.identity_path, current, new)?;
-    terminal::success("Passphrase changed");
-    Ok(ExitCode::SUCCESS)
+    Ok(out.ok_value("passphrase changed", serde_json::json!({ "changed": true })))
 }

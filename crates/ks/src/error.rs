@@ -1,105 +1,134 @@
-//! Library-wide error and result types.
+//! Error types shared by the whole library.
 
 use std::path::PathBuf;
 
-use thiserror::Error;
-
-/// Convenience `Result` alias used throughout the `ks` library.
+/// Result alias for the `ks` library.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// All errors that can occur in the `ks` library.
-#[expect(
-    clippy::error_impl_error,
-    reason = "naming a crate's primary error `Error` is idiomatic in Rust libraries"
-)]
-#[derive(Debug, Error)]
+/// Errors returned by the `ks` library.
+///
+/// Messages never contain secret material; they may contain paths and names.
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
+#[allow(
+    clippy::error_impl_error,
+    reason = "the crate exports a single error type named Error"
+)]
 pub enum Error {
-    /// The store has not been initialised; run `ks init`.
-    #[error("store not initialised at {0}; run `ks init`")]
-    StoreNotFound(PathBuf),
-
-    /// A store already exists at the given path.
-    #[error("store already exists at {0}")]
-    StoreExists(PathBuf),
-
-    /// The identity file does not exist.
-    #[error("identity file not found at {0}")]
-    IdentityNotFound(PathBuf),
-
-    /// The identity file already exists.
-    #[error("identity file already exists at {0}")]
-    IdentityExists(PathBuf),
-
-    /// The recipients file does not exist or is empty.
-    #[error("no recipients configured at {0}")]
-    NoRecipients(PathBuf),
-
-    /// A passphrase was rejected by the age identity file.
-    #[error("incorrect passphrase")]
+    /// A name violates the naming rules.
+    #[error("invalid name {name:?}: {reason}")]
+    InvalidName {
+        /// The rejected name.
+        name: String,
+        /// The rule that was violated.
+        reason: &'static str,
+    },
+    /// Caller supplied invalid input (not a vault name).
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+    /// A file under the vault is corrupt or hostile.
+    #[error("corrupt file {path:?}: {reason}")]
+    Corrupt {
+        /// Path of the offending file.
+        path: PathBuf,
+        /// What is wrong with it.
+        reason: &'static str,
+    },
+    /// A new passphrase failed the policy checks.
+    #[error("weak passphrase: {0}")]
+    WeakPassphrase(String),
+    /// The named entry does not exist.
+    #[error("entry not found: {0}")]
+    NotFound(String),
+    /// The target already exists.
+    #[error("already exists: {0}")]
+    Exists(String),
+    /// The user cancelled an interactive prompt.
+    #[error("cancelled")]
+    Cancelled,
+    /// No usable key source was available.
+    #[error("vault is locked")]
+    Locked,
+    /// The passphrase did not decrypt the identity file.
+    #[error("wrong passphrase")]
     WrongPassphrase,
-
-    /// No secret exists at the given logical path.
-    #[error("secret not found: {0}")]
-    SecretNotFound(String),
-
-    /// A secret already exists at the given logical path.
-    #[error("secret already exists: {0}")]
-    SecretExists(String),
-
-    /// The supplied logical path is invalid (empty, bad characters, ...).
-    #[error("invalid secret path: {0}")]
-    InvalidPath(String),
-
-    /// A command-line argument was invalid (bad value, out of range, ...).
-    #[error("invalid argument: {0}")]
-    InvalidArgument(String),
-
-    /// The supplied age recipient could not be parsed.
-    #[error("invalid age recipient: {0}")]
-    InvalidRecipient(String),
-
-    /// A TOTP secret/URL was malformed.
-    #[error("invalid TOTP secret: {0}")]
-    InvalidTotp(String),
-
-    /// An I/O error occurred.
-    #[error("i/o error: {0}")]
-    Io(#[from] std::io::Error),
-
-    /// An age encryption error.
-    #[error("encryption failed: {0}")]
-    Encrypt(String),
-
-    /// An age decryption error not caused by a wrong passphrase.
-    #[error("decryption failed: {0}")]
-    Decrypt(String),
-
-    /// A secret failed its integrity check: missing/unsupported envelope,
-    /// bound path mismatch (relocated/swapped ciphertext), or envelope
-    /// generation older than the store index (property P1 — partial temporal
-    /// integrity). Does **not** detect co-rolled index + secret restores or
-    /// intentional full-commit / history checkout (non-property N1).
-    #[error("integrity check failed for `{path}`: {reason}")]
-    Tampered {
-        /// The logical path the secret was read from.
-        path: String,
-        /// A human-readable explanation of the mismatch.
-        reason: String,
+    /// An internal invariant failed (a program defect, not user input).
+    #[error("internal error: {0}")]
+    Internal(&'static str),
+    /// A filesystem operation failed.
+    #[error("I/O error on {path:?}: {source}")]
+    Io {
+        /// Path involved in the operation.
+        path: PathBuf,
+        /// Underlying I/O error.
+        #[source]
+        source: std::io::Error,
     },
+}
 
-    /// Could not determine a default user directory (home/data/config).
-    #[error("could not determine user directory")]
-    NoUserDir,
+impl Error {
+    /// Machine-readable code for this error.
+    #[must_use]
+    pub const fn code(&self) -> ErrorCode {
+        match self {
+            Self::InvalidName { .. } | Self::InvalidInput(_) => ErrorCode::Usage,
+            Self::Corrupt { .. } => ErrorCode::Corrupt,
+            Self::WeakPassphrase(_) => ErrorCode::WeakPassphrase,
+            Self::NotFound(_) => ErrorCode::NotFound,
+            Self::Exists(_) => ErrorCode::Exists,
+            Self::Locked => ErrorCode::Locked,
+            Self::Cancelled => ErrorCode::Cancelled,
+            Self::WrongPassphrase => ErrorCode::WrongPassphrase,
+            Self::Io { .. } => ErrorCode::Io,
+            Self::Internal(_) => ErrorCode::Internal,
+        }
+    }
+}
 
-    /// An external command failed.
-    #[error("command `{cmd}` failed with status {status}: {stderr}")]
-    Command {
-        /// The command that was attempted.
-        cmd: String,
-        /// The numeric exit status.
-        status: i32,
-        /// Captured stderr output.
-        stderr: String,
-    },
+/// Stable machine-readable error codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ErrorCode {
+    /// Bad usage: invalid names or arguments.
+    Usage,
+    /// A vault file is corrupt or hostile.
+    Corrupt,
+    /// New passphrase failed policy.
+    WeakPassphrase,
+    /// Entry not found.
+    NotFound,
+    /// Target already exists.
+    Exists,
+    /// No key source available.
+    Locked,
+    /// Wrong passphrase.
+    WrongPassphrase,
+    /// An external capability is unavailable.
+    Unavailable,
+    /// I/O failure.
+    Io,
+    /// The user cancelled an operation.
+    Cancelled,
+    /// Internal error.
+    Internal,
+}
+
+impl ErrorCode {
+    /// The `snake_case` code string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Usage => "usage",
+            Self::Corrupt => "corrupt",
+            Self::WeakPassphrase => "weak_passphrase",
+            Self::NotFound => "not_found",
+            Self::Exists => "exists",
+            Self::Locked => "locked",
+            Self::WrongPassphrase => "wrong_passphrase",
+            Self::Unavailable => "unavailable",
+            Self::Io => "io",
+            Self::Cancelled => "cancelled",
+            Self::Internal => "internal",
+        }
+    }
 }

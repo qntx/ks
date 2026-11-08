@@ -1,245 +1,146 @@
-//! Clap-derive command-line parser.
-
-use std::path::PathBuf;
+//! Command-line surface.
 
 use clap::{Parser, Subcommand};
-use ks::pwgen::Charset;
 
-/// Modern, local-first secret manager built on the age encryption format.
+/// Personal local secret vault with an age-compatible on-disk format.
 #[derive(Debug, Parser)]
-#[command(name = "ks", version, about, long_about = None, arg_required_else_help = true)]
-pub struct Cli {
-    /// Emit machine-readable JSON and run fully non-interactively: never prompts,
-    /// requires `KS_PASSPHRASE` to unlock, and needs `--force` for destructive
-    /// operations. Errors become `{"error": "..."}` on stdout.
+#[command(name = "ks", version, about, disable_help_subcommand = true)]
+pub(crate) struct Cli {
+    /// Vault directory (env: `KS_VAULT`; default `~/.ks`).
     #[arg(long, global = true)]
-    pub json: bool,
-
+    pub(crate) vault: Option<String>,
+    /// Non-interactive machine-readable output: exactly one JSON object.
+    #[arg(long, global = true)]
+    pub(crate) json: bool,
+    /// Read the master passphrase from this file (env: `KS_PASSPHRASE_FILE`).
+    #[arg(long, global = true)]
+    pub(crate) passphrase_file: Option<String>,
+    /// Skip the session agent when unlocking.
+    #[arg(long, global = true)]
+    pub(crate) no_agent: bool,
     #[command(subcommand)]
-    pub command: Command,
+    /// The subcommand to run.
+    pub(crate) command: Command,
 }
 
-/// All top-level subcommands.
 #[derive(Debug, Subcommand)]
-pub enum Command {
-    /// Create a new identity and store in the default location.
-    Init {
-        /// Initialise a git repository inside the store after creation.
-        #[arg(long)]
-        git: bool,
-    },
-
-    /// List secrets as a tree.
-    #[command(alias = "list", visible_alias = "l")]
+/// Subcommands.
+pub(crate) enum Command {
+    /// Create a new vault.
+    Init,
+    /// List entries (no unlock needed).
     Ls {
-        /// Only list paths under this prefix.
-        #[arg(default_value = "")]
-        prefix: String,
+        /// Optional name prefix (segment-wise).
+        prefix: Option<String>,
     },
-
-    /// Print a secret (whole file), or copy/extract part of it.
-    #[command(alias = "get", visible_alias = "s")]
+    /// Show an entry.
     Show {
-        /// Logical secret path (e.g. `github/token`).
-        path: String,
-        /// Copy the primary value (or `--field`) to the clipboard instead of printing.
-        #[arg(short, long)]
-        copy: bool,
-        /// Operate on the named field instead of the whole secret.
-        #[arg(short = 'f', long)]
+        /// Entry name.
+        name: String,
+        /// Print only this field.
+        #[arg(short = 'f')]
         field: Option<String>,
-        /// Print metadata (field names, never values) instead of the secret.
-        #[arg(long)]
-        meta: bool,
+        /// Copy to the clipboard instead of printing.
+        #[arg(short = 'c')]
+        copy: bool,
     },
-
-    /// Store or update a secret (masked prompt, or stdin when piped).
-    #[command(alias = "set", visible_alias = "i")]
-    Insert {
-        /// Logical secret path.
-        path: String,
-        /// Read a multi-line secret until EOF instead of a single line.
-        #[arg(short, long)]
+    /// Store a secret: one line (default), -m multiline from stdin, -b binary.
+    Set {
+        /// Entry name.
+        name: String,
+        /// Read multiple lines from stdin until EOF.
+        #[arg(short = 'm')]
         multiline: bool,
-        /// Overwrite an existing secret without prompting.
-        #[arg(short, long)]
-        force: bool,
-        /// Store raw bytes from stdin verbatim (no text or field parsing).
-        #[arg(short, long, conflicts_with = "multiline")]
+        /// Read raw bytes from stdin.
+        #[arg(short = 'b')]
         binary: bool,
+        /// Overwrite an existing entry without asking.
+        #[arg(long)]
+        force: bool,
     },
-
-    /// Edit a secret in `$EDITOR`.
-    #[command(visible_alias = "e")]
+    /// Edit a text entry in $VISUAL/$EDITOR/vi.
     Edit {
-        /// Logical secret path.
-        path: String,
+        /// Entry name (created if absent).
+        name: String,
     },
-
-    /// Generate a random secret and optionally store it.
-    #[command(visible_alias = "g")]
+    /// Generate a random password.
     Gen {
-        /// Logical path to store the generated value (omit to print only).
-        path: Option<String>,
-        /// Character count.
-        #[arg(short, long, default_value_t = 32)]
+        /// Entry name to store under (omit to just print).
+        name: Option<String>,
+        /// Length, 1-1024 (default 32).
+        #[arg(short = 'l', default_value_t = 32)]
         length: usize,
-        /// Character set: `alphanum`, `hex`, `printable`, `slug`.
-        #[arg(short = 's', long, default_value = "alphanum", value_parser = parse_charset)]
-        charset: Charset,
-        /// Overwrite an existing secret without prompting.
-        #[arg(short, long)]
-        force: bool,
-        /// Copy the generated value to the clipboard.
-        #[arg(short, long)]
+        /// Character set: alphanum|hex|printable|slug.
+        #[arg(short = 's', default_value = "alphanum")]
+        set: String,
+        /// Copy to the clipboard instead of printing.
+        #[arg(short = 'c')]
         copy: bool,
-    },
-
-    /// Remove a secret.
-    #[command(alias = "del")]
-    Rm {
-        /// Logical secret path.
-        path: String,
-        /// Skip the confirmation prompt.
-        #[arg(short, long)]
+        /// Overwrite an existing entry without asking.
+        #[arg(long)]
         force: bool,
     },
-
-    /// Rename (move) a secret. Decrypts, re-binds the path envelope, and re-encrypts (requires unlock).
+    /// Remove an entry.
+    Rm {
+        /// Entry name.
+        name: String,
+        /// Remove without asking.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Rename an entry.
     Mv {
-        /// Current logical path.
+        /// Current name.
         from: String,
-        /// New logical path.
+        /// New name.
         to: String,
-    },
-
-    /// Copy a secret. Decrypts, re-binds the path envelope, and re-encrypts (requires unlock).
-    Cp {
-        /// Source logical path.
-        from: String,
-        /// Destination logical path.
-        to: String,
-    },
-
-    /// Search secrets by path, and optionally by decrypted content.
-    #[command(alias = "find", visible_alias = "f")]
-    Grep {
-        /// Query string (case-insensitive substring match).
-        query: String,
-        /// Also scan decrypted contents (slow: decrypts every secret).
+        /// Overwrite the destination without asking.
         #[arg(long)]
-        values: bool,
-    },
-
-    /// Generate a TOTP code from a secret containing an `otpauth://` source.
-    #[command(visible_alias = "o")]
-    Otp {
-        /// Logical path of a TOTP secret.
-        path: String,
-        /// Copy the code to the clipboard.
-        #[arg(short, long)]
-        copy: bool,
-    },
-
-    /// Run a command with secrets injected as environment variables.
-    #[command(trailing_var_arg = true, visible_alias = "r")]
-    Run {
-        /// Mapping `<path>=<ENV_NAME>` (repeatable).
-        #[arg(short, long, value_name = "PATH=NAME")]
-        env: Vec<String>,
-        /// Inject every secret under this prefix using upper-cased `_`-joined
-        /// names (repeatable).
-        #[arg(short, long, value_name = "PREFIX")]
-        prefix: Vec<String>,
-        /// Command and arguments to execute.
-        #[arg(required = true, allow_hyphen_values = true, trailing_var_arg = true)]
-        cmd: Vec<String>,
-    },
-
-    /// Manage the recipient public-key list.
-    #[command(visible_alias = "rec")]
-    Recipients {
-        #[command(subcommand)]
-        cmd: RecipientsCmd,
-    },
-
-    /// Show this device's public recipient, or back up / restore the identity.
-    Identity {
-        #[command(subcommand)]
-        action: Option<IdentityAction>,
-    },
-
-    /// Run git inside the store directory (passthrough): `ks git <args…>`.
-    #[command(disable_help_flag = true)]
-    Git {
-        /// Arguments forwarded verbatim to the system `git`.
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
-
-    /// Commit, pull (rebase) and push the store in one step.
-    #[command(visible_alias = "sy")]
-    Sync {
-        /// Commit message for any staged local changes.
-        #[arg(short, long, default_value = "ks sync")]
-        message: String,
-    },
-
-    /// Run a battery of health checks on the store and config.
-    Doctor {
-        /// Rebuild `.ks-generations` from live envelopes (requires unlock; preserves tombstones).
-        #[arg(long)]
-        repair_generations: bool,
-    },
-
-    /// Change the identity's passphrase.
-    Passwd,
-}
-
-/// Parses a `--charset` value into a [`Charset`], so a bad value is reported as
-/// a clap usage error listing the accepted names.
-fn parse_charset(raw: &str) -> Result<Charset, String> {
-    raw.parse()
-}
-
-/// Subcommands of `ks recipients`.
-#[derive(Debug, Subcommand)]
-pub enum RecipientsCmd {
-    /// List recipient public keys.
-    #[command(alias = "list")]
-    Ls,
-    /// Add a recipient and re-encrypt every secret.
-    Add {
-        /// `age1…` public key.
-        pubkey: String,
-    },
-    /// Remove a recipient and re-encrypt every secret.
-    Rm {
-        /// `age1…` public key.
-        pubkey: String,
-    },
-}
-
-/// Subcommands of `ks identity`.
-#[derive(Debug, Subcommand)]
-pub enum IdentityAction {
-    /// Back up the encrypted identity (still passphrase-protected) for offline
-    /// storage or to bootstrap another device.
-    Export {
-        /// Write to this file instead of stdout.
-        #[arg(short, long, value_name = "PATH")]
-        out: Option<PathBuf>,
-        /// ASCII-armor the output (printable; always on when writing to stdout).
-        #[arg(short, long)]
-        armor: bool,
-    },
-    /// Restore the identity from a backup made with `ks identity export`.
-    Import {
-        /// Read from this file instead of stdin.
-        #[arg(value_name = "PATH")]
-        path: Option<PathBuf>,
-        /// Overwrite an existing identity file.
-        #[arg(short, long)]
         force: bool,
     },
+    /// Show a TOTP code and its remaining validity.
+    Otp {
+        /// Entry name.
+        name: String,
+        /// Copy the code to the clipboard.
+        #[arg(short = 'c')]
+        copy: bool,
+    },
+    /// Run a command with secrets injected as environment variables.
+    Run {
+        /// VAR=name[#field] mappings.
+        #[arg(short = 'e', value_name = "VAR=name[#field]")]
+        env: Vec<String>,
+        /// Command and arguments to run.
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
+    /// Change the master passphrase. K stays the same; this is not a
+    /// revocation measure — use key rotation (`ks rekey`, later) for that.
+    Passwd,
+    /// Check the vault for problems.
+    Doctor {
+        /// Remove temp files and fix permissions.
+        #[arg(long)]
+        fix: bool,
+    },
+    /// Internal: clipboard helper process.
+    #[command(hide = true)]
+    ClipboardDaemon {
+        /// Seconds before clearing.
+        secs: u64,
+    },
+}
+
+impl Cli {
+    /// Resolves the vault path: `--vault` > `KS_VAULT` > `~/.ks`.
+    ///
+    /// # Errors
+    ///
+    /// [`ks::Error::InvalidInput`] when the home directory cannot be found.
+    pub(crate) fn vault_path(&self) -> ks::Result<std::path::PathBuf> {
+        self.vault
+            .as_ref()
+            .map_or_else(ks::Vault::default_path, |v| Ok(std::path::PathBuf::from(v)))
+    }
 }

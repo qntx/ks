@@ -26,5 +26,8 @@ target
 # Local agent scratch
 .claude/
 
+# Local-only design tree (never committed)
+/design/
+
 # macOS
 .DS_Store

@@ -1,139 +1,128 @@
-//! `ks edit` — edit a secret in `$EDITOR`.
+//! `ks edit <name>` — edit a text entry in an external editor.
 
-use std::fs::OpenOptions;
-use std::io::{Seek as _, SeekFrom, Write as _};
-use std::path::{Path, PathBuf};
-use std::process::{Command as Proc, ExitCode};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::io::Write as _;
 
-use ks::{Config, Error, Result, Secret};
+use ks::{Entry, ErrorCode, Kind};
 use zeroize::Zeroizing;
 
-use crate::commands;
-use crate::terminal;
+use super::{Cli, CliResult, Out, err, fail, name, unlock};
 
-pub fn run(config: &Config, path: &str) -> Result<ExitCode> {
-    if crate::output::is_json() {
-        return Err(crate::output::interactive_only("edit"));
+/// Opens the entry in `$VISUAL`/`$EDITOR`/`vi` inside a private temp dir.
+pub(crate) fn run(cli: &Cli, out: &Out, n: &str) -> CliResult<i32> {
+    if !out.interactive {
+        return fail(ErrorCode::Usage, "edit requires an interactive terminal");
     }
-    let store = commands::open_store(config)?;
-
-    // Editing an existing secret needs the plaintext, so unlock; creating a new
-    // one only writes, so stay locked (consistent with `insert`).
-    let original = if store.exists(path) {
-        let identity = commands::unlock(config)?;
-        let secret = commands::get_secret(&store, path, &identity)?;
-        if secret.is_binary() {
-            return Err(Error::InvalidArgument(format!(
-                "{path} is a binary secret and cannot be edited as text"
-            )));
-        }
-        Zeroizing::new(secret.expose().to_owned())
-    } else {
-        Zeroizing::new(String::new())
+    let session = unlock(cli, out)?;
+    let name = name(n)?;
+    let existing = match session.get(&name) {
+        Ok(e) => Some(e),
+        Err(ks::Error::NotFound(_)) => None,
+        Err(e) => return Err(err(&e)),
     };
-
-    let edited = edit_in_editor(&original)?;
-    if *edited == *original {
-        terminal::warn("No changes");
-        return Ok(ExitCode::SUCCESS);
+    if let Some(e) = &existing
+        && e.kind() == Kind::Binary
+    {
+        return fail(ErrorCode::Usage, "binary entries cannot be edited");
     }
+    let current = existing
+        .as_ref()
+        .and_then(|e| e.as_text().map(|t| t.as_str().to_owned()))
+        .unwrap_or_default();
 
-    store.set(path, &Secret::new(edited.as_str()))?;
-    terminal::success(&format!("Updated {path}"));
-    Ok(ExitCode::SUCCESS)
-}
-
-/// Round-trips `initial` through `$EDITOR` via a short-lived owner-only temp
-/// directory (`0700`) + file (`0600`), then zero-fills and removes both.
-fn edit_in_editor(initial: &str) -> Result<Zeroizing<String>> {
-    let dir = temp_dir_owner_only()?;
-    let tmp = dir.join("secret.txt");
-    let mut file = open_temp_owner_only(&tmp)?;
-    file.write_all(initial.as_bytes())?;
-    file.sync_all()?;
-    // Drop the write handle so the editor can open the path.
-    drop(file);
-
-    let outcome = run_editor(&tmp);
-    wipe_and_remove(&tmp, initial.len());
-    drop(std::fs::remove_dir_all(&dir));
-    outcome
-}
-
-fn run_editor(tmp: &Path) -> Result<Zeroizing<String>> {
-    let (program, args) = editor();
-    let status = Proc::new(&program)
-        .args(&args)
-        .arg(tmp)
-        .status()
-        .map_err(Error::Io)?;
-    if !status.success() {
-        return Err(Error::Io(std::io::Error::other(format!(
-            "editor `{program}` exited without saving"
-        ))));
-    }
-    Ok(Zeroizing::new(std::fs::read_to_string(tmp)?))
-}
-
-/// Resolves the editor invocation from `$EDITOR`/`$VISUAL` (falling back to a
-/// platform default), split on whitespace into program plus arguments.
-fn editor() -> (String, Vec<String>) {
-    let raw = std::env::var("EDITOR")
-        .or_else(|_| std::env::var("VISUAL"))
-        .unwrap_or_else(|_| default_editor().to_owned());
-    let mut parts = raw.split_whitespace().map(str::to_owned);
-    let program = parts.next().unwrap_or_else(|| default_editor().to_owned());
-    (program, parts.collect())
-}
-
-const fn default_editor() -> &'static str {
-    if cfg!(windows) { "notepad" } else { "vi" }
-}
-
-/// Private directory under the process temp root (`0700` on Unix).
-fn temp_dir_owner_only() -> Result<PathBuf> {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("ks-edit-{}-{nanos}", std::process::id()));
-    std::fs::create_dir_all(&dir).map_err(Error::Io)?;
+    let dir = tempfile::Builder::new()
+        .prefix("ks-edit-")
+        .tempdir()
+        .map_err(|e| {
+            err(&ks::Error::Io {
+                path: "tempdir".into(),
+                source: e,
+            })
+        })?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        let mut perms = std::fs::metadata(&dir).map_err(Error::Io)?.permissions();
-        perms.set_mode(0o700);
-        std::fs::set_permissions(&dir, perms).map_err(Error::Io)?;
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).ok();
     }
-    Ok(dir)
-}
-
-/// Creates a new exclusive temp file with owner-only mode on Unix.
-fn open_temp_owner_only(path: &Path) -> Result<std::fs::File> {
-    let mut opts = OpenOptions::new();
-    opts.write(true).create_new(true).read(true);
-    #[cfg(unix)]
+    let file = dir.path().join(name.as_str().replace('/', "_"));
     {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        opts.mode(0o600);
+        let mut f = std::fs::File::create(&file).map_err(|e| {
+            err(&ks::Error::Io {
+                path: file.clone(),
+                source: e,
+            })
+        })?;
+        // tempfile::NamedTempFile would give 0600; File::create honors umask
+        // inside a 0700 dir, enforce 0600 for parity with vault writes.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            f.set_permissions(std::fs::Permissions::from_mode(0o600))
+                .ok();
+        }
+        f.write_all(current.as_bytes()).map_err(|e| {
+            err(&ks::Error::Io {
+                path: file.clone(),
+                source: e,
+            })
+        })?;
     }
-    opts.open(path).map_err(Error::Io)
+
+    let editor = std::env::var("VISUAL")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| std::env::var("EDITOR").ok().filter(|v| !v.is_empty()))
+        .unwrap_or_else(|| "vi".to_owned());
+    let mut parts = editor.split_whitespace();
+    let program = parts.next().unwrap_or("vi");
+    let status = std::process::Command::new(program)
+        .args(parts)
+        .arg(&file)
+        .status()
+        .map_err(|e| {
+            (
+                ErrorCode::Unavailable,
+                format!("cannot start editor {program}: {e}"),
+            )
+        })?;
+    if !status.success() {
+        scrub(&dir);
+        return fail(ErrorCode::Cancelled, "editor exited without saving");
+    }
+    let new_text = std::fs::read_to_string(&file).map_err(|e| {
+        err(&ks::Error::Io {
+            path: file.clone(),
+            source: e,
+        })
+    })?;
+    scrub(&dir);
+    if new_text == current {
+        return Ok(out.ok_value(
+            "unchanged",
+            serde_json::json!({ "name": name.to_string(), "stored": false }),
+        ));
+    }
+    let entry = Entry::text(Zeroizing::new(new_text)).map_err(|e| err(&e))?;
+    session.set(&name, &entry, true).map_err(|e| err(&e))?;
+    Ok(out.ok_value(
+        &format!("stored {name}"),
+        serde_json::json!({ "name": name.to_string(), "stored": true }),
+    ))
 }
 
-/// Best-effort zero-fill of the temp file then unlink. SSD residual data may
-/// remain; this is defence-in-depth, not secure erase.
-fn wipe_and_remove(path: &Path, approx_len: usize) {
-    if let Ok(mut f) = OpenOptions::new().write(true).open(path) {
-        let len = f
-            .metadata()
-            .ok()
-            .and_then(|m| usize::try_from(m.len()).ok())
-            .unwrap_or(approx_len);
-        let zeros = vec![0u8; len.max(approx_len)];
-        drop(f.seek(SeekFrom::Start(0)));
-        drop(f.write_all(&zeros));
-        drop(f.sync_all());
+/// Overwrites the temp file with zeros and removes the dir.
+fn scrub(dir: &tempfile::TempDir) {
+    for entry in std::fs::read_dir(dir.path())
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let p = entry.path();
+        if p.is_file()
+            && let Ok(len) = p.metadata().map(|m| m.len())
+        {
+            let zeros = vec![0u8; usize::try_from(len).unwrap_or(0)];
+            // Best-effort scrub: the TempDir still deletes the file on drop.
+            std::fs::write(&p, zeros).ok();
+        }
     }
-    drop(std::fs::remove_file(path));
 }

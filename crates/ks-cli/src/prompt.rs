@@ -1,121 +1,150 @@
-//! Interactive terminal prompts.
-//!
-//! Centralises all `cliclack` usage so command modules stay focused on their
-//! domain logic.
+//! Passphrase sources and interactive prompts.
 
-use std::io::IsTerminal as _;
+use std::io::Read as _;
+use std::path::Path;
 
-use cliclack::{confirm as ck_confirm, password as ck_password};
-use ks::{Error, Result};
-use secrecy::SecretString;
+use age::secrecy::SecretString;
+use ks::{Error, ErrorCode};
 use zeroize::Zeroizing;
 
-const MIN_PASSPHRASE: usize = 12;
+use crate::cli::Cli;
+use crate::output::{CliResult, Out, err};
 
-/// Reads a passphrase masked with `•`.
+/// The unlock passphrase source handed to `Vault::unlock`.
 ///
-/// # Errors
-/// Returns [`Error::Io`] if the terminal cannot be read (e.g. closed stdin).
-pub fn passphrase(label: &str) -> Result<SecretString> {
-    let raw: String = ck_password(label).mask('•').interact().map_err(io_err)?;
-    Ok(SecretString::from(raw))
+/// Order: `--passphrase-file` -> `KS_PASSPHRASE_FILE` -> `KS_PASSPHRASE`
+/// (captured at startup and removed from the environment) -> interactive
+/// hidden prompt. Absent everything: `locked`.
+pub(crate) fn passphrase_source<'a>(
+    cli: &'a Cli,
+    out: &'a Out,
+) -> impl Fn() -> ks::Result<SecretString> + 'a {
+    move || {
+        let file = cli
+            .passphrase_file
+            .clone()
+            .or_else(|| env_nonempty("KS_PASSPHRASE_FILE"));
+        if let Some(file) = file {
+            return read_passphrase_file(Path::new(&file), out);
+        }
+        if let Some(pass) = crate::harden::captured_passphrase() {
+            return Ok(pass);
+        }
+        if out.interactive {
+            return prompt_hidden("master passphrase");
+        }
+        Err(Error::Locked)
+    }
 }
 
-/// Reads and confirms a new passphrase. Requires the two entries to match and
-/// asks the user to confirm if the chosen passphrase is shorter than
-/// [`MIN_PASSPHRASE`] characters.
-///
-/// # Errors
-/// Returns [`Error::Io`] on prompt failure or [`Error::WrongPassphrase`] if
-/// the two entries disagree.
-pub fn new_passphrase(label: &str) -> Result<SecretString> {
-    let a: String = ck_password(label).mask('•').interact().map_err(io_err)?;
-    let b: String = ck_password("Confirm passphrase")
-        .mask('•')
-        .interact()
-        .map_err(io_err)?;
-    if a != b {
-        return Err(Error::WrongPassphrase);
-    }
-    if a.is_empty() {
-        return Err(Error::InvalidArgument(
-            "passphrase must not be empty".to_owned(),
-        ));
-    }
-    if a.chars().count() < MIN_PASSPHRASE {
-        let proceed = ck_confirm(format!(
-            "Passphrase is shorter than {MIN_PASSPHRASE} characters — continue anyway?"
-        ))
-        .initial_value(false)
-        .interact()
-        .map_err(io_err)?;
-        if !proceed {
-            return Err(Error::Io(std::io::Error::other("aborted by user")));
+fn env_nonempty(var: &str) -> Option<String> {
+    std::env::var(var).ok().filter(|v| !v.is_empty())
+}
+
+/// Reads a passphrase file, stripping one trailing `\r\n` or `\n`. Warns on
+/// unix when the file is group/other readable.
+fn read_passphrase_file(path: &Path, out: &Out) -> ks::Result<SecretString> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if let Ok(meta) = path.metadata()
+            && meta.permissions().mode() & 0o077 != 0
+        {
+            out.warn(format!(
+                "passphrase file {} is readable by group/other",
+                path.display()
+            ));
         }
     }
-    Ok(SecretString::from(a))
+    let mut bytes = std::fs::read(path).map_err(|e| Error::Io {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+    if bytes.ends_with(b"\r\n") {
+        bytes.truncate(bytes.len() - 2);
+    } else if bytes.ends_with(b"\n") {
+        bytes.truncate(bytes.len() - 1);
+    }
+    let text = String::from_utf8(bytes)
+        .map_err(|_| Error::InvalidInput("passphrase file is not UTF-8".into()))?;
+    Ok(SecretString::from(text))
 }
 
-/// Asks a yes/no question.
-///
-/// # Errors
-/// Returns [`Error::Io`] on prompt failure.
-pub fn confirm(label: &str, default: bool) -> Result<bool> {
-    ck_confirm(label)
-        .initial_value(default)
+/// Hidden single-line prompt (cliclack); interrupt/escape -> `cancelled`.
+fn prompt_hidden(label: &str) -> ks::Result<SecretString> {
+    let input = cliclack::password(label)
         .interact()
-        .map_err(io_err)
+        .map_err(|_| Error::Cancelled)?;
+    Ok(SecretString::from(input))
 }
 
-/// Reads a secret value, either from an interactive masked prompt or, if
-/// stdin is not a TTY, from the first line of stdin.
-///
-/// # Errors
-/// Returns [`Error::Io`] on read failure.
-pub fn secret_value(label: &str) -> Result<Zeroizing<String>> {
-    if std::io::stdin().is_terminal() && !crate::output::is_json() {
-        let raw: String = ck_password(label).mask('•').interact().map_err(io_err)?;
-        Ok(Zeroizing::new(raw))
-    } else {
-        let mut buf = String::new();
-        std::io::stdin().read_line(&mut buf).map_err(Error::Io)?;
-        let trimmed = buf.trim_end_matches(['\n', '\r']).to_owned();
-        Ok(Zeroizing::new(trimmed))
+/// Acquires a NEW passphrase: interactive -> typed twice; non-interactive ->
+/// `KS_NEW_PASSPHRASE_FILE`, else `usage`.
+pub(crate) fn new_passphrase(out: &Out) -> CliResult<SecretString> {
+    if out.interactive {
+        let first = cliclack::password("new passphrase")
+            .interact()
+            .map_err(|_| (ErrorCode::Cancelled, "cancelled".to_owned()))?;
+        let second = cliclack::password("confirm new passphrase")
+            .interact()
+            .map_err(|_| (ErrorCode::Cancelled, "cancelled".to_owned()))?;
+        if first != second {
+            return Err((ErrorCode::Usage, "passphrases do not match".to_owned()));
+        }
+        return Ok(SecretString::from(first));
     }
+    env_nonempty("KS_NEW_PASSPHRASE_FILE").map_or_else(
+        || {
+            Err((
+                ErrorCode::Usage,
+                "new passphrase required: set KS_NEW_PASSPHRASE_FILE non-interactively".to_owned(),
+            ))
+        },
+        |file| read_passphrase_file(Path::new(&file), out).map_err(|e| err(&e)),
+    )
 }
 
-/// Reads a multi-line secret from stdin until EOF (Ctrl-D / Ctrl-Z).
-///
-/// The first line is the primary value; subsequent lines are stored verbatim.
-///
-/// # Errors
-/// Returns [`Error::Io`] on read failure.
-pub fn multiline(label: &str) -> Result<Zeroizing<String>> {
-    use std::io::Read as _;
-    if std::io::stdin().is_terminal() {
-        crate::terminal::info(label);
+/// Reads the first line of stdin for `set` (trailing `\n`/`\r\n` removed).
+pub(crate) fn stdin_first_line() -> CliResult<Zeroizing<String>> {
+    let mut line = String::new();
+    let n = std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| (ErrorCode::Io, format!("reading stdin: {e}")))?;
+    if n == 0 {
+        return Err((ErrorCode::Usage, "empty input on stdin".to_owned()));
     }
-    let mut buf = String::new();
+    if line.ends_with("\r\n") {
+        line.truncate(line.len() - 2);
+    } else if line.ends_with('\n') {
+        line.truncate(line.len() - 1);
+    }
+    Ok(Zeroizing::new(line))
+}
+
+/// Reads all of stdin as bytes.
+pub(crate) fn stdin_all() -> CliResult<Zeroizing<Vec<u8>>> {
+    let mut buf = Vec::new();
     std::io::stdin()
-        .read_to_string(&mut buf)
-        .map_err(Error::Io)?;
+        .read_to_end(&mut buf)
+        .map_err(|e| (ErrorCode::Io, format!("reading stdin: {e}")))?;
     Ok(Zeroizing::new(buf))
 }
 
-/// Reads all of stdin as raw bytes, for storing a binary secret verbatim.
-///
-/// The caller is expected to move the result straight into a `Secret`, which
-/// holds it in a zeroizing buffer.
-///
-/// # Errors
-/// Returns [`Error::Io`] on read failure.
-pub fn stdin_bytes() -> Result<Vec<u8>> {
-    use std::io::Read as _;
-    let mut buf = Vec::new();
-    std::io::stdin().read_to_end(&mut buf).map_err(Error::Io)?;
-    Ok(buf)
-}
-
-const fn io_err(e: std::io::Error) -> Error {
-    Error::Io(e)
+/// Interactive yes/no confirmation; non-interactive returns the `missing`
+/// error supplied by the caller.
+pub(crate) fn confirm(out: &Out, question: &str) -> CliResult<()> {
+    if !out.interactive {
+        return Err((
+            ErrorCode::Usage,
+            format!("{question} (requires confirmation or a flag)"),
+        ));
+    }
+    let yes = cliclack::confirm(question)
+        .initial_value(false)
+        .interact()
+        .map_err(|_| (ErrorCode::Cancelled, "cancelled".to_owned()))?;
+    if !yes {
+        return Err((ErrorCode::Cancelled, "cancelled".to_owned()));
+    }
+    Ok(())
 }

@@ -1,8 +1,8 @@
-<!-- markdownlint-disable MD033 MD041 -->
-
 # ks
 
-Local-first, age-encrypted secret manager in Rust.
+Personal local secret vault in Rust: per-entry age-encrypted files you can sync with git and always recover with the official age CLI, as a library and the `ks` CLI.
+
+User documentation lives in [docs/](docs/); changes are tracked in [CHANGELOG.md](CHANGELOG.md); layering rules and gates for contributors live in [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
@@ -13,7 +13,9 @@ Licensed under either of:
 
 at your option.
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this project shall be dual-licensed as above, without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this project shall be dual-licensed as above, without any
+additional terms or conditions.
 
 ---
 

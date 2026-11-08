@@ -1,21 +1,23 @@
-//! `ks mv` — rename a secret. Re-binds the envelope to the new path, so it
-//! decrypts and re-encrypts and therefore unlocks the identity.
+//! `ks mv <from> <to> [--force]` — rename an entry.
 
-use std::process::ExitCode;
+use super::{Cli, CliResult, Out, err, name, prompt, unlock};
 
-use ks::{Config, Result};
-
-use crate::commands;
-use crate::terminal;
-
-pub fn run(config: &Config, from: &str, to: &str) -> Result<ExitCode> {
-    let store = commands::open_store(config)?;
-    let identity = commands::unlock(config)?;
-    store.rename(from, to, &identity)?;
-    if crate::output::is_json() {
-        crate::output::emit(&serde_json::json!({ "from": from, "to": to, "moved": true }));
-    } else {
-        terminal::success(&format!("Moved {from} → {to}"));
+/// Re-encrypts under the new name, then deletes the old file.
+pub(crate) fn run(cli: &Cli, out: &Out, from: &str, to: &str, force: bool) -> CliResult<i32> {
+    let session = unlock(cli, out)?;
+    let from = name(from)?;
+    let to = name(to)?;
+    let dest_exists = to.path_in(session.vault().root()).exists();
+    if dest_exists && !force {
+        if out.interactive {
+            prompt::confirm(out, &format!("overwrite {to}?"))?;
+        } else {
+            return Err(err(&ks::Error::Exists(to.to_string())));
+        }
     }
-    Ok(ExitCode::SUCCESS)
+    session.rename(&from, &to, true).map_err(|e| err(&e))?;
+    Ok(out.ok_value(
+        &format!("renamed {from} -> {to}"),
+        serde_json::json!({ "from": from.to_string(), "to": to.to_string(), "renamed": true }),
+    ))
 }

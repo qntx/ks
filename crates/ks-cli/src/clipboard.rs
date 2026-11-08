@@ -1,167 +1,111 @@
-//! Clipboard write with automatic timed clear.
-//!
-//! The timed clear runs in a **detached child process**, never a background
-//! thread: this CLI is short-lived, so a thread would die the instant the command
-//! returns and the secret would linger on the clipboard forever. The helper
-//! re-executes this same binary as `ks __clipclear <secs>`, receiving the value
-//! over **stdin** (never argv or the environment, both readable by same-user
-//! processes), then clears the clipboard after the TTL only if it still holds
-//! that value.
-//!
-//! Who *sets* the clipboard differs by platform, because their clipboard
-//! ownership models are opposite:
-//!
-//! - **Windows**: the clipboard is global and survives the writing process, but a
-//!   spawned helper writes to an isolated window-station clipboard the user's
-//!   session never sees. So the invoking process (which is on the interactive
-//!   station) sets the value, and the helper only waits and clears. The helper
-//!   must NOT hold the clipboard open while waiting — an open clipboard blocks
-//!   every other process, including the user's paste.
-//! - **X11/Wayland**: the clipboard's contents live only as long as the owning
-//!   process, so the helper must set the value AND stay alive to serve it for the
-//!   whole TTL before clearing.
+//! Clipboard via a detached child: `ks __clipboard <secs>` reads the value
+//! from stdin (never argv/env), sets the clipboard, and clears it after the
+//! timeout only if the value is unchanged.
 
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::process::{Command, Stdio};
-use std::time::Duration;
 
-use arboard::Clipboard;
-use ks::{Error, Result};
+use ks::ErrorCode;
+use zeroize::Zeroizing;
 
-/// Hidden subcommand name for the detached clear helper (handled in `main`).
-pub const CLEAR_ARG: &str = "__clipclear";
+use crate::output::CliResult;
 
-/// Copies `value` to the system clipboard for `clear_secs` seconds, then arranges
-/// for it to be cleared (see the module docs for the platform split).
-///
-/// Returns the configured `clear_secs` for display.
-///
-/// # Errors
-/// Returns [`Error::Io`] if neither the helper nor the in-process fallback can
-/// reach the system clipboard.
-pub fn copy_with_autoclear(value: &str, clear_secs: u64) -> Result<u64> {
-    // On Windows the value must be placed by this interactive-station process; the
-    // helper only clears. On X11 the helper sets and holds. See module docs.
-    let set_here = cfg!(windows);
-    if set_here {
-        let mut cb = Clipboard::new().map_err(clip_err)?;
-        cb.set_text(value.to_owned()).map_err(clip_err)?;
-    }
-
-    if spawn_helper(value, clear_secs) {
-        return Ok(clear_secs);
-    }
-
-    // Fallback when the helper cannot be spawned: make sure the value is at least
-    // on the clipboard. The timed clear is then best-effort only.
-    if !set_here {
-        let mut cb = Clipboard::new().map_err(clip_err)?;
-        cb.set_text(value.to_owned()).map_err(clip_err)?;
-    }
-    Ok(clear_secs)
+/// Seconds to keep the clipboard (`KS_CLIP_TIME`, default 45).
+#[must_use]
+pub(crate) fn clip_time() -> u64 {
+    std::env::var("KS_CLIP_TIME")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(45)
 }
 
-/// Spawns the detached `ks __clipclear <secs>` helper, handing it the value over
-/// stdin. Returns `true` if the helper was launched.
-fn spawn_helper(value: &str, clear_secs: u64) -> bool {
-    let Ok(exe) = std::env::current_exe() else {
-        return false;
-    };
+/// Spawns the detached `ks __clipboard` helper and feeds it `value`.
+///
+/// # Errors
+///
+/// `unavailable` when the helper cannot be spawned or fed.
+pub(crate) fn copy(value: &[u8]) -> CliResult<()> {
+    let exe = std::env::current_exe().map_err(|e| {
+        (
+            ErrorCode::Unavailable,
+            format!("cannot locate ks binary: {e}"),
+        )
+    })?;
     let mut cmd = Command::new(exe);
-    cmd.arg(CLEAR_ARG)
-        .arg(clear_secs.to_string())
+    cmd.args(["__clipboard", &clip_time().to_string()])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     detach(&mut cmd);
-    // Deliberately not waited on: the helper outlives us and clears on its own.
-    if let Ok(mut child) = cmd.spawn()
-        && let Some(mut stdin) = child.stdin.take()
-    {
-        stdin.write_all(value.as_bytes()).ok();
-        drop(stdin);
-        return true;
+    let mut child = cmd.spawn().map_err(|e| {
+        (
+            ErrorCode::Unavailable,
+            format!("cannot spawn clipboard helper: {e}"),
+        )
+    })?;
+    if let Some(mut stdin) = child.stdin.take() {
+        drop(stdin.write_all(value));
     }
-    false
+    Ok(())
 }
 
-/// Entry point for the detached helper (`ks __clipclear <secs>`): reads the value
-/// from stdin, then clears the clipboard after `secs` **only if** it still holds
-/// that value (so we never discard something the user copied since).
-///
-/// On non-Windows it also (re)sets the value first and holds it for the whole TTL,
-/// because X11 clipboards live only as long as their owning process. On Windows
-/// the invoking process already placed the value on the shared clipboard. Silent.
-pub fn run_clear_daemon(secs: u64) {
-    use std::io::Read as _;
-    let mut value = String::new();
-    if std::io::stdin().read_to_string(&mut value).is_err() {
-        return;
+/// Sets the clipboard in this process, waits `secs`, clears if unchanged.
+/// Used by the `__clipboard` daemon subcommand.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the daemon intentionally blocks for the TTL; there is no event loop to yield to"
+)]
+pub(crate) fn daemon(secs: u64) -> i32 {
+    let mut value = Zeroizing::new(Vec::new());
+    if std::io::stdin().read_to_end(&mut value).is_err() {
+        return 1;
     }
-
-    #[cfg(windows)]
-    {
-        // The invoking process already placed the value on the shared clipboard.
-        // Crucially we must NOT keep a `Clipboard` open while waiting: on Windows
-        // an open clipboard blocks every other process (including the user's
-        // paste) from reading it. So wait first, then open only to clear.
-        wait(secs);
-        if let Ok(mut cb) = Clipboard::new()
-            && let Ok(current) = cb.get_text()
-            && current == value
-        {
-            cb.set_text(String::new()).ok();
-        }
+    let Ok(mut cb) = arboard::Clipboard::new() else {
+        return 1;
+    };
+    let Ok(utf8) = String::from_utf8(value.to_vec()) else {
+        return 1;
+    };
+    let text = Zeroizing::new(utf8);
+    if set(&mut cb, &text, secs).is_err() {
+        return 1;
     }
-
-    #[cfg(not(windows))]
-    {
-        // X11/Wayland: clipboard contents live only as long as the owning process,
-        // so we must set the value and keep this process (and the owning
-        // `Clipboard`) alive for the whole TTL before clearing.
-        let Ok(mut cb) = Clipboard::new() else { return };
-        if cb.set_text(value.clone()).is_err() {
-            return;
-        }
-        wait(secs);
-        if let Ok(current) = cb.get_text()
-            && current == value
-        {
-            cb.set_text(String::new()).ok();
-        }
-        drop(cb);
+    // wait_until on linux already blocked for `secs`; other platforms sleep.
+    #[cfg(not(target_os = "linux"))]
+    std::thread::sleep(std::time::Duration::from_secs(secs));
+    // Clear only if the clipboard still holds our value.
+    if cb.get_text().ok().as_deref() == Some(text.as_str()) {
+        cb.set_text(String::new()).ok();
     }
+    0
 }
 
-fn wait(secs: u64) {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "this helper process exists solely to wait out the clipboard TTL; a blocking sleep is the whole point"
-    )]
-    std::thread::sleep(Duration::from_secs(secs));
+#[cfg(target_os = "linux")]
+fn set(cb: &mut arboard::Clipboard, text: &str, secs: u64) -> Result<(), arboard::Error> {
+    // wait_until keeps ownership until the deadline, then returns; the clear
+    // below still runs at `secs`, not an hour later.
+    use arboard::SetExtLinux as _;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    cb.set().wait_until(deadline).text(text)
 }
 
-fn clip_err(e: impl std::fmt::Display) -> Error {
-    Error::Io(std::io::Error::other(e.to_string()))
+#[cfg(not(target_os = "linux"))]
+fn set(cb: &mut arboard::Clipboard, text: &str, _secs: u64) -> Result<(), arboard::Error> {
+    cb.set_text(text)
 }
 
-/// Detaches `cmd` so it survives this process exiting and shell job control.
 #[cfg(unix)]
 fn detach(cmd: &mut Command) {
     use std::os::unix::process::CommandExt as _;
-    // A new process group detaches the child from the terminal's job control,
-    // so Ctrl-C in the parent shell will not also kill the pending clear.
     cmd.process_group(0);
 }
 
 #[cfg(windows)]
 fn detach(cmd: &mut Command) {
     use std::os::windows::process::CommandExt as _;
-    // CREATE_NO_WINDOW: the helper runs without flashing a console window. It still
-    // inherits our interactive window station (so it can clear the same clipboard
-    // the user sees) and, like every Windows child, outlives this process.
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
 }
 
 #[cfg(not(any(unix, windows)))]
