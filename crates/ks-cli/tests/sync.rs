@@ -175,7 +175,6 @@ fn sync_init_git_one_commit() {
 }
 
 #[test]
-#[test]
 fn admin_doctor_git_vault_is_healthy() {
     let t = mk();
     init_git(&t, &t.a);
@@ -208,6 +207,26 @@ fn admin_doctor_git_vault_is_healthy() {
     }
 }
 
+#[test]
+fn init_clone_repo_without_vault_explains() {
+    let t = mk();
+    // an empty bare repo (or one whose default branch lacks a vault)
+    let (code, _, err) = ks(
+        &t,
+        &t.a,
+        &["init", "--clone", t.remote.to_str().unwrap()],
+        b"",
+    );
+    assert_eq!(code, 66, "{err}");
+    assert!(
+        err.contains("contains no ks vault"),
+        "expected the no-vault hint, got: {err}"
+    );
+    // the clone is kept as designed
+    assert!(t.a.join(".git").exists());
+}
+
+#[test]
 fn sync_clone_roundtrip_and_exists() {
     let t = mk();
     init_git(&t, &t.a);

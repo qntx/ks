@@ -39,7 +39,14 @@ fn clone_vault(cli: &Cli, out: &Out, url: &str, path: &std::path::Path) -> CliRe
         );
     }
     let _git = ks::git::Git::clone(url, path, out.interactive).map_err(|e| err(&e))?;
-    let v = Vault::open(path).map_err(|e| err(&e))?;
+    let v = Vault::open(path).map_err(|e| match e {
+        ks::Error::NotFound(_) => (
+            ErrorCode::NotFound,
+            "the cloned repository contains no ks vault (.identity.age is missing); check the remote's default branch"
+                .to_owned(),
+        ),
+        other => err(&other),
+    })?;
     let source = prompt::passphrase_source(cli, out);
     let session = v.unlock(Some(&source)).map_err(|e| err(&e))?;
     for w in session.warnings() {
