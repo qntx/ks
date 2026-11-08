@@ -1698,6 +1698,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "widestring",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 

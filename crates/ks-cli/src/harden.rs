@@ -81,3 +81,38 @@ pub(crate) fn agent() {
 /// already spawned detached.
 #[cfg(windows)]
 pub(crate) const fn agent() {}
+
+/// Windows `CreateProcess` inherits every inheritable handle, so a detached
+/// child would keep the parent's stdout/stderr pipes open and the caller
+/// would wait for an EOF that only comes when the child exits. Clears
+/// `HANDLE_FLAG_INHERIT` on our std handles; a no-op elsewhere (unix is
+/// CLOEXEC). The parent's own stdio keeps working — the flag only affects
+/// inheritance.
+#[cfg(windows)]
+#[allow(
+    unsafe_code,
+    reason = "Win32 handle flag updates; one unsafe op per block with SAFETY notes"
+)]
+pub(crate) fn no_inherit_std_handles() {
+    use windows_sys::Win32::Foundation::{
+        HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, SetHandleInformation,
+    };
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    for id in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: GetStdHandle takes a constant id and touches no memory.
+        let handle = unsafe { GetStdHandle(id) };
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            continue;
+        }
+        // SAFETY: `handle` is a valid std handle; clearing HANDLE_FLAG_INHERIT
+        // is a documented SetHandleInformation operation.
+        // Return value ignored: the operation is best-effort.
+        let _cleared = unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) };
+    }
+}
+
+/// Non-windows platforms close all inheritable handles on exec (CLOEXEC).
+#[cfg(not(windows))]
+pub(crate) const fn no_inherit_std_handles() {}

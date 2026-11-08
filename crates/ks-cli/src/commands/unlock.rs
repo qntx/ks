@@ -72,6 +72,7 @@ pub(crate) fn run(cli: &Cli, out: &Out, ttl: &str, max: &str) -> CliResult<i32> 
         use std::os::windows::process::CommandExt as _;
         cmd.creation_flags(0x0000_0008 | 0x0800_0000); // DETACHED_PROCESS | CREATE_NO_WINDOW
     }
+    crate::harden::no_inherit_std_handles();
     let mut child = cmd.spawn().map_err(|e| {
         (
             ErrorCode::Unavailable,
