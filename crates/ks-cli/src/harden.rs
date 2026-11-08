@@ -27,19 +27,7 @@ pub(crate) fn run() {
 
 /// The passphrase captured from `KS_PASSPHRASE` at startup (if any).
 pub(crate) fn captured_passphrase() -> Option<SecretString> {
-    CAPTURED
-        .get()
-        .and_then(|o| o.as_ref().map(|s| SecretString::from(s.expose())))
-}
-
-trait SecretExpose {
-    fn expose(&self) -> &str;
-}
-impl SecretExpose for SecretString {
-    fn expose(&self) -> &str {
-        use age::secrecy::ExposeSecret as _;
-        self.expose_secret()
-    }
+    CAPTURED.get().and_then(Option::clone)
 }
 
 #[cfg(unix)]
@@ -48,17 +36,19 @@ impl SecretExpose for SecretString {
     reason = "setrlimit/prctl require libc; single-op blocks with SAFETY notes"
 )]
 fn harden_platform() {
-    // SAFETY: setrlimit and prctl are async-signal-safe, take no pointers into
-    // Rust memory, and are called before any thread exists.
+    let limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: `limit` is a valid, initialized `rlimit` that outlives the call;
+    // setrlimit only reads it.
+    unsafe { libc::setrlimit(libc::RLIMIT_CORE, &raw const limit) };
+    // SAFETY: PR_SET_DUMPABLE takes integer arguments only and touches no
+    // memory owned by this process.
+    #[cfg(target_os = "linux")]
     unsafe {
-        let limit = libc::rlimit {
-            rlim_cur: 0,
-            rlim_max: 0,
-        };
-        libc::setrlimit(libc::RLIMIT_CORE, &raw const limit);
-        #[cfg(target_os = "linux")]
-        libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0);
-    }
+        libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0)
+    };
 }
 
 #[cfg(not(unix))]
