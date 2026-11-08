@@ -76,6 +76,17 @@ pub(crate) fn run(cli: &Cli, out: &Out, fix: bool) -> CliResult<i32> {
 }
 
 #[cfg(unix)]
+fn fix_perms(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mode = if path.is_dir() { 0o700 } else { 0o600 };
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).is_ok()
+}
+
+#[cfg(not(unix))]
+const fn fix_perms(_path: &Path) -> bool {
+    false
+}
+
 /// `.gitignore`/`.gitattributes` must equal the canonical content the
 /// vault writes — a remote can weaken the whitelist and the next
 /// `sync` would then stage files ks never wrote.
@@ -100,17 +111,6 @@ fn check_git_meta(root: &Path, problems: &mut Vec<Problem>) {
             }),
         }
     }
-}
-
-fn fix_perms(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt as _;
-    let mode = if path.is_dir() { 0o700 } else { 0o600 };
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).is_ok()
-}
-
-#[cfg(not(unix))]
-const fn fix_perms(_path: &Path) -> bool {
-    false
 }
 
 /// Applies a `--fix` for one problem; returns true when resolved.

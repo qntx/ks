@@ -148,6 +148,24 @@ fn agent_unlock_then_commands_without_passphrase() {
 }
 
 #[test]
+fn agent_lock_stops_the_agent() {
+    let t = mk();
+    init(&t);
+    let _g = Guard(&t);
+    let (code, out, err) = unlock(&t, &[]);
+    assert!(code == 0, "unlock failed: {out} {err}");
+    assert!(agent_running(&t));
+    let (code, _, _) = ks(&t, &["lock"], b"", false);
+    assert_eq!(code, 0);
+    assert!(wait_gone(&t, Duration::from_secs(5)));
+    // without the agent, commands need a passphrase source again
+    let (code, _, _) = ks(&t, &["ls"], b"", false);
+    assert_eq!(code, 0);
+    let (code, _, _) = ks(&t, &["show", "x"], b"", false);
+    assert_eq!(code, 77);
+}
+
+#[test]
 fn agent_ttl_expires() {
     let t = mk();
     init(&t);
@@ -209,7 +227,7 @@ fn agent_isolation_endpoint_permissions() {
 }
 
 #[test]
-fn agent_impostor_with_foreign_key() {
+fn agent_impersonation_with_foreign_key() {
     // Vault A has a running __agent fed vault B's identity: unwrap works but
     // the check fails, so unlock falls back to the passphrase and asks the
     // impostor to exit.

@@ -214,7 +214,7 @@ fn rename_and_remove() {
 }
 
 #[test]
-fn rename_same_name() {
+fn vault_mv_same_name() {
     let (_d, session) = create();
     session.set(&name("a"), &text("v"), false).unwrap();
     assert!(matches!(
@@ -324,7 +324,7 @@ fn forgery() {
 
 #[cfg(unix)]
 #[test]
-fn hostile_symlinks_and_size() {
+fn vault_hostile_symlinks_and_size() {
     use std::os::unix::fs::symlink;
     let (_d, session) = create();
     let root = session.vault().root().to_path_buf();

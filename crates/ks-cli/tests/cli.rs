@@ -121,7 +121,7 @@ fn vault_ls_lists_sorted() {
 }
 
 #[test]
-fn vault_show_and_field() {
+fn vault_show_field_and_fields() {
     let t = mk();
     init(&t);
     run(&t, &["set", "gh/token", "-m"], b"tok123\nuser: alice\n");
@@ -150,6 +150,38 @@ fn vault_show_copy() {
     assert!(
         code == 0 || err.contains("unavailable") || out.contains("unavailable"),
         "{code} {out} {err}"
+    );
+}
+
+#[test]
+fn vault_set_binary() {
+    let t = mk();
+    init(&t);
+    run(&t, &["set", "bin/blob", "-b"], &[0xde, 0xad, 0xbe, 0xef]);
+    let (_, v, _) = json(&t, &["show", "bin/blob"], b"");
+    assert_eq!(v["type"], "binary");
+    assert_eq!(v["base64"], "3q2+7w==");
+}
+
+#[test]
+fn vault_set_multiline() {
+    let t = mk();
+    init(&t);
+    run(
+        &t,
+        &["set", "doc", "-m"],
+        b"line one
+key: val
+free text",
+    );
+    let (_, v, _) = json(&t, &["show", "doc"], b"");
+    assert_eq!(v["value"], "line one");
+    assert_eq!(v["fields"]["key"], "val");
+    assert_eq!(
+        v["text"],
+        "line one
+key: val
+free text"
     );
 }
 
@@ -390,6 +422,18 @@ fn vault_forgery_and_hostile() {
         let (code, _, _) = run(&t, &["show", "ln"], b"");
         assert_eq!(code, 65);
     }
+}
+
+#[test]
+fn unlock_policy_weak_passphrase_rejected() {
+    // a weak NEW passphrase is refused with weak_passphrase (65)
+    let t2 = mk();
+    let weak = t2.dir.path().join("weak.txt");
+    std::fs::write(&weak, "short").unwrap();
+    let mut c = ks(&t2, &["init"]);
+    c.env(NEW_PASS_ENV, &weak);
+    let o = c.spawn().unwrap().wait_with_output().unwrap();
+    assert_eq!(o.status.code(), Some(65));
 }
 
 #[test]

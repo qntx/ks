@@ -29,7 +29,7 @@ fn vectors() -> std::path::PathBuf {
 }
 
 #[test]
-fn recover_vault_with_age_only() {
+fn vault_age_recover_with_age_only() {
     let root = vectors().join("vault");
     let meta: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(vectors().join("vault.json")).unwrap())
