@@ -45,20 +45,21 @@ pub(crate) fn run(cli: &Cli, out: &Out, n: &str) -> CliResult<i32> {
     }
     let file = dir.path().join(name.as_str().replace('/', "_"));
     {
-        let mut f = std::fs::File::create(&file).map_err(|e| {
+        // create_new + unix mode(0o600): the file is 0600 atomically, never
+        // visible with umask permissions.
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut f = options.open(&file).map_err(|e| {
             err(&ks::Error::Io {
                 path: file.clone(),
                 source: e,
             })
         })?;
-        // tempfile::NamedTempFile would give 0600; File::create honors umask
-        // inside a 0700 dir, enforce 0600 for parity with vault writes.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            f.set_permissions(std::fs::Permissions::from_mode(0o600))
-                .ok();
-        }
         f.write_all(current.as_bytes()).map_err(|e| {
             err(&ks::Error::Io {
                 path: file.clone(),

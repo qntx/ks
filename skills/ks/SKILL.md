@@ -42,6 +42,8 @@ Inject secrets into a child process without printing them:
 
 ```bash
 ks run -e GH_TOKEN=github/token -e USER=github/token#user -- gh auth status
+Injected values are visible to same-user processes via the child
+environment (`/proc/<pid>/environ`); use `run` only with commands you trust.
 ```
 
 `ks otp <name>` prints a TOTP code; `ks doctor` checks vault health and
