@@ -16,7 +16,7 @@ keywords     = ["age", "secrets", "password-manager", "vault"]
 categories   = ["cryptography"]
 
 [workspace.dependencies]
-ks = { version = "0.8", path = "crates/ks", features = ["agent"] }
+ks = { version = "0.8", path = "crates/ks", features = ["agent", "keychain"] }
 
 age          = { version = "0.12.1", features = ["plugin"] }
 age-core     = "0.12.0"

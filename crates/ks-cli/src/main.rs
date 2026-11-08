@@ -53,6 +53,7 @@ fn run() -> i32 {
 
 fn dispatch(cli: &cli::Cli, out: &output::Out) -> CliResult<i32> {
     use cli::Command as C;
+    use cli::DeviceAction;
     match &cli.command {
         C::Init { git, clone } => commands::init::run(cli, out, *git, clone.as_deref()),
         C::Ls { prefix } => commands::ls::run(cli, out, prefix.as_deref()),
@@ -90,6 +91,8 @@ fn dispatch(cli: &cli::Cli, out: &output::Out) -> CliResult<i32> {
         C::Unlock { ttl, max } => commands::unlock::run(cli, out, ttl, max),
         C::Lock => commands::lock::run(cli, out),
         C::Status => commands::status::run(cli, out),
+        C::TouchId { action } => commands::touchid::run(cli, out, matches!(action, DeviceAction::Enable)),
+        C::Keychain { action } => commands::keychain::run(cli, out, matches!(action, DeviceAction::Enable)),
         C::Agent { ttl, max } => commands::agent::run(cli, out, *ttl, *max),
         C::Sync { keep } => commands::sync::run(cli, out, *keep),
         C::Git { args } => commands::git::run(cli, out, args),

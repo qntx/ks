@@ -17,8 +17,10 @@ pub(crate) mod rm;
 pub(crate) mod run;
 pub(crate) mod set;
 pub(crate) mod show;
+pub(crate) mod keychain;
 pub(crate) mod status;
 pub(crate) mod sync;
+pub(crate) mod touchid;
 pub(crate) mod unlock;
 
 pub(crate) use crate::cli::Cli;
