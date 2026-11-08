@@ -11,6 +11,10 @@ description  = { workspace = true }
 keywords     = { workspace = true }
 categories   = { workspace = true }
 
+[features]
+default = []
+agent = ["dep:interprocess", "dep:serde", "dep:base64", "dep:serde_json"]
+
 [dependencies]
 age         = { workspace = true }
 age-core    = { workspace = true }
@@ -19,6 +23,10 @@ tempfile    = { workspace = true }
 fd-lock     = { workspace = true }
 directories = { workspace = true }
 totp-rs     = { workspace = true }
+interprocess = { workspace = true, optional = true }
+serde        = { workspace = true, optional = true }
+serde_json   = { workspace = true, optional = true }
+base64       = { workspace = true, optional = true }
 thiserror   = { workspace = true }
 zeroize     = { workspace = true }
 rand        = { workspace = true }
@@ -26,7 +34,7 @@ zxcvbn      = { workspace = true }
 
 [dev-dependencies]
 proptest   = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, optional = false }
 
 [lints]
 workspace = true

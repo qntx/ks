@@ -9,6 +9,7 @@ use age::secrecy::SecretString;
 use zeroize::Zeroizing;
 
 use crate::{Entry, Error, LocalKey, Name, Result, header};
+use crate::key::Key;
 
 pub(crate) const IDENTITY_FILE: &str = ".identity.age";
 pub(crate) const CHECK_FILE: &str = ".check.age";
@@ -109,7 +110,7 @@ impl Vault {
         })?;
         Ok(Session {
             vault,
-            key,
+            key: Key::Local(key),
             warnings: Vec::new(),
         })
     }
@@ -239,11 +240,11 @@ impl Vault {
     /// Checks `.check.age` under `key`: exists, single-X25519, decrypts, and
     /// contains exactly `ks1 check <sha256 of .identity.age>\n`. Every read
     /// goes through [`Vault::read_file`] (symlink refusal, size cap).
-    pub(crate) fn verify_check(&self, key: &LocalKey) -> bool {
+    pub(crate) fn verify_check(&self, key: &dyn age::Identity) -> bool {
         self.verify_check_inner(key).unwrap_or(false)
     }
 
-    fn verify_check_inner(&self, key: &LocalKey) -> Option<bool> {
+    fn verify_check_inner(&self, key: &dyn age::Identity) -> Option<bool> {
         let identity_bytes = self
             .read_file(&self.root.join(IDENTITY_FILE), MAX_SMALL_FILE)
             .ok()?;
@@ -376,7 +377,7 @@ pub(crate) fn hex_sha256(bytes: &[u8]) -> String {
     clippy::needless_pass_by_value,
     reason = "owning the buffer guarantees zeroization on drop"
 )]
-pub(crate) fn encrypt_to(key: &LocalKey, plaintext: Zeroizing<Vec<u8>>) -> Result<Vec<u8>> {
+pub(crate) fn encrypt_to(key: &dyn age::Recipient, plaintext: Zeroizing<Vec<u8>>) -> Result<Vec<u8>> {
     let recipient: &dyn age::Recipient = key;
     let encryptor = age::Encryptor::with_recipients(core::iter::once(recipient))
         .map_err(|_| Error::Internal("age encryption setup failed"))?;
@@ -396,7 +397,7 @@ pub(crate) fn encrypt_to(key: &LocalKey, plaintext: Zeroizing<Vec<u8>>) -> Resul
 
 /// Decrypts a size-checked single-X25519 entry file and decodes its plaintext.
 pub(crate) fn decrypt_entry(
-    key: &LocalKey,
+    key: &dyn age::Identity,
     bytes: &[u8],
     name: &Name,
     path: &Path,
@@ -423,12 +424,12 @@ pub(crate) fn decrypt_entry(
 #[derive(Debug)]
 pub struct Session {
     vault: Vault,
-    key: LocalKey,
+    key: Key,
     warnings: Vec<String>,
 }
 
 impl Session {
-    pub(crate) const fn new(vault: Vault, key: LocalKey, warnings: Vec<String>) -> Self {
+    pub(crate) const fn new(vault: Vault, key: Key, warnings: Vec<String>) -> Self {
         Self {
             vault,
             key,
@@ -528,11 +529,47 @@ impl Session {
     pub fn change_passphrase(&self, new_passphrase: &SecretString) -> Result<()> {
         crate::passphrase::check_new_passphrase(new_passphrase)?;
         self.vault.with_write_lock(|| {
-            let identity_bytes = crate::passphrase::seal_identity(&self.key, new_passphrase)?;
+            #[cfg_attr(
+                not(feature = "agent"),
+                allow(
+                    clippy::infallible_destructuring_match,
+                    reason = "Key::Agent only exists with the agent feature"
+                )
+            )]
+            let key = match &self.key {
+                Key::Local(k) => k,
+                #[cfg(feature = "agent")]
+                Key::Agent(_) => {
+                    return Err(Error::InvalidInput(
+                        "changing the passphrase needs the master passphrase, Touch ID or \
+                         keychain"
+                            .into(),
+                    ));
+                }
+            };
+            let identity_bytes = crate::passphrase::seal_identity(key, new_passphrase)?;
             self.vault
                 .atomic_write(&self.vault.root.join(IDENTITY_FILE), &identity_bytes)?;
-            self.vault.write_check(&self.key)
+            self.vault.write_check(key)
         })
+    }
+
+    /// The vault key as identity text, for `ks __agent` over a pipe only.
+    /// `None` for non-local keys.
+    #[must_use]
+    #[cfg_attr(
+        not(feature = "agent"),
+        allow(
+            clippy::unnecessary_wraps,
+            reason = "Agent keys return None; Option is the contract"
+        )
+    )]
+    pub fn agent_identity(&self) -> Option<SecretString> {
+        match &self.key {
+            Key::Local(k) => Some(k.to_identity_text()),
+            #[cfg(feature = "agent")]
+            Key::Agent(_) => None,
+        }
     }
 
     /// Non-fatal warnings collected during unlock.
