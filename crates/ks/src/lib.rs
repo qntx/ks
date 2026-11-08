@@ -16,8 +16,8 @@
 #![forbid(unsafe_code)]
 
 mod entry;
-pub mod git;
 mod error;
+pub mod git;
 mod header;
 mod key;
 mod name;

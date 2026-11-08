@@ -87,7 +87,7 @@ fn dispatch(cli: &cli::Cli, out: &output::Out) -> CliResult<i32> {
         C::Run { env, command } => commands::run::run(cli, out, env, command),
         C::Passwd => commands::passwd::run(cli, out),
         C::Doctor { fix } => commands::doctor::run(cli, out, *fix),
-        C::Sync { keep } => commands::sync::run(cli, out, keep.as_deref()),
+        C::Sync { keep } => commands::sync::run(cli, out, *keep),
         C::Git { args } => commands::git::run(cli, out, args),
         C::ClipboardDaemon { secs } => Ok(commands::daemon::run_daemon(*secs)),
     }

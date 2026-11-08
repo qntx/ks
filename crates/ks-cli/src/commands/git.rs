@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 
 use ks::ErrorCode;
 
-use super::{fail, vault, Cli, CliResult, Out};
+use super::{Cli, CliResult, Out, fail, vault};
 
 /// Passes `args` to `git -C <vault>`; the exit code is the child's.
 pub(crate) fn run(cli: &Cli, out: &Out, args: &[String]) -> CliResult<i32> {
@@ -13,7 +13,10 @@ pub(crate) fn run(cli: &Cli, out: &Out, args: &[String]) -> CliResult<i32> {
         return fail(ErrorCode::Usage, "no git arguments given");
     };
     let mut cmd = Command::new("git");
-    cmd.arg("-C").arg(v.root()).arg(sub).args(rest)
+    cmd.arg("-C")
+        .arg(v.root())
+        .arg(sub)
+        .args(rest)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());

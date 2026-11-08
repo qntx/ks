@@ -3,7 +3,7 @@
 use ks::{Entry, ErrorCode};
 use zeroize::Zeroizing;
 
-use super::{autocommit, Cli, CliResult, Out, err, fail, name, prompt, unlock};
+use super::{Cli, CliResult, Out, autocommit, err, fail, name, prompt, unlock};
 
 /// Reads the secret and stores it.
 pub(crate) fn run(

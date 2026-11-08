@@ -2,7 +2,6 @@
 
 use std::path::PathBuf;
 
-
 /// Result alias for the `ks` library.
 pub type Result<T> = std::result::Result<T, Error>;
 

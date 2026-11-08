@@ -1,6 +1,6 @@
 //! `ks passwd` — change the master passphrase (not a revocation measure).
 
-use super::{autocommit, Cli, CliResult, Out, err, prompt, unlock};
+use super::{Cli, CliResult, Out, autocommit, err, prompt, unlock};
 
 /// Unlocks, takes the new passphrase, re-seals the identity file.
 pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {

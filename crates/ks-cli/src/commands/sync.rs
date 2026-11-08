@@ -1,18 +1,17 @@
 //! `ks sync [--keep local|remote]` — commit, pull --rebase, push.
 
-use ks::git::{Git, Keep};
 use ks::ErrorCode;
+use ks::git::{Git, Keep};
 
-use super::{err, fail, vault, Cli, CliResult, Out};
+use super::{Cli, CliResult, Out, err, vault};
+use crate::cli::KeepSide;
 
 /// Runs the sync pipeline; the vault must exist and be a repo.
-pub(crate) fn run(cli: &Cli, out: &Out, keep: Option<&str>) -> CliResult<i32> {
-    let keep = match keep {
-        None => None,
-        Some("local") => Some(Keep::Local),
-        Some("remote") => Some(Keep::Remote),
-        Some(other) => return fail(ErrorCode::Usage, format!("unknown --keep {other:?}")),
-    };
+pub(crate) fn run(cli: &Cli, out: &Out, keep: Option<KeepSide>) -> CliResult<i32> {
+    let keep = keep.map(|side| match side {
+        KeepSide::Local => Keep::Local,
+        KeepSide::Remote => Keep::Remote,
+    });
     let v = vault(cli)?;
     let git = Git::new(v.root(), out.interactive);
     match git.sync(keep) {
@@ -51,7 +50,9 @@ pub(crate) fn run(cli: &Cli, out: &Out, keep: Option<&str>) -> CliResult<i32> {
                         "resolve by rerunning: `ks sync --keep local` or `ks sync --keep remote`",
                     ),
                     ks::ConflictKind::Delete => out.note(
-                        "one side deleted an entry the other modified: run `ks git pull --rebase`,                          resolve with `ks git rm <file>` or `ks git add <file>`,                          then `ks git rebase --continue`",
+                        "one side deleted an entry the other modified: run `ks git pull --rebase`, \
+                         resolve with `ks git rm <file>` or `ks git add <file>`, \
+                         then `ks git rebase --continue`",
                     ),
                 }
             }

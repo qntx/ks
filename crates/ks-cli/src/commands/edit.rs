@@ -5,7 +5,7 @@ use std::io::Write as _;
 use ks::{Entry, ErrorCode, Kind};
 use zeroize::Zeroizing;
 
-use super::{autocommit, Cli, CliResult, Out, err, fail, name, unlock};
+use super::{Cli, CliResult, Out, autocommit, err, fail, name, unlock};
 
 /// Opens the entry in `$VISUAL`/`$EDITOR`/`vi` inside a private temp dir.
 pub(crate) fn run(cli: &Cli, out: &Out, n: &str) -> CliResult<i32> {

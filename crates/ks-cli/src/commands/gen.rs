@@ -4,7 +4,7 @@ use ks::pwgen::{Charset, generate};
 use ks::{Entry, ErrorCode};
 use zeroize::Zeroizing;
 
-use super::{autocommit, Cli, CliResult, Out, clipboard, err, fail, name, prompt, unlock};
+use super::{Cli, CliResult, Out, autocommit, clipboard, err, fail, name, prompt, unlock};
 
 /// Generates a password; prints it, stores it under `name`, or copies it.
 pub(crate) fn run(

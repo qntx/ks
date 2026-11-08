@@ -43,7 +43,10 @@ impl Git {
     /// credentials on the terminal (`GIT_TERMINAL_PROMPT=0` otherwise).
     #[must_use]
     pub fn new(root: &Path, allow_prompt: bool) -> Self {
-        Self { root: root.to_path_buf(), allow_prompt }
+        Self {
+            root: root.to_path_buf(),
+            allow_prompt,
+        }
     }
 
     /// True when `<root>/.git` exists (a directory, or a file for worktrees).
@@ -71,7 +74,7 @@ impl Git {
     /// [`Error::Unavailable`] when git is missing or the clone fails.
     pub fn clone(url: &str, root: &Path, allow_prompt: bool) -> Result<Self> {
         let mut cmd = Command::new("git");
-        cmd.args(["clone", url]).arg(root);
+        cmd.args(["clone", "--", url]).arg(root);
         if !allow_prompt {
             cmd.env("GIT_TERMINAL_PROMPT", "0");
         }
@@ -79,7 +82,10 @@ impl Git {
             if e.kind() == std::io::ErrorKind::NotFound {
                 Error::Unavailable("git not found".to_owned())
             } else {
-                Error::Io { path: root.to_path_buf(), source: e }
+                Error::Io {
+                    path: root.to_path_buf(),
+                    source: e,
+                }
             }
         })?;
         if !out.status.success() {
@@ -102,10 +108,7 @@ impl Git {
         if !self.is_repo() {
             return Ok(false);
         }
-        let kept: Vec<String> = paths
-            .iter()
-            .filter_map(|p| self.committable(p))
-            .collect();
+        let kept: Vec<String> = paths.iter().filter_map(|p| self.committable(p)).collect();
         if kept.is_empty() {
             return Ok(false);
         }
@@ -125,7 +128,9 @@ impl Git {
         if self.root.join(rel.as_str()).exists() {
             return Some(rel);
         }
-        let out = self.run(&["ls-files", "--error-unmatch", "--", rel.as_str()], &[]).ok()?;
+        let out = self
+            .run(&["ls-files", "--error-unmatch", "--", rel.as_str()], &[])
+            .ok()?;
         out.status.success().then_some(rel)
     }
 
@@ -168,7 +173,10 @@ impl Git {
             None => &[],
         };
         let upstream = self
-            .run(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], &[])?
+            .run(
+                &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+                &[],
+            )?
             .status
             .success();
         let mut remote_push: Option<String> = None;
@@ -222,13 +230,18 @@ impl Git {
                 let head = self.git(&["symbolic-ref", "--short", "HEAD"])?;
                 let branch = String::from_utf8_lossy(&head.stdout).trim().to_owned();
                 let probe = self.run(
-                    &["ls-remote", "--exit-code", "--heads", remote.as_str(), branch.as_str()],
+                    &[
+                        "ls-remote",
+                        "--exit-code",
+                        "--heads",
+                        remote.as_str(),
+                        branch.as_str(),
+                    ],
                     &[],
                 )?;
                 match probe.status.code() {
                     Some(0) => {
-                        let mut args =
-                            concat_args(&["pull", "--rebase"], strategy, &[]);
+                        let mut args = concat_args(&["pull", "--rebase"], strategy, &[]);
                         args.push(remote.clone());
                         args.push(branch);
                         self.pull(&args)?;
@@ -245,7 +258,8 @@ impl Git {
                 Ok(Some(remote))
             }
             _ => Err(Error::InvalidInput(
-                "no upstream and multiple remotes; set one with                  `ks git branch --set-upstream-to` or `ks git push -u`"
+                "no upstream and multiple remotes; set one with \
+                 `ks git branch --set-upstream-to` or `ks git push -u`"
                     .into(),
             )),
         }
@@ -261,7 +275,7 @@ impl Git {
         if self.rebase_in_progress()? {
             let status = self.run(&["status", "--porcelain=v1", "-z"], &[])?;
             let (entries, kind) = unmerged_paths(&status.stdout);
-            drop(self.run(&["rebase", "--abort"], &[]));
+            self.git(&["rebase", "--abort"])?;
             return Err(Error::Conflict { entries, kind });
         }
         Err(Error::Unavailable(format!(
@@ -275,7 +289,11 @@ impl Git {
         let git_dir = self.git(&["rev-parse", "--git-dir"])?;
         let git_dir = String::from_utf8_lossy(&git_dir.stdout).trim().to_owned();
         let dir = PathBuf::from(&git_dir);
-        let dir = if dir.is_absolute() { dir } else { self.root.join(dir) };
+        let dir = if dir.is_absolute() {
+            dir
+        } else {
+            self.root.join(dir)
+        };
         Ok(dir.join("rebase-merge").exists() || dir.join("rebase-apply").exists())
     }
 
@@ -320,7 +338,10 @@ impl Git {
             if e.kind() == std::io::ErrorKind::NotFound {
                 Error::Unavailable("git not found".to_owned())
             } else {
-                Error::Io { path: self.root.clone(), source: e }
+                Error::Io {
+                    path: self.root.clone(),
+                    source: e,
+                }
             }
         })
     }
@@ -332,7 +353,11 @@ impl Git {
 }
 
 fn concat_args(a: &[&str], b: &[&str], c: &[String]) -> Vec<String> {
-    a.iter().chain(b.iter()).map(|s| (*s).to_owned()).chain(c.iter().cloned()).collect()
+    a.iter()
+        .chain(b.iter())
+        .map(|s| (*s).to_owned())
+        .chain(c.iter().cloned())
+        .collect()
 }
 
 /// Parses `git status --porcelain=v1 -z` for unmerged entries:
@@ -348,10 +373,7 @@ fn unmerged_paths(porcelain: &[u8]) -> (Vec<String>, ConflictKind) {
         let Some(xy) = record.get(..2) else {
             continue;
         };
-        let unmerged = matches!(
-            xy,
-            b"DD" | b"AU" | b"UD" | b"UA" | b"DU" | b"AA" | b"UU"
-        );
+        let unmerged = matches!(xy, b"DD" | b"AU" | b"UD" | b"UA" | b"DU" | b"AA" | b"UU");
         if !unmerged {
             continue;
         }
@@ -374,8 +396,7 @@ mod tests {
 
     #[test]
     fn unmerged_parsing() {
-        let (entries, kind) =
-            unmerged_paths(b"UU a.age\0DU dir/x.age\0 M clean.age\0AU y\0");
+        let (entries, kind) = unmerged_paths(b"UU a.age\0DU dir/x.age\0 M clean.age\0AU y\0");
         assert_eq!(entries, ["a", "dir/x", "y"]);
         assert_eq!(kind, ConflictKind::Delete);
 

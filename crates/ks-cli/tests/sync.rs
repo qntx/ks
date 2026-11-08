@@ -45,7 +45,14 @@ fn mk() -> T {
     std::fs::write(&gitcfg, "").unwrap();
     let remote = dir.path().join("remote.git");
     git_in(dir.path(), &["init", "--bare", remote.to_str().unwrap()]);
-    T { a: dir.path().join("a"), b: dir.path().join("b"), remote, pass, gitcfg, dir }
+    T {
+        a: dir.path().join("a"),
+        b: dir.path().join("b"),
+        remote,
+        pass,
+        gitcfg,
+        dir,
+    }
 }
 
 fn git_env(c: &mut Command, t: &T) {
@@ -99,7 +106,9 @@ fn git(t: &T, vault: &Path, args: &[&str]) -> (i32, String, String) {
 
 fn ks(t: &T, vault: &Path, args: &[&str], stdin: &[u8]) -> (i32, String, String) {
     let mut c = Command::new(assert_cmd::cargo::cargo_bin!("ks"));
-    c.arg("--vault").arg(vault).args(args)
+    c.arg("--vault")
+        .arg(vault)
+        .args(args)
         .env("KS_PASSPHRASE_FILE", &t.pass)
         .env("KS_NEW_PASSPHRASE_FILE", &t.pass)
         .env_remove("KS_PASSPHRASE")
@@ -135,7 +144,12 @@ fn init_git(t: &T, vault: &Path) {
     let (code, files, _) = git(t, vault, &["ls-tree", "-r", "--name-only", "HEAD"]);
     assert_eq!(code, 0);
     let names: Vec<&str> = files.lines().collect();
-    for f in [".identity.age", ".check.age", ".gitattributes", ".gitignore"] {
+    for f in [
+        ".identity.age",
+        ".check.age",
+        ".gitattributes",
+        ".gitignore",
+    ] {
         assert!(names.contains(&f), "missing {f} in {names:?}");
     }
 }
@@ -148,7 +162,12 @@ fn sync_init_git_one_commit() {
     let names: Vec<&str> = files.lines().collect();
     assert_eq!(
         names,
-        [".check.age", ".gitattributes", ".gitignore", ".identity.age"],
+        [
+            ".check.age",
+            ".gitattributes",
+            ".gitignore",
+            ".identity.age"
+        ],
         "first commit must contain exactly the vault metadata"
     );
     let (_, msg, _) = git(&t, &t.a, &["log", "-1", "--format=%s"]);
@@ -159,19 +178,33 @@ fn sync_init_git_one_commit() {
 fn sync_clone_roundtrip_and_exists() {
     let t = mk();
     init_git(&t, &t.a);
-    ks(&t, &t.a, &["git", "remote", "add", "origin", t.remote.to_str().unwrap()], b"");
+    ks(
+        &t,
+        &t.a,
+        &["git", "remote", "add", "origin", t.remote.to_str().unwrap()],
+        b"",
+    );
     let (code, out, err) = ks(&t, &t.a, &["sync"], b"");
     assert!(code == 0, "first sync failed: {out} {err}");
     // clone into B
-    let (code, out, err) =
-        ks(&t, &t.b, &["init", "--clone", t.remote.to_str().unwrap()], b"");
+    let (code, out, err) = ks(
+        &t,
+        &t.b,
+        &["init", "--clone", t.remote.to_str().unwrap()],
+        b"",
+    );
     assert!(code == 0, "clone failed: {out} {err}");
     assert!(t.b.join(".identity.age").exists());
     let (_, va, _) = json(&t, &t.a, &["ls"], b"");
     let (_, vb, _) = json(&t, &t.b, &["ls"], b"");
     assert_eq!(va["entries"], vb["entries"]);
     // clone into non-empty dir -> exists(73)
-    let (code, _, _) = ks(&t, &t.b, &["init", "--clone", t.remote.to_str().unwrap()], b"");
+    let (code, _, _) = ks(
+        &t,
+        &t.b,
+        &["init", "--clone", t.remote.to_str().unwrap()],
+        b"",
+    );
     assert_eq!(code, 73);
 }
 
@@ -189,7 +222,10 @@ fn sync_commit_messages_and_scoping() {
     git(&t, &t.a, &["add", "staged.age"]);
     ks(&t, &t.a, &["set", "two"], b"v");
     let (_, files, _) = git(&t, &t.a, &["show", "--name-only", "--format=", "HEAD"]);
-    assert!(!files.lines().any(|l| l == "staged.age"), "staged.age leaked: {files}");
+    assert!(
+        !files.lines().any(|l| l == "staged.age"),
+        "staged.age leaked: {files}"
+    );
     git(&t, &t.a, &["reset", "--hard", "HEAD"]); // clean the plant
     // mv -> "ks: mv <a> <b>"
     ks(&t, &t.a, &["mv", "two", "three"], b"");
@@ -210,11 +246,15 @@ fn sync_commit_messages_and_scoping() {
     // KS_NO_COMMIT=1 -> no new commit
     let head = before();
     let mut c = Command::new(assert_cmd::cargo::cargo_bin!("ks"));
-    c.arg("--vault").arg(&t.a).args(["set", "nocommit"])
+    c.arg("--vault")
+        .arg(&t.a)
+        .args(["set", "nocommit"])
         .env("KS_PASSPHRASE_FILE", &t.pass)
         .env("KS_NO_COMMIT", "1")
         .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     git_env(&mut c, &t);
     let mut ch = c.spawn().unwrap();
     ch.stdin.take().unwrap().write_all(b"v").unwrap();
@@ -236,7 +276,12 @@ fn sync_commit_messages_and_scoping() {
 fn sync_run_push_pull_and_usage() {
     let t = mk();
     init_git(&t, &t.a);
-    ks(&t, &t.a, &["git", "remote", "add", "origin", t.remote.to_str().unwrap()], b"");
+    ks(
+        &t,
+        &t.a,
+        &["git", "remote", "add", "origin", t.remote.to_str().unwrap()],
+        b"",
+    );
     // first sync: pushes -u, no pull (remote branch absent)
     let (code, _, err) = ks(&t, &t.a, &["sync"], b"");
     assert!(code == 0, "{err}");
@@ -245,7 +290,12 @@ fn sync_run_push_pull_and_usage() {
     let (code, _, _) = ks(&t, &t.a, &["sync"], b"");
     assert_eq!(code, 0);
     // B clones + sync pulls nothing new but is clean
-    ks(&t, &t.b, &["init", "--clone", t.remote.to_str().unwrap()], b"");
+    ks(
+        &t,
+        &t.b,
+        &["init", "--clone", t.remote.to_str().unwrap()],
+        b"",
+    );
     let (_, out, _) = ks(&t, &t.b, &["show", "shared"], b"");
     assert_eq!(out.trim(), "from-a");
     let (_, v, _) = json(&t, &t.b, &["sync"], b"");
@@ -261,10 +311,20 @@ fn sync_run_push_pull_and_usage() {
 fn sync_keep_local_and_remote() {
     let t = mk();
     init_git(&t, &t.a);
-    ks(&t, &t.a, &["git", "remote", "add", "origin", t.remote.to_str().unwrap()], b"");
+    ks(
+        &t,
+        &t.a,
+        &["git", "remote", "add", "origin", t.remote.to_str().unwrap()],
+        b"",
+    );
     ks(&t, &t.a, &["set", "x"], b"seed");
     ks(&t, &t.a, &["sync"], b"");
-    ks(&t, &t.b, &["init", "--clone", t.remote.to_str().unwrap()], b"");
+    ks(
+        &t,
+        &t.b,
+        &["init", "--clone", t.remote.to_str().unwrap()],
+        b"",
+    );
     // both sides change x
     ks(&t, &t.a, &["set", "x", "--force"], b"aaa");
     ks(&t, &t.a, &["sync"], b"");
@@ -289,10 +349,20 @@ fn sync_keep_local_and_remote() {
     // separate case: --keep remote keeps A's side
     let t = mk();
     init_git(&t, &t.a);
-    ks(&t, &t.a, &["git", "remote", "add", "origin", t.remote.to_str().unwrap()], b"");
+    ks(
+        &t,
+        &t.a,
+        &["git", "remote", "add", "origin", t.remote.to_str().unwrap()],
+        b"",
+    );
     ks(&t, &t.a, &["set", "x"], b"seed");
     ks(&t, &t.a, &["sync"], b"");
-    ks(&t, &t.b, &["init", "--clone", t.remote.to_str().unwrap()], b"");
+    ks(
+        &t,
+        &t.b,
+        &["init", "--clone", t.remote.to_str().unwrap()],
+        b"",
+    );
     ks(&t, &t.a, &["set", "x", "--force"], b"aaa");
     ks(&t, &t.a, &["sync"], b"");
     ks(&t, &t.b, &["set", "x", "--force"], b"bbb");
@@ -306,10 +376,20 @@ fn sync_keep_local_and_remote() {
 fn sync_delete_conflict() {
     let t = mk();
     init_git(&t, &t.a);
-    ks(&t, &t.a, &["git", "remote", "add", "origin", t.remote.to_str().unwrap()], b"");
+    ks(
+        &t,
+        &t.a,
+        &["git", "remote", "add", "origin", t.remote.to_str().unwrap()],
+        b"",
+    );
     ks(&t, &t.a, &["set", "x"], b"seed");
     ks(&t, &t.a, &["sync"], b"");
-    ks(&t, &t.b, &["init", "--clone", t.remote.to_str().unwrap()], b"");
+    ks(
+        &t,
+        &t.b,
+        &["init", "--clone", t.remote.to_str().unwrap()],
+        b"",
+    );
     // A deletes, B modifies
     ks(&t, &t.a, &["rm", "x", "--force"], b"");
     ks(&t, &t.a, &["sync"], b"");
@@ -335,7 +415,12 @@ fn sync_git_passthrough() {
     assert_eq!(code, 0);
     assert!(out.contains("ks: init"));
     // failing command: exit code passthrough
-    let (code, _, _) = ks(&t, &t.a, &["git", "rev-parse", "--verify", "nosuchref"], b"");
+    let (code, _, _) = ks(
+        &t,
+        &t.a,
+        &["git", "rev-parse", "--verify", "nosuchref"],
+        b"",
+    );
     assert!(code != 0);
 }
 
@@ -343,10 +428,18 @@ fn sync_git_passthrough() {
 fn sync_gitignore_excludes_non_age() {
     let t = mk();
     init_git(&t, &t.a);
-    ks(&t, &t.a, &["git", "remote", "add", "origin", t.remote.to_str().unwrap()], b"");
+    ks(
+        &t,
+        &t.a,
+        &["git", "remote", "add", "origin", t.remote.to_str().unwrap()],
+        b"",
+    );
     std::fs::write(t.a.join("notes.txt"), b"do not commit").unwrap();
     let (code, _, _) = ks(&t, &t.a, &["sync"], b"");
     assert_eq!(code, 0);
     let (_, tree, _) = git(&t, &t.a, &["ls-tree", "-r", "--name-only", "origin/main"]);
-    assert!(!tree.lines().any(|l| l == "notes.txt"), "notes.txt synced: {tree}");
+    assert!(
+        !tree.lines().any(|l| l == "notes.txt"),
+        "notes.txt synced: {tree}"
+    );
 }

@@ -1,6 +1,6 @@
 //! Command-line surface.
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 /// Personal local secret vault with an age-compatible on-disk format.
 #[derive(Debug, Parser)]
@@ -134,8 +134,8 @@ pub(crate) enum Command {
     /// Commit, pull --rebase and push the vault (no unlock).
     Sync {
         /// On conflict keep this side.
-        #[arg(long)]
-        keep: Option<String>,
+        #[arg(long, value_enum)]
+        keep: Option<KeepSide>,
     },
     /// Run `git` inside the vault, passing all arguments through.
     Git {
@@ -162,4 +162,13 @@ impl Cli {
             .as_ref()
             .map_or_else(ks::Vault::default_path, |v| Ok(std::path::PathBuf::from(v)))
     }
+}
+
+/// Which side `ks sync --keep` retains on a conflict.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub(crate) enum KeepSide {
+    /// The local commits being replayed.
+    Local,
+    /// The upstream (remote) version.
+    Remote,
 }

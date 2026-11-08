@@ -1,6 +1,6 @@
 //! `ks rm <name> [--force]` — delete an entry.
 
-use super::{autocommit, Cli, CliResult, ErrorCode, Out, err, name, prompt, unlock};
+use super::{Cli, CliResult, ErrorCode, Out, autocommit, err, name, prompt, unlock};
 
 /// Removes the entry after confirmation (or `--force`).
 pub(crate) fn run(cli: &Cli, out: &Out, n: &str, force: bool) -> CliResult<i32> {

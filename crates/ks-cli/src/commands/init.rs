@@ -2,15 +2,10 @@
 
 use ks::{ErrorCode, Vault};
 
-use super::{autocommit, err, fail, prompt, Cli, CliResult, Out};
+use super::{Cli, CliResult, Out, err, fail, prompt};
 
 /// Creates the vault (optionally a git repo) or clones an existing one.
-pub(crate) fn run(
-    cli: &Cli,
-    out: &Out,
-    git_flag: bool,
-    clone: Option<&str>,
-) -> CliResult<i32> {
+pub(crate) fn run(cli: &Cli, out: &Out, git_flag: bool, clone: Option<&str>) -> CliResult<i32> {
     let path = cli.vault_path().map_err(|e| err(&e))?;
 
     if let Some(url) = clone {
@@ -37,10 +32,11 @@ pub(crate) fn run(
 /// `git clone` into `path` (must not exist or be empty), then unlock to
 /// confirm the passphrase works; a failed unlock keeps the clone.
 fn clone_vault(cli: &Cli, out: &Out, url: &str, path: &std::path::Path) -> CliResult<i32> {
-    if path.exists()
-        && std::fs::read_dir(path).is_ok_and(|mut d| d.next().is_some())
-    {
-        return fail(ErrorCode::Exists, format!("{} is not empty", path.display()));
+    if path.exists() && std::fs::read_dir(path).is_ok_and(|mut d| d.next().is_some()) {
+        return fail(
+            ErrorCode::Exists,
+            format!("{} is not empty", path.display()),
+        );
     }
     let _git = ks::git::Git::clone(url, path, out.interactive).map_err(|e| err(&e))?;
     let v = Vault::open(path).map_err(|e| err(&e))?;
@@ -53,9 +49,4 @@ fn clone_vault(cli: &Cli, out: &Out, url: &str, path: &std::path::Path) -> CliRe
         &format!("cloned vault to {}", path.display()),
         serde_json::json!({ "cloned": true, "path": path.display().to_string() }),
     ))
-}
-
-#[allow(dead_code, reason = "init itself commits via Git::init, not autocommit")]
-fn _marker(cli: &Cli, out: &Out) {
-    autocommit(cli, out, &[], "");
 }

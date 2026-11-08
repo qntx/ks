@@ -19,7 +19,7 @@ pub(crate) mod sync;
 
 pub(crate) use crate::cli::Cli;
 pub(crate) use crate::clipboard;
-pub(crate) use crate::output::{err, CliResult, Out};
+pub(crate) use crate::output::{CliResult, Out, err};
 pub(crate) use crate::prompt;
 pub(crate) use ks::{ErrorCode, Name, Vault};
 

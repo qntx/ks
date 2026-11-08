@@ -110,7 +110,8 @@ impl Out {
         details: &serde_json::Value,
     ) -> i32 {
         if self.json {
-            let mut obj = serde_json::json!({ "error": { "code": code.as_str(), "message": message } });
+            let mut obj =
+                serde_json::json!({ "error": { "code": code.as_str(), "message": message } });
             if let Some(extra) = details.as_object()
                 && let Some(err) = obj.get_mut("error").and_then(|e| e.as_object_mut())
             {
