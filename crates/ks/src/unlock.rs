@@ -9,6 +9,10 @@ use crate::vault::{IDENTITY_FILE, MAX_SMALL_FILE};
 use crate::{Error, Key, LocalKey, Result, Session, Vault};
 
 /// What one device source produced for the unlock chain.
+#[allow(
+    dead_code,
+    reason = "Key/Skip are only constructed on supported device platforms"
+)]
 pub(crate) enum Probe {
     /// Source not enabled or not present — silent skip.
     Absent,
@@ -20,6 +24,7 @@ pub(crate) enum Probe {
 }
 
 /// A stale device source to remove after a passphrase unlock.
+#[derive(Copy, Clone)]
 enum Stale {
     #[cfg(feature = "agent")]
     Agent,
@@ -130,49 +135,48 @@ impl Vault {
             warnings.push("check file rebuilt".to_owned());
         }
         for src in stale {
-            match src {
-                #[cfg(feature = "agent")]
-                Stale::Agent => {
-                    warnings.push(
-                        "session agent does not hold the current vault key; asking it to exit"
-                            .to_owned(),
-                    );
-                    match crate::agent::lock(self) {
-                        Ok(_) => {}
-                        Err(e) => warnings
-                            .push(format!("could not stop the session agent: {e}")),
-                    }
-                }
-                Stale::TouchId => {
-                    match crate::touchid::disable(self) {
-                        Ok(_) => warnings.push(
-                            "Touch ID has been removed; re-enable with `ks touchid enable`"
-                                .to_owned(),
-                        ),
-                        Err(e) => warnings.push(format!(
-                            "could not remove Touch ID: {e}; remove it with `ks touchid disable`"
-                        )),
-                    }
-                }
-                #[cfg(feature = "keychain")]
-                Stale::Keychain => {
-                    match crate::keychain::disable(self) {
-                        Ok(_) => warnings.push(
-                            "the OS keychain entry has been removed; re-enable with `ks keychain enable`"
-                                .to_owned(),
-                        ),
-                        Err(e) => warnings.push(format!(
-                            "could not remove the OS keychain entry: {e}; remove it with `ks keychain disable`"
-                        )),
-                    }
-                }
-            }
+            self.remove_stale(src, &mut warnings);
         }
         Ok(Session::new(
             Self::open(self.root())?,
             Key::Local(key),
             warnings,
         ))
+    }
+
+    /// Removes one stale device source after a passphrase unlock and
+    /// records whether it worked — a failure is warned about, never hidden.
+    fn remove_stale(&self, src: Stale, warnings: &mut Vec<String>) {
+        match src {
+            #[cfg(feature = "agent")]
+            Stale::Agent => {
+                warnings.push(
+                    "session agent does not hold the current vault key; asking it to exit"
+                        .to_owned(),
+                );
+                if let Err(e) = crate::agent::lock(self) {
+                    warnings.push(format!("could not stop the session agent: {e}"));
+                }
+            }
+            Stale::TouchId => match crate::touchid::disable(self) {
+                Ok(_) => warnings.push(
+                    "Touch ID has been removed; re-enable with `ks touchid enable`".to_owned(),
+                ),
+                Err(e) => warnings.push(format!(
+                    "could not remove Touch ID: {e}; remove it with `ks touchid disable`"
+                )),
+            },
+            #[cfg(feature = "keychain")]
+            Stale::Keychain => match crate::keychain::disable(self) {
+                Ok(_) => warnings.push(
+                    "the OS keychain entry has been removed; re-enable with `ks keychain enable`"
+                        .to_owned(),
+                ),
+                Err(e) => warnings.push(format!(
+                    "could not remove the OS keychain entry: {e}; remove it with `ks keychain disable`"
+                )),
+            },
+        }
     }
 
     /// Applies one device-source probe to the chain: a key passing the
