@@ -12,8 +12,12 @@ keywords     = { workspace = true }
 categories   = { workspace = true }
 
 [dependencies]
+age          = { workspace = true }
+age-core     = { workspace = true }
 thiserror    = { workspace = true }
 zeroize      = { workspace = true }
+rand         = { workspace = true }
+zxcvbn       = { workspace = true }
 
 [dev-dependencies]
 proptest     = { workspace = true }

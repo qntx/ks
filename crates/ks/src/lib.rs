@@ -8,13 +8,27 @@
 
 mod entry;
 mod error;
+mod header;
+mod key;
 mod name;
+mod passphrase;
 
 #[cfg(test)]
 use proptest as _;
 #[cfg(test)]
 use serde_json as _;
 
+fn hex<const N: usize>(bytes: [u8; N]) -> String {
+    let mut out = String::with_capacity(2 * N);
+    for b in bytes {
+        out.push(char::from_digit(u32::from(b >> 4), 16).unwrap_or('0'));
+        out.push(char::from_digit(u32::from(b & 0xf), 16).unwrap_or('0'));
+    }
+    out
+}
+
 pub use entry::{Entry, Kind, Text};
 pub use error::{Error, ErrorCode, Result};
+pub use key::LocalKey;
 pub use name::Name;
+pub use passphrase::check_new_passphrase;
