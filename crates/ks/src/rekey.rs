@@ -413,11 +413,11 @@ mod tests {
             ])
             .args(args)
             .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_GLOBAL", root.join(".git-test-global-config"))
             .env("GIT_TERMINAL_PROMPT", "0")
             .status()
             .unwrap();
-        assert!(status.success(), "git {:?} failed", args);
+        assert!(status.success(), "git {args:?} failed");
     }
 
     #[test]

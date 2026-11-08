@@ -31,6 +31,7 @@ struct T {
     vault: std::path::PathBuf,
     pass: std::path::PathBuf,
     new_pass: std::path::PathBuf,
+    gitcfg: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }
 
@@ -46,16 +47,34 @@ fn mk() -> T {
         std::fs::set_permissions(&pass, std::fs::Permissions::from_mode(0o600)).unwrap();
         std::fs::set_permissions(&new_pass, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
+    let gitcfg = dir.path().join("gitconfig");
+    std::fs::write(&gitcfg, "").unwrap();
     T {
         vault: dir.path().join("v"),
         pass,
         new_pass,
+        gitcfg,
         _dir: dir,
     }
 }
 
+/// Keeps git away from the developer's and the runner's configuration
+/// (identity, signing, hooks) so commits made by `ks` are deterministic.
+fn isolate_git(c: &mut Command, gitcfg: &std::path::Path) {
+    c.env("GIT_CONFIG_GLOBAL", gitcfg)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "ks test")
+        .env("GIT_AUTHOR_EMAIL", "t@e.st")
+        .env("GIT_COMMITTER_NAME", "ks test")
+        .env("GIT_COMMITTER_EMAIL", "t@e.st")
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "init.defaultBranch")
+        .env("GIT_CONFIG_VALUE_0", "main");
+}
+
 fn ks(t: &T, args: &[&str], stdin: &[u8], pass: Option<&std::path::Path>) -> (i32, String, String) {
     let mut c = Command::new(assert_cmd::cargo::cargo_bin!("ks"));
+    isolate_git(&mut c, &t.gitcfg);
     c.arg("--vault")
         .arg(&t.vault)
         .args(args)
@@ -135,6 +154,7 @@ fn admin_rekey_full_cycle() {
 
     // rekey with the passphrase source + a new-passphrase file
     let mut c = Command::new(assert_cmd::cargo::cargo_bin!("ks"));
+    isolate_git(&mut c, &t.gitcfg);
     c.arg("--vault")
         .arg(&t.vault)
         .arg("rekey")
@@ -245,6 +265,7 @@ fn admin_rekey_same_passphrase_rejected() {
     set(&t, "a", "v");
     let before = std::fs::read(t.vault.join(".identity.age")).unwrap();
     let mut c = Command::new(assert_cmd::cargo::cargo_bin!("ks"));
+    isolate_git(&mut c, &t.gitcfg);
     c.arg("--vault")
         .arg(&t.vault)
         .arg("rekey")
@@ -274,6 +295,7 @@ fn admin_rekey_dirty_tree_rejected() {
     set(&t, "a", "v");
     std::fs::write(t.vault.join("dirty.age"), b"not-an-entry").unwrap();
     let mut c = Command::new(assert_cmd::cargo::cargo_bin!("ks"));
+    isolate_git(&mut c, &t.gitcfg);
     c.arg("--vault")
         .arg(&t.vault)
         .arg("rekey")
@@ -305,6 +327,7 @@ fn admin_rekey_undecryptable_aborts() {
     w.finish().unwrap();
     std::fs::write(t.vault.join("rogue.age"), &out).unwrap();
     let mut c = Command::new(assert_cmd::cargo::cargo_bin!("ks"));
+    isolate_git(&mut c, &t.gitcfg);
     c.arg("--vault")
         .arg(&t.vault)
         .arg("rekey")
