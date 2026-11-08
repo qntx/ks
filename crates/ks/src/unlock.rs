@@ -1,10 +1,32 @@
-//! The unlock chain: session agent first, then the passphrase. Device
-//! sources (Touch ID, keychain) plug in here in M4.
+//! The unlock chain: session agent, then device sources (Touch ID, OS
+//! keychain), then the passphrase. A device key must pass the check-file
+//! verification; a stale candidate is warned about, skipped, and removed
+//! after a successful passphrase unlock.
 
 use age::secrecy::SecretString;
 
 use crate::vault::{IDENTITY_FILE, MAX_SMALL_FILE};
-use crate::{Error, Key, Result, Session, Vault};
+use crate::{Error, Key, LocalKey, Result, Session, Vault};
+
+/// What one device source produced for the unlock chain.
+pub(crate) enum Probe {
+    /// Source not enabled or not present — silent skip.
+    Absent,
+    /// The source produced a key; the chain verifies the check file.
+    Key(LocalKey),
+    /// The source tried and failed softly (cancel, denied, read error,
+    /// plugin failure) — warn and continue; never stale, never deleted.
+    Skip(String),
+}
+
+/// A stale device source to remove after a passphrase unlock.
+enum Stale {
+    #[cfg(feature = "agent")]
+    Agent,
+    TouchId,
+    #[cfg(feature = "keychain")]
+    Keychain,
+}
 
 /// What the session agent offers for this vault.
 #[cfg(feature = "agent")]
@@ -66,36 +88,82 @@ impl Vault {
         // Read the identity file first so a broken vault never prompts.
         let identity_path = self.root().join(IDENTITY_FILE);
         let bytes = self.read_file(&identity_path, MAX_SMALL_FILE)?;
+        let mut warnings = Vec::new();
+        let mut stale = Vec::new();
 
         #[cfg(feature = "agent")]
-        let stale_agent = if with_agent {
+        if with_agent {
             match self.agent_probe()? {
-                AgentProbe::Absent => false,
-                AgentProbe::Stale => true,
+                AgentProbe::Absent => {}
+                AgentProbe::Stale => stale.push(Stale::Agent),
                 AgentProbe::Ready(session) => return Ok(session),
             }
-        } else {
-            false
-        };
+        }
+
+        for (probe, stale_src, warn) in [
+            (
+                crate::touchid::probe(self),
+                Stale::TouchId,
+                "Touch ID holds an outdated vault key; it will be removed after a passphrase unlock",
+            ),
+            #[cfg(feature = "keychain")]
+            (
+                crate::keychain::probe(self),
+                Stale::Keychain,
+                "the OS keychain holds an outdated vault key; it will be removed after a passphrase unlock",
+            ),
+        ] {
+            match probe {
+                Probe::Absent => {}
+                Probe::Skip(w) => warnings.push(w),
+                Probe::Key(k) if self.verify_check(&k) => {
+                    return Ok(Session::new(
+                        Self::open(self.root())?,
+                        Key::Local(k),
+                        warnings,
+                    ));
+                }
+                Probe::Key(_) => {
+                    warnings.push(warn.to_owned());
+                    stale.push(stale_src);
+                }
+            }
+        }
 
         let Some(get_passphrase) = passphrase else {
             return Err(Error::Locked);
         };
         let secret = get_passphrase()?;
         let key = crate::passphrase::open_identity(&bytes, &secret)?;
-        let mut warnings = Vec::new();
-        #[cfg(feature = "agent")]
-        if stale_agent {
-            warnings
-                .push("session agent does not hold the current vault key; ignoring it".to_owned());
-        }
         if !self.verify_check(&key) {
             self.with_write_lock(|| self.write_check(&key))?;
             warnings.push("check file rebuilt".to_owned());
         }
-        #[cfg(feature = "agent")]
-        if stale_agent {
-            drop(crate::agent::lock(self));
+        for src in stale {
+            match src {
+                #[cfg(feature = "agent")]
+                Stale::Agent => {
+                    warnings.push(
+                        "session agent does not hold the current vault key; asking it to exit"
+                            .to_owned(),
+                    );
+                    drop(crate::agent::lock(self));
+                }
+                Stale::TouchId => {
+                    warnings.push(
+                        "Touch ID has been removed; re-enable with `ks touchid enable`".to_owned(),
+                    );
+                    drop(crate::touchid::disable(self));
+                }
+                #[cfg(feature = "keychain")]
+                Stale::Keychain => {
+                    warnings.push(
+                        "the OS keychain entry has been removed; re-enable with `ks keychain enable`"
+                            .to_owned(),
+                    );
+                    drop(crate::keychain::disable(self));
+                }
+            }
         }
         Ok(Session::new(
             Self::open(self.root())?,

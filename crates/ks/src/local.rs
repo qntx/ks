@@ -31,10 +31,11 @@ pub(crate) fn data_dir() -> Result<PathBuf> {
         .ok_or_else(|| Error::Unavailable("cannot resolve a state directory".into()))
 }
 
-/// `<data_local_dir>/<id>` — created with mode `0700` on unix; an existing
-/// directory must be owned privately by the current user (the same rule the
-/// agent endpoint directory follows). Refuses a tampered directory rather
-/// than healing it.
+/// `<data_local_dir>/<id>` — the per-vault local state directory.
+///
+/// Created with mode `0700` on unix; an existing directory must be owned
+/// privately by the current user (the same rule the agent endpoint
+/// directory follows). Refuses a tampered directory rather than healing it.
 ///
 /// # Errors
 ///

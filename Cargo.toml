@@ -18,7 +18,7 @@ categories   = ["cryptography"]
 [workspace.dependencies]
 ks = { version = "0.8", path = "crates/ks", features = ["agent"] }
 
-age          = "0.12.1"
+age          = { version = "0.12.1", features = ["plugin"] }
 age-core     = "0.12.0"
 sha2         = "0.10.9"
 zxcvbn       = "3.1.1"
@@ -28,6 +28,11 @@ zeroize      = { version = "1.9.1", features = ["derive"] }
 thiserror    = "2.0.21"
 rand         = "0.10.3"
 directories  = "6.0.0"
+keyring-core                    = "1.0.1"
+apple-native-keyring-store      = { version = "1.0.2", default-features = false, features = ["keychain"] }
+windows-native-keyring-store    = { version = "1.1.0", default-features = false }
+zbus-secret-service-keyring-store = { version = "1.0.1", default-features = false, features = ["rt-async-io-crypto-rust"] }
+which        = "8"
 totp-rs      = { version = "6.0.0", features = ["otpauth"] }
 interprocess = "2.4.0"
 serde        = { version = "1", features = ["derive"] }
