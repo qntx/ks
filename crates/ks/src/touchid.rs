@@ -218,9 +218,7 @@ fn enable_inner(
     })?;
     let recipient = se_recipient(&identity_text)?;
     let encrypted = seal_to_se(&recipient, text.expose_secret().as_bytes())?;
-    session
-        .vault()
-        .atomic_write(&dir.join(BLOB_FILE), &encrypted)?;
+    crate::vault::write_atomic(&dir.join(BLOB_FILE), &encrypted)?;
     std::fs::rename(tmp, dir.join(IDENTITY_FILE)).map_err(|e| Error::Io {
         path: tmp.to_path_buf(),
         source: e,

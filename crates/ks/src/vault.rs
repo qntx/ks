@@ -310,51 +310,81 @@ impl Vault {
     /// directory, write + fsync, rename, then fsync the directory (unix).
     pub(crate) fn atomic_write(&self, path: &Path, bytes: &[u8]) -> Result<()> {
         self.check_no_symlinks(path)?;
-        let dir = path.parent().unwrap_or(&self.root);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::DirBuilderExt as _;
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(dir)
-                .map_err(|e| Error::Io {
-                    path: dir.to_path_buf(),
-                    source: e,
-                })?;
-        }
-        #[cfg(not(unix))]
-        std::fs::create_dir_all(dir).map_err(|e| Error::Io {
-            path: dir.to_path_buf(),
+        write_atomic(path, bytes)
+    }
+}
+
+/// Atomically replaces `path` with `bytes` (0600, parent dirs created
+/// 0700). Vault files go through [`Vault::atomic_write`], which refuses
+/// symlinks first; the local state dir is checked by `local::state_dir`.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    let dir = path
+        .parent()
+        .ok_or(Error::Internal("atomic write target has no parent"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt as _;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)
+            .map_err(|e| Error::Io {
+                path: dir.to_path_buf(),
+                source: e,
+            })?;
+    }
+    #[cfg(not(unix))]
+    std::fs::create_dir_all(dir).map_err(|e| Error::Io {
+        path: dir.to_path_buf(),
+        source: e,
+    })?;
+    let mut tmp = tempfile::Builder::new()
+        .prefix(".tmp")
+        .tempfile_in(dir)
+        .map_err(|e| Error::Io {
+            path: path.to_path_buf(),
             source: e,
         })?;
-        let mut tmp = tempfile::Builder::new()
-            .prefix(".tmp")
-            .tempfile_in(dir)
-            .map_err(|e| Error::Io {
-                path: path.to_path_buf(),
-                source: e,
-            })?;
-        tmp.write_all(bytes)
-            .and_then(|()| tmp.as_file().sync_all())
-            .map_err(|e| Error::Io {
-                path: path.to_path_buf(),
-                source: e,
-            })?;
-        #[cfg(unix)]
-        drop(
-            tmp.as_file()
-                .set_permissions(std::fs::Permissions::from_mode(0o600)),
-        );
-        tmp.persist(path).map_err(|e| Error::Io {
+    tmp.write_all(bytes)
+        .and_then(|()| tmp.as_file().sync_all())
+        .map_err(|e| Error::Io {
             path: path.to_path_buf(),
-            source: e.error,
+            source: e,
         })?;
+    #[cfg(unix)]
+    drop(
+        tmp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600)),
+    );
+    tmp.persist(path).map_err(|e| Error::Io {
+        path: path.to_path_buf(),
+        source: e.error,
+    })?;
+    #[cfg(unix)]
+    if let Ok(dir_file) = std::fs::File::open(dir) {
+        drop(dir_file.sync_all());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod write_atomic_tests {
+    #![allow(clippy::unwrap_used, reason = "test fixture setup may panic")]
+
+    /// Local state (Touch ID blobs) lives outside every vault; the plain
+    /// atomic write must work there, unlike `Vault::atomic_write`.
+    #[test]
+    fn write_atomic_outside_any_vault() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state").join("touchid.age");
+        super::write_atomic(&path, b"blob").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"blob", "content differs");
         #[cfg(unix)]
-        if let Ok(dir_file) = std::fs::File::open(dir) {
-            drop(dir_file.sync_all());
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "state file must be private");
         }
-        Ok(())
     }
 }
 
