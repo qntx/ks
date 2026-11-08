@@ -15,10 +15,10 @@
 //! - `.lock` — the write lock for all mutating operations.
 #![forbid(unsafe_code)]
 
-mod entry;
-mod error;
 #[cfg(feature = "agent")]
 pub mod agent;
+mod entry;
+mod error;
 pub mod git;
 mod header;
 mod key;
@@ -46,8 +46,8 @@ fn hex<const N: usize>(bytes: [u8; N]) -> String {
 
 pub use entry::{Entry, Kind, Text};
 pub use error::ConflictKind;
-pub use key::Key;
 pub use error::{Error, ErrorCode, Result};
+pub use key::Key;
 pub use key::LocalKey;
 pub use name::Name;
 pub use passphrase::check_new_passphrase;

@@ -1690,10 +1690,12 @@ dependencies = [
  "base64",
  "clap",
  "cliclack",
+ "interprocess",
  "ks",
  "libc",
  "serde_json",
  "tempfile",
+ "widestring",
  "zeroize",
 ]
 

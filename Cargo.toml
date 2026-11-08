@@ -18,17 +18,17 @@ categories   = ["cryptography"]
 [workspace.dependencies]
 ks = { version = "0.8", path = "crates/ks" }
 
-age         = "0.12.1"
-age-core    = "0.12.0"
-sha2        = "0.10.9"
-zxcvbn      = "3.1.1"
-tempfile    = "3.27.0"
-fd-lock     = "4.0.4"
-zeroize     = { version = "1.9.1", features = ["derive"] }
-thiserror   = "2.0.21"
-rand        = "0.10.3"
-directories = "6.0.0"
-totp-rs     = { version = "6.0.0", features = ["otpauth"] }
+age          = "0.12.1"
+age-core     = "0.12.0"
+sha2         = "0.10.9"
+zxcvbn       = "3.1.1"
+tempfile     = "3.27.0"
+fd-lock      = "4.0.4"
+zeroize      = { version = "1.9.1", features = ["derive"] }
+thiserror    = "2.0.21"
+rand         = "0.10.3"
+directories  = "6.0.0"
+totp-rs      = { version = "6.0.0", features = ["otpauth"] }
 interprocess = "2.4.0"
 serde        = { version = "1", features = ["derive"] }
 
@@ -37,6 +37,7 @@ cliclack   = "0.5.6"
 arboard    = "3.7.0"
 base64     = "0.22.1"
 libc       = "0.2.191"
+widestring = "1.2.1"
 assert_cmd = "2.2.2"
 
 proptest   = "1.12.0"

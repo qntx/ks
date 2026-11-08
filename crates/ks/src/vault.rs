@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use age::secrecy::SecretString;
 use zeroize::Zeroizing;
 
-use crate::{Entry, Error, LocalKey, Name, Result, header};
 use crate::key::Key;
+use crate::{Entry, Error, LocalKey, Name, Result, header};
 
 pub(crate) const IDENTITY_FILE: &str = ".identity.age";
 pub(crate) const CHECK_FILE: &str = ".check.age";
@@ -377,7 +377,10 @@ pub(crate) fn hex_sha256(bytes: &[u8]) -> String {
     clippy::needless_pass_by_value,
     reason = "owning the buffer guarantees zeroization on drop"
 )]
-pub(crate) fn encrypt_to(key: &dyn age::Recipient, plaintext: Zeroizing<Vec<u8>>) -> Result<Vec<u8>> {
+pub(crate) fn encrypt_to(
+    key: &dyn age::Recipient,
+    plaintext: Zeroizing<Vec<u8>>,
+) -> Result<Vec<u8>> {
     let recipient: &dyn age::Recipient = key;
     let encryptor = age::Encryptor::with_recipients(core::iter::once(recipient))
         .map_err(|_| Error::Internal("age encryption setup failed"))?;

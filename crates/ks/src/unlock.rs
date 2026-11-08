@@ -86,9 +86,8 @@ impl Vault {
         let mut warnings = Vec::new();
         #[cfg(feature = "agent")]
         if stale_agent {
-            warnings.push(
-                "session agent does not hold the current vault key; ignoring it".to_owned(),
-            );
+            warnings
+                .push("session agent does not hold the current vault key; ignoring it".to_owned());
         }
         if !self.verify_check(&key) {
             self.with_write_lock(|| self.write_check(&key))?;
@@ -98,7 +97,11 @@ impl Vault {
         if stale_agent {
             drop(crate::agent::lock(self));
         }
-        Ok(Session::new(Self::open(self.root())?, Key::Local(key), warnings))
+        Ok(Session::new(
+            Self::open(self.root())?,
+            Key::Local(key),
+            warnings,
+        ))
     }
 
     /// Connects to the agent and classifies the result.

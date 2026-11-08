@@ -5,17 +5,19 @@
 //! ever live in [`zeroize::Zeroizing`] buffers.
 
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::DirBuilderExt as _;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
 use age::secrecy::SecretString;
 use age_core::format::{FileKey, Stanza};
 use base64::Engine as _;
-use interprocess::local_socket::{Stream, traits::Stream as _};
 #[cfg(unix)]
 use interprocess::local_socket::ToFsName as _;
 #[cfg(windows)]
 use interprocess::local_socket::ToNsName as _;
+use interprocess::local_socket::{Stream, traits::Stream as _};
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use zeroize::Zeroizing;
@@ -44,7 +46,9 @@ fn stanza_from_json(s: &StanzaJson) -> Option<Stanza> {
     Some(Stanza {
         tag: s.tag.clone(),
         args: s.args.clone(),
-        body: base64::engine::general_purpose::STANDARD.decode(&s.body).ok()?,
+        body: base64::engine::general_purpose::STANDARD
+            .decode(&s.body)
+            .ok()?,
     })
 }
 
@@ -57,22 +61,34 @@ fn write_frame(w: &mut impl Write, value: &serde_json::Value) -> Result<()> {
     }
     w.write_all(&len.to_be_bytes())
         .and_then(|()| w.write_all(&bytes))
-        .map_err(|e| Error::Io { path: "agent socket".into(), source: e })
+        .map_err(|e| Error::Io {
+            path: "agent socket".into(),
+            source: e,
+        })
 }
 
 fn read_frame(r: &mut impl Read) -> Result<serde_json::Value> {
     let mut len_buf = [0u8; 4];
-    r.read_exact(&mut len_buf)
-        .map_err(|e| Error::Io { path: "agent socket".into(), source: e })?;
+    r.read_exact(&mut len_buf).map_err(|e| Error::Io {
+        path: "agent socket".into(),
+        source: e,
+    })?;
     let len = u32::from_be_bytes(len_buf);
     if len == 0 || len > MAX_FRAME {
-        return Err(Error::Corrupt { path: "agent socket".into(), reason: "bad frame length" });
+        return Err(Error::Corrupt {
+            path: "agent socket".into(),
+            reason: "bad frame length",
+        });
     }
     let mut buf = Zeroizing::new(vec![0u8; len as usize]);
-    r.read_exact(&mut buf)
-        .map_err(|e| Error::Io { path: "agent socket".into(), source: e })?;
-    serde_json::from_slice(&buf)
-        .map_err(|_| Error::Corrupt { path: "agent socket".into(), reason: "bad frame JSON" })
+    r.read_exact(&mut buf).map_err(|e| Error::Io {
+        path: "agent socket".into(),
+        source: e,
+    })?;
+    serde_json::from_slice(&buf).map_err(|_| Error::Corrupt {
+        path: "agent socket".into(),
+        reason: "bad frame JSON",
+    })
 }
 
 fn rpc(stream: &mut Stream, request: &serde_json::Value) -> Result<serde_json::Value> {
@@ -88,7 +104,10 @@ fn rpc(stream: &mut Stream, request: &serde_json::Value) -> Result<serde_json::V
 }
 
 fn hello(stream: &mut Stream) -> Result<serde_json::Value> {
-    rpc(stream, &serde_json::json!({ "op": "hello", "version": PROTOCOL_VERSION }))
+    rpc(
+        stream,
+        &serde_json::json!({ "op": "hello", "version": PROTOCOL_VERSION }),
+    )
 }
 
 fn vault_id(root: &std::path::Path) -> String {
@@ -109,8 +128,12 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    /// The interprocess socket name.
-    pub(crate) fn socket_name(&self) -> Result<interprocess::local_socket::Name<'static>> {
+    /// The interprocess socket name (for binding the listener).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Unavailable`] when the name cannot be constructed.
+    pub fn socket_name(&self) -> Result<interprocess::local_socket::Name<'static>> {
         #[cfg(unix)]
         return PathBuf::from(&self.name)
             .to_fs_name::<interprocess::local_socket::GenericFilePath>()
@@ -121,6 +144,12 @@ impl Endpoint {
             .clone()
             .to_ns_name::<interprocess::local_socket::GenericNamespaced>()
             .map_err(|e| Error::Unavailable(format!("agent endpoint name is invalid: {e}")));
+    }
+
+    /// The unix socket path (`None` on Windows).
+    #[must_use]
+    pub fn path(&self) -> Option<&std::path::Path> {
+        self.path.as_deref()
     }
 
     /// Unix only: removes the socket file after a stale/shutdown listener.
@@ -137,20 +166,29 @@ impl Endpoint {
 #[cfg(unix)]
 fn check_dir_perms(dir: &std::path::Path) -> Result<()> {
     use std::os::unix::fs::MetadataExt as _;
-    let meta = std::fs::metadata(dir)
-        .map_err(|e| Error::Io { path: dir.to_path_buf(), source: e })?;
+    let meta = std::fs::metadata(dir).map_err(|e| Error::Io {
+        path: dir.to_path_buf(),
+        source: e,
+    })?;
     if meta.mode() & 0o077 != 0 {
         return Err(Error::Unavailable(
             "agent endpoint directory is not private to this user".into(),
         ));
     }
     // A file we create carries our uid; compare without libc/unsafe.
-    let probe = tempfile::NamedTempFile::new_in(dir)
-        .map_err(|e| Error::Io { path: dir.to_path_buf(), source: e })?;
-    if meta.uid() != probe.as_file().metadata().map_err(|e| Error::Io {
+    let probe = tempfile::NamedTempFile::new_in(dir).map_err(|e| Error::Io {
         path: dir.to_path_buf(),
         source: e,
-    })?.uid()
+    })?;
+    if meta.uid()
+        != probe
+            .as_file()
+            .metadata()
+            .map_err(|e| Error::Io {
+                path: dir.to_path_buf(),
+                source: e,
+            })?
+            .uid()
     {
         return Err(Error::Unavailable(
             "agent endpoint directory is not owned by this user".into(),
@@ -172,15 +210,14 @@ pub fn endpoint(vault: &Vault) -> Result<Endpoint> {
     #[cfg(unix)]
     {
         let dir = endpoint_dir(&id)?;
-        std::fs::create_dir_all(&dir).map_err(|e| Error::Io {
-            path: dir.clone(),
-            source: e,
-        })?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            drop(std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)));
-        }
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&dir)
+            .map_err(|e| Error::Io {
+                path: dir.clone(),
+                source: e,
+            })?;
         check_dir_perms(&dir)?;
         let path = dir.join(format!("{id}.sock"));
         if path.as_os_str().len() > 100 {
@@ -188,11 +225,17 @@ pub fn endpoint(vault: &Vault) -> Result<Endpoint> {
                 "agent socket path exceeds 100 bytes".into(),
             ));
         }
-        Ok(Endpoint { name: path.to_string_lossy().into_owned(), path: Some(path) })
+        Ok(Endpoint {
+            name: path.to_string_lossy().into_owned(),
+            path: Some(path),
+        })
     }
     #[cfg(windows)]
     {
-        Ok(Endpoint { name: format!("ks-{id}"), path: None })
+        Ok(Endpoint {
+            name: format!("ks-{id}"),
+            path: None,
+        })
     }
 }
 
@@ -277,7 +320,11 @@ impl AgentKey {
         }))
     }
 
-    fn call<T>(&self, request: &serde_json::Value, f: impl Fn(&serde_json::Value) -> Option<T>) -> Option<T> {
+    fn call<T>(
+        &self,
+        request: &serde_json::Value,
+        f: impl Fn(&serde_json::Value) -> Option<T>,
+    ) -> Option<T> {
         let mut stream = self.stream.lock().ok()?;
         rpc(&mut stream, request).ok().and_then(|v| f(&v))
     }
@@ -315,7 +362,8 @@ impl age::Recipient for AgentKey {
     fn wrap_file_key(
         &self,
         file_key: &FileKey,
-    ) -> std::result::Result<(Vec<Stanza>, std::collections::HashSet<String>), age::EncryptError> {
+    ) -> std::result::Result<(Vec<Stanza>, std::collections::HashSet<String>), age::EncryptError>
+    {
         use age::secrecy::ExposeSecret as _;
         let b64 = base64::engine::general_purpose::STANDARD.encode(file_key.expose_secret());
         let request = serde_json::json!({ "op": "wrap", "file_key": b64 });
@@ -330,7 +378,10 @@ impl age::Recipient for AgentKey {
                     .collect::<Option<Vec<Stanza>>>()
             })
             .ok_or_else(|| age::EncryptError::Io(std::io::Error::other("agent wrap failed")))?;
-        Ok((stanzas, std::collections::HashSet::from([self.label.clone()])))
+        Ok((
+            stanzas,
+            std::collections::HashSet::from([self.label.clone()]),
+        ))
     }
 }
 
@@ -359,8 +410,14 @@ pub fn status(vault: &Vault) -> Result<Option<AgentStatus>> {
     };
     let ok = hello(&mut stream)?;
     Ok(Some(AgentStatus {
-        ttl_left: ok.get("ttl_left").and_then(serde_json::Value::as_u64).unwrap_or(0),
-        life_left: ok.get("life_left").and_then(serde_json::Value::as_u64).unwrap_or(0),
+        ttl_left: ok
+            .get("ttl_left")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+        life_left: ok
+            .get("life_left")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
     }))
 }
 
@@ -406,7 +463,9 @@ impl Handler {
         reason = "the caller owns the identity so it is zeroized when dropped"
     )]
     pub fn new(identity: SecretString) -> Result<Self> {
-        Ok(Self { key: LocalKey::from_identity_text(&identity)? })
+        Ok(Self {
+            key: LocalKey::from_identity_text(&identity)?,
+        })
     }
 
     /// Serves one connection until EOF or `lock`; calls `activity()` on each
@@ -474,7 +533,11 @@ impl Handler {
                     .map(|v| serde_json::from_value::<StanzaJson>(v.clone()).ok())
                     .collect::<Option<Vec<_>>>()
             })
-            .and_then(|js| js.iter().map(stanza_from_json).collect::<Option<Vec<Stanza>>>());
+            .and_then(|js| {
+                js.iter()
+                    .map(stanza_from_json)
+                    .collect::<Option<Vec<Stanza>>>()
+            });
         let Some(stanzas) = stanzas else {
             return serde_json::json!({ "error": "malformed stanzas" });
         };
@@ -584,7 +647,10 @@ mod tests {
             wire.clear();
             write_frame(&mut wire, req).unwrap();
             let conn = Cursor::new(wire.clone());
-            let mut d = Duplex { req: conn, resp: Vec::new() };
+            let mut d = Duplex {
+                req: conn,
+                resp: Vec::new(),
+            };
             let end = handler
                 .serve_connection(&mut d, &|| {}, &|| 900, &|| 28_800)
                 .unwrap();
@@ -610,15 +676,16 @@ mod tests {
             .and_then(|s| s.as_array())
             .unwrap();
         assert_eq!(stanzas.len(), 1);
-        let (resp4, _) =
-            serve(&serde_json::json!({ "op": "unwrap", "stanzas": stanzas }));
+        let (resp4, _) = serve(&serde_json::json!({ "op": "unwrap", "stanzas": stanzas }));
         let got = resp4
             .get("ok")
             .and_then(|o| o.get("file_key"))
             .and_then(|f| f.as_str())
             .unwrap();
         assert_eq!(
-            base64::engine::general_purpose::STANDARD.decode(got).unwrap(),
+            base64::engine::general_purpose::STANDARD
+                .decode(got)
+                .unwrap(),
             file_key
         );
 

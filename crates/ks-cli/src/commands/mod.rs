@@ -1,5 +1,6 @@
 //! Command implementations.
 
+pub(crate) mod agent;
 pub(crate) mod daemon;
 pub(crate) mod doctor;
 pub(crate) mod edit;
@@ -7,6 +8,7 @@ pub(crate) mod edit;
 pub(crate) mod generate;
 pub(crate) mod git;
 pub(crate) mod init;
+pub(crate) mod lock;
 pub(crate) mod ls;
 pub(crate) mod mv;
 pub(crate) mod otp;
@@ -15,7 +17,9 @@ pub(crate) mod rm;
 pub(crate) mod run;
 pub(crate) mod set;
 pub(crate) mod show;
+pub(crate) mod status;
 pub(crate) mod sync;
+pub(crate) mod unlock;
 
 pub(crate) use crate::cli::Cli;
 pub(crate) use crate::clipboard;
@@ -33,7 +37,12 @@ pub(crate) fn vault(cli: &Cli) -> CliResult<Vault> {
 pub(crate) fn unlock(cli: &Cli, out: &Out) -> CliResult<ks::Session> {
     let v = vault(cli)?;
     let source = prompt::passphrase_source(cli, out);
-    let session = v.unlock(Some(&source)).map_err(|e| err(&e))?;
+    let session = if cli.no_agent {
+        v.unlock_without_agent(Some(&source))
+    } else {
+        v.unlock(Some(&source))
+    }
+    .map_err(|e| err(&e))?;
     for w in session.warnings() {
         out.warn(w.clone());
     }
