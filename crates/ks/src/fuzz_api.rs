@@ -53,9 +53,7 @@ pub fn git_porcelain(data: &[u8]) {
 /// request dispatch and the response writer all see adversarial input.
 #[cfg(feature = "agent")]
 pub fn agent_frames(data: &[u8]) {
-    let Ok(handler) = crate::agent::Handler::new(
-        LocalKey::generate().to_identity_text(),
-    ) else {
+    let Ok(handler) = crate::agent::Handler::new(LocalKey::generate().to_identity_text()) else {
         return;
     };
     let stream = std::io::Cursor::new(data.to_vec());
