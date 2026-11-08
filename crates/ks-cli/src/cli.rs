@@ -189,7 +189,7 @@ pub(crate) enum Command {
         args: Vec<String>,
     },
     /// Internal: clipboard helper process.
-    #[command(hide = true)]
+    #[command(name = "__clipboard", hide = true)]
     ClipboardDaemon {
         /// Seconds before clearing.
         secs: u64,

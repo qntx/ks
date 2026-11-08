@@ -623,3 +623,57 @@ fn cli_json_stderr_clean_and_broken_pipe() {
     let status = reader.wait().unwrap();
     assert_ne!(status.code(), Some(101), "ks panicked on a broken pipe");
 }
+
+#[test]
+fn clipboard_daemon_is_hidden_but_recognised() {
+    let t = mk();
+    // `ks __clipboard` must parse (a bad arg -> usage, not "unrecognized")
+    let (code, _, _) = run(&t, &["__clipboard", "x"], b"");
+    assert_eq!(code, 64);
+    // hidden from --help
+    let (_, out, _) = run(&t, &["--help"], b"");
+    assert!(
+        !out.contains("__clipboard") && !out.contains("clipboard-daemon"),
+        "{out}"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "sync polling against a wall-clock clipboard TTL; there is no timer to await"
+)]
+fn clipboard_copy_roundtrips_and_clears() {
+    use std::time::Instant;
+    let t = mk();
+    init(&t);
+    run(&t, &["set", "doc", "-m"], b"l\nuser: u2");
+    let prev = Command::new("pbpaste").output().unwrap().stdout;
+    let out = ks(&t, &["show", "doc", "-f", "user", "-c"])
+        .env("KS_CLIP_TIME", "2")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let got = Command::new("pbpaste").output().unwrap().stdout;
+    assert_eq!(got, b"u2", "clipboard must hold the value");
+    let deadline = Instant::now() + std::time::Duration::from_secs(6);
+    while Instant::now() < deadline {
+        if Command::new("pbpaste").output().unwrap().stdout != b"u2" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    assert_ne!(
+        Command::new("pbpaste").output().unwrap().stdout,
+        b"u2",
+        "clipboard still holds the value after KS_CLIP_TIME=2"
+    );
+    let mut p = Command::new("pbcopy")
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(p.stdin.take().unwrap().write_all(&prev));
+    drop(p.wait());
+}
