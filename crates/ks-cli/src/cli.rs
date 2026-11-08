@@ -27,7 +27,14 @@ pub(crate) struct Cli {
 /// Subcommands.
 pub(crate) enum Command {
     /// Create a new vault.
-    Init,
+    Init {
+        /// Also create a git repository and commit.
+        #[arg(long, conflicts_with = "clone")]
+        git: bool,
+        /// Clone the vault from this URL instead of creating it.
+        #[arg(long)]
+        clone: Option<String>,
+    },
     /// List entries (no unlock needed).
     Ls {
         /// Optional name prefix (segment-wise).
@@ -123,6 +130,18 @@ pub(crate) enum Command {
         /// Remove temp files and fix permissions.
         #[arg(long)]
         fix: bool,
+    },
+    /// Commit, pull --rebase and push the vault (no unlock).
+    Sync {
+        /// On conflict keep this side.
+        #[arg(long)]
+        keep: Option<String>,
+    },
+    /// Run `git` inside the vault, passing all arguments through.
+    Git {
+        /// Arguments for git.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        args: Vec<String>,
     },
     /// Internal: clipboard helper process.
     #[command(hide = true)]

@@ -1,6 +1,6 @@
 //! `ks passwd` — change the master passphrase (not a revocation measure).
 
-use super::{Cli, CliResult, Out, err, prompt, unlock};
+use super::{autocommit, Cli, CliResult, Out, err, prompt, unlock};
 
 /// Unlocks, takes the new passphrase, re-seals the identity file.
 pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {
@@ -8,6 +8,13 @@ pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {
     let new = prompt::new_passphrase(out)?;
     let warnings = ks::check_new_passphrase(&new).map_err(|e| err(&e))?;
     session.change_passphrase(&new).map_err(|e| err(&e))?;
+    let root = session.vault().root();
+    autocommit(
+        cli,
+        out,
+        &[root.join(".identity.age"), root.join(".check.age")],
+        "ks: passwd",
+    );
     for w in warnings {
         out.warn(w);
     }

@@ -1,6 +1,6 @@
 //! `ks rm <name> [--force]` — delete an entry.
 
-use super::{Cli, CliResult, ErrorCode, Out, err, name, prompt, unlock};
+use super::{autocommit, Cli, CliResult, ErrorCode, Out, err, name, prompt, unlock};
 
 /// Removes the entry after confirmation (or `--force`).
 pub(crate) fn run(cli: &Cli, out: &Out, n: &str, force: bool) -> CliResult<i32> {
@@ -16,7 +16,9 @@ pub(crate) fn run(cli: &Cli, out: &Out, n: &str, force: bool) -> CliResult<i32> 
             ));
         }
     }
+    let path = name.path_in(session.vault().root());
     session.remove(&name).map_err(|e| err(&e))?;
+    autocommit(cli, out, &[path], &format!("ks: rm {name}"));
     Ok(out.ok_value(
         &format!("removed {name}"),
         serde_json::json!({ "name": name.to_string(), "removed": true }),

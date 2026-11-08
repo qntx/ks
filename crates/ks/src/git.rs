@@ -281,7 +281,10 @@ impl Git {
 
     /// `git -C root <sub> <fixed> <rest>`; non-zero exit -> Unavailable.
     fn git_args(&self, sub: &str, fixed: &[&str], rest: &[String]) -> Result<Output> {
-        let out = self.run(fixed, rest)?;
+        let mut all: Vec<&str> = Vec::with_capacity(fixed.len() + 1);
+        all.push(sub);
+        all.extend_from_slice(fixed);
+        let out = self.run(&all, rest)?;
         if out.status.success() {
             Ok(out)
         } else {
