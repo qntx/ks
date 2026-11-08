@@ -152,6 +152,11 @@ fn scan(root: &Path, problems: &mut Vec<Problem>) {
             };
             let name = entry.file_name();
             let name = name.to_str().unwrap_or("");
+            // `.git` — repository internals are out of scope entirely
+            // (a `.git` file covers worktrees): no perms, no reports, no fixes.
+            if dir == root && name == ".git" {
+                continue;
+            }
             if meta.file_type().is_symlink() {
                 problems.push(Problem {
                     path: path.clone(),

@@ -175,6 +175,39 @@ fn sync_init_git_one_commit() {
 }
 
 #[test]
+#[test]
+fn admin_doctor_git_vault_is_healthy() {
+    let t = mk();
+    init_git(&t, &t.a);
+    ks(&t, &t.a, &["set", "a/b"], b"v");
+    ks(
+        &t,
+        &t.a,
+        &["git", "remote", "add", "origin", t.remote.to_str().unwrap()],
+        b"",
+    );
+    let (code, _, _) = ks(&t, &t.a, &["sync"], b"");
+    assert_eq!(code, 0);
+    // doctor must not descend into .git: no reports, exit 0
+    let (code, out, err) = ks(&t, &t.a, &["doctor", "--json"], b"");
+    assert_eq!(code, 0, "{out} {err}");
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    // --fix must not touch git internals
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let git_dir = t.a.join(".git");
+        let mode_before = git_dir.symlink_metadata().unwrap().permissions().mode();
+        let (code, _, _) = ks(&t, &t.a, &["doctor", "--fix"], b"");
+        assert_eq!(code, 0);
+        assert_eq!(
+            git_dir.symlink_metadata().unwrap().permissions().mode(),
+            mode_before
+        );
+    }
+}
+
 fn sync_clone_roundtrip_and_exists() {
     let t = mk();
     init_git(&t, &t.a);
