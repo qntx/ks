@@ -29,7 +29,6 @@ pub(crate) fn check_single_x25519(bytes: &[u8], path: &Path) -> Result<()> {
     let mut x25519 = 0u32;
     let mut x25519_body = 0u32;
     let mut in_x25519 = false;
-    let mut stanza_body_lines = 0u32;
     let mut empty_terminated = false;
     let mut footer_seen = false;
     for line in rest.split(|&b| b == b'\n') {
@@ -50,7 +49,6 @@ pub(crate) fn check_single_x25519(bytes: &[u8], path: &Path) -> Result<()> {
             if in_x25519 {
                 x25519 += 1;
             }
-            stanza_body_lines = 0;
             empty_terminated = false;
         } else if line.is_empty() {
             // One empty line may terminate a stanza's body (age emits grease
@@ -70,7 +68,6 @@ pub(crate) fn check_single_x25519(bytes: &[u8], path: &Path) -> Result<()> {
             {
                 return Err(corrupt());
             }
-            stanza_body_lines += 1;
             if in_x25519 {
                 x25519_body += 1;
             }
@@ -84,6 +81,18 @@ pub(crate) fn check_single_x25519(bytes: &[u8], path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::unwrap_used,
+        clippy::panic,
+        clippy::missing_assert_message,
+        clippy::let_underscore_must_use,
+        clippy::items_after_statements,
+        clippy::shadow_unrelated,
+        clippy::indexing_slicing,
+        clippy::needless_collect,
+        reason = "unit tests may panic on fixture setup and use terse assertions"
+    )]
     use super::*;
 
     const P: &str = "x.age";

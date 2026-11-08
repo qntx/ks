@@ -93,6 +93,18 @@ fn new_label() -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::unwrap_used,
+        clippy::panic,
+        clippy::missing_assert_message,
+        clippy::let_underscore_must_use,
+        clippy::items_after_statements,
+        clippy::shadow_unrelated,
+        clippy::indexing_slicing,
+        clippy::needless_collect,
+        reason = "unit tests may panic on fixture setup and use terse assertions"
+    )]
     use super::*;
 
     #[test]
