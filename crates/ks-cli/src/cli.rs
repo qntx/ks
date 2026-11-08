@@ -160,6 +160,7 @@ pub(crate) enum Command {
     /// Show vault, agent, device unlock and git status (no unlock).
     Status,
     /// Enable or remove Touch ID device unlock (macOS).
+    #[command(name = "touchid")]
     TouchId {
         /// `enable` or `disable`.
         action: DeviceAction,

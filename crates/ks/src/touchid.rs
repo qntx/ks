@@ -292,3 +292,54 @@ fn probe_macos(vault: &Vault) -> Result<Probe> {
         Probe::Key,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::unwrap_used,
+        clippy::panic,
+        reason = "test harness: panicking fixtures are intentional"
+    )]
+
+    use age::secrecy::SecretString;
+
+    use super::*;
+
+    const PASS: &str = "correct horse battery staple fixture";
+
+    #[test]
+    fn not_enabled_is_silent() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = Vault::create(&dir.path().join("v"), &SecretString::from(PASS)).unwrap();
+        assert!(!is_enabled(session.vault()).unwrap());
+        // a vault with no files skips silently
+        assert!(matches!(probe(session.vault()), Probe::Absent));
+    }
+
+    #[test]
+    fn enable_without_plugin_is_unavailable() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = Vault::create(&dir.path().join("v"), &SecretString::from(PASS)).unwrap();
+        let r = enable(&session);
+        #[cfg(target_os = "macos")]
+        {
+            if which::which("age-plugin-se").is_ok() {
+                // the plugin exists on this machine — keygen would open a
+                // system dialog, so skip rather than hang
+                return;
+            }
+            let err = r.unwrap_err();
+            assert!(matches!(err, Error::Unavailable(_)), "expected Unavailable: {err}");
+            assert!(err.to_string().contains("age-plugin-se"), "{err}");
+            // nothing was left behind
+            assert!(!is_enabled(session.vault()).unwrap());
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let err = r.unwrap_err();
+            assert!(matches!(err, Error::Unavailable(_)), "expected Unavailable: {err}");
+            assert!(err.to_string().contains("Secure Enclave"), "{err}");
+        }
+    }
+}

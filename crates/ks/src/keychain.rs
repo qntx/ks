@@ -155,3 +155,102 @@ pub(crate) fn probe(vault: &Vault) -> Probe {
         Probe::Key,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::expect_used,
+        clippy::unwrap_used,
+        clippy::panic,
+        clippy::assert_is_empty,
+        reason = "test harness: panicking fixtures are intentional"
+    )]
+
+    use age::secrecy::SecretString;
+
+    use super::*;
+    use crate::Name;
+
+    const PASS: &str = "correct horse battery staple fixture";
+
+    fn vault() -> (tempfile::TempDir, Session) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("v");
+        let session = Vault::create(&root, &SecretString::from(PASS)).unwrap();
+        (dir, session)
+    }
+
+    fn source() -> SecretString {
+        SecretString::from(PASS)
+    }
+
+    fn mock() -> std::sync::Arc<keyring_core::mock::Store> {
+        let store = keyring_core::mock::Store::new().unwrap();
+        keyring_core::set_default_store(store.clone() as std::sync::Arc<keyring_core::CredentialStore>);
+        store
+    }
+
+    /// All keychain tests share one global store, so they run in one fn.
+    #[test]
+    fn keychain_roundtrip_stale_and_errors() {
+        mock();
+        let (_d1, s1) = vault();
+        // enable -> is_enabled -> probe -> unlock without passphrase
+        drop(enable(&s1).unwrap());
+        assert!(is_enabled(s1.vault()).unwrap());
+        let s2 = s1.vault().unlock_without_agent(None).unwrap();
+        s2.get(&Name::parse("x").unwrap()).unwrap_err();
+        // disable
+        assert!(disable(s1.vault()).unwrap());
+        assert!(!is_enabled(s1.vault()).unwrap());
+
+        // stale: another vault's key text in this vault's keychain entry
+        let (_d2, other) = vault();
+        let other_text = other.agent_identity().unwrap();
+        let e = keyring_core::Entry::new(SERVICE, &crate::local::id(s1.vault())).unwrap();
+        e.set_secret(other_text.expose_secret().as_bytes()).unwrap();
+        let s3 = s1
+            .vault()
+            .unlock_without_agent(Some(&|| Ok(source())))
+            .unwrap();
+        assert!(
+            s3.warnings()
+                .iter()
+                .any(|w| w.contains("keychain")),
+            "expected a stale-keychain warning, got {:?}",
+            s3.warnings()
+        );
+        // stale entry was removed after the passphrase unlock
+        assert!(!is_enabled(s1.vault()).unwrap());
+
+        // read failure: skipped, never removed
+        let (_d3, s4) = vault();
+        enable(&s4).unwrap();
+        let e4 = keyring_core::Entry::new(SERVICE, &crate::local::id(s4.vault())).unwrap();
+        let cred: &keyring_core::mock::Cred = e4.as_any().downcast_ref().unwrap();
+        cred.set_error(keyring_core::Error::Invalid(
+            "mock error".to_owned(),
+            "injected".to_owned(),
+        ));
+        let s5 = s4
+            .vault()
+            .unlock_without_agent(Some(&|| Ok(source())))
+            .unwrap();
+        assert!(
+            s5.warnings()
+                .iter()
+                .any(|w| w.contains("keychain could not be read")),
+            "expected a skip warning, got {:?}",
+            s5.warnings()
+        );
+        // a read failure must not delete the entry
+        assert!(is_enabled(s4.vault()).unwrap());
+
+        // valid keychain key works with no passphrase source at all
+        let s6 = s4.vault().unlock_without_agent(None).unwrap();
+        assert!(s6.warnings().is_empty(), "unexpected warnings: {:?}", s6.warnings());
+        disable(s4.vault()).unwrap();
+        disable(s1.vault()).unwrap();
+        disable(other.vault()).unwrap();
+    }
+}
