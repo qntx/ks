@@ -13,7 +13,7 @@ categories   = { workspace = true }
 
 [features]
 default = []
-agent   = ["dep:interprocess", "dep:serde", "dep:base64", "dep:serde_json", "dep:rustix"]
+agent   = ["dep:interprocess", "dep:serde", "dep:base64", "dep:serde_json"]
 
 [dependencies]
 age          = { workspace = true }
@@ -33,7 +33,7 @@ rand         = { workspace = true }
 zxcvbn       = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { workspace = true, optional = true, features = ["process"] }
+rustix = { workspace = true, features = ["process"] }
 
 [dev-dependencies]
 proptest   = { workspace = true }

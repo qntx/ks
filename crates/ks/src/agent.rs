@@ -19,7 +19,6 @@ use interprocess::local_socket::ToFsName as _;
 use interprocess::local_socket::ToNsName as _;
 use interprocess::local_socket::{Stream, traits::Stream as _};
 use serde::{Deserialize, Serialize};
-use sha2::Digest as _;
 use zeroize::Zeroizing;
 
 use crate::{Error, LocalKey, Result, Vault};
@@ -110,15 +109,6 @@ fn hello(stream: &mut Stream) -> Result<serde_json::Value> {
     )
 }
 
-fn vault_id(root: &std::path::Path) -> String {
-    let digest = sha2::Sha256::digest(root.as_os_str().as_encoded_bytes());
-    let mut id = [0u8; 8];
-    if let Some(first) = digest.get(..8) {
-        id.copy_from_slice(first);
-    }
-    crate::hex(id)
-}
-
 /// The endpoint an agent for a given vault listens on.
 #[derive(Debug, Clone)]
 pub struct Endpoint {
@@ -161,22 +151,7 @@ impl Endpoint {
     }
 }
 
-/// Checks a unix endpoint directory: must be owned by the current uid and
-/// carry no group/other permission bits (`MetadataExt` + `rustix`, no unsafe).
-#[cfg(unix)]
-fn check_dir_perms(dir: &std::path::Path) -> Result<()> {
-    use std::os::unix::fs::MetadataExt as _;
-    let meta = std::fs::metadata(dir).map_err(|e| Error::Io {
-        path: dir.to_path_buf(),
-        source: e,
-    })?;
-    if meta.uid() != rustix::process::getuid().as_raw() || meta.mode() & 0o077 != 0 {
-        return Err(Error::Unavailable(
-            "agent endpoint directory is not owned privately by this user".into(),
-        ));
-    }
-    Ok(())
-}
+use crate::local::check_dir_perms;
 
 /// Resolves (and creates, unix) the agent endpoint for `vault`, enforcing the
 /// ownership/permission rules on its directory.
@@ -194,7 +169,7 @@ fn check_dir_perms(dir: &std::path::Path) -> Result<()> {
     )
 )]
 pub fn endpoint(vault: &Vault) -> Result<Endpoint> {
-    let id = vault_id(vault.root());
+    let id = crate::local::id(vault);
     #[cfg(unix)]
     {
         let dir = endpoint_dir(&id)?;

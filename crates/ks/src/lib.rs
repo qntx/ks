@@ -22,6 +22,7 @@ mod error;
 pub mod git;
 mod header;
 mod key;
+pub mod local;
 mod name;
 mod passphrase;
 mod unlock;
