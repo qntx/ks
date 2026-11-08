@@ -43,6 +43,13 @@ fn env_nonempty(var: &str) -> Option<String> {
 
 /// Reads a passphrase file, stripping one trailing `\r\n` or `\n`. Warns on
 /// unix when the file is group/other readable.
+#[cfg_attr(
+    not(unix),
+    allow(
+        unused_variables,
+        reason = "the permission warning uses `out` only on unix"
+    )
+)]
 fn read_passphrase_file(path: &Path, out: &Out) -> ks::Result<SecretString> {
     #[cfg(unix)]
     {

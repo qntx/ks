@@ -21,6 +21,7 @@
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(unix)]
 use std::time::Instant;
 
 use age::secrecy::SecretString;

@@ -52,4 +52,67 @@ fn harden_platform() {
 }
 
 #[cfg(not(unix))]
-fn harden_platform() {}
+const fn harden_platform() {}
+
+/// Extra hardening for the `ks __agent` daemon: detach the session, and on
+/// Linux pin memory, on macOS refuse debugger attachment. Best-effort.
+#[cfg(unix)]
+#[allow(
+    unsafe_code,
+    reason = "process hardening syscalls; one unsafe op per block with SAFETY notes"
+)]
+pub(crate) fn agent() {
+    let _sid = rustix::process::setsid();
+    #[cfg(target_os = "linux")]
+    // SAFETY: mlockall pins current and future pages; it touches no memory
+    // itself and its failure is non-fatal.
+    unsafe {
+        libc::mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE);
+    }
+    #[cfg(target_os = "macos")]
+    // SAFETY: ptrace(PT_DENY_ATTACH) asks the kernel to refuse debugger
+    // attachment to this process; no memory is dereferenced.
+    unsafe {
+        libc::ptrace(libc::PT_DENY_ATTACH, 0, std::ptr::null_mut(), 0);
+    }
+}
+
+/// Windows has no equivalent of setsid/ptrace hardening here; the daemon is
+/// already spawned detached.
+#[cfg(windows)]
+pub(crate) const fn agent() {}
+
+/// Windows `CreateProcess` inherits every inheritable handle, so a detached
+/// child would keep the parent's stdout/stderr pipes open and the caller
+/// would wait for an EOF that only comes when the child exits. Clears
+/// `HANDLE_FLAG_INHERIT` on our std handles; a no-op elsewhere (unix is
+/// CLOEXEC). The parent's own stdio keeps working — the flag only affects
+/// inheritance.
+#[cfg(windows)]
+#[allow(
+    unsafe_code,
+    reason = "Win32 handle flag updates; one unsafe op per block with SAFETY notes"
+)]
+pub(crate) fn no_inherit_std_handles() {
+    use windows_sys::Win32::Foundation::{
+        HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, SetHandleInformation,
+    };
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    for id in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: GetStdHandle takes a constant id and touches no memory.
+        let handle = unsafe { GetStdHandle(id) };
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            continue;
+        }
+        // SAFETY: `handle` is a valid std handle; clearing HANDLE_FLAG_INHERIT
+        // is a documented SetHandleInformation operation.
+        // Return value ignored: the operation is best-effort.
+        let _cleared = unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) };
+    }
+}
+
+/// Non-windows platforms close all inheritable handles on exec (CLOEXEC).
+#[cfg(not(windows))]
+pub(crate) const fn no_inherit_std_handles() {}

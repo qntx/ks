@@ -37,6 +37,7 @@ pub(crate) fn copy(value: &[u8]) -> CliResult<()> {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     detach(&mut cmd);
+    crate::harden::no_inherit_std_handles();
     let mut child = cmd.spawn().map_err(|e| {
         (
             ErrorCode::Unavailable,

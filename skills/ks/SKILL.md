@@ -62,6 +62,21 @@ Every modifying command auto-commits only its own paths
 `KS_NO_COMMIT=1` disables that for bulk imports. Use `ks git <args>...` for
 raw git inside the vault (exit code passthrough).
 
+## session agent
+
+```bash
+ks unlock --ttl 15m --max 8h     # unlock once into the agent (human step)
+ks show github/token            # commands then run WITHOUT a passphrase source
+ks lock                         # forget the vault key now
+ks status --json                # vault, agent ttl/life, git state (no unlock)
+```
+
+After `ks unlock`, commands need no `KS_PASSPHRASE*`: the agent answers
+age unwrap/wrap over a per-user socket until the idle ttl, the lifetime
+max, or `ks lock`. `locked` (77) means unlock first or supply a passphrase
+source. `--no-agent` bypasses it; `passwd`/`unlock`/`rekey` always need the
+real passphrase (the agent never hands out the vault key).
+
 A sync conflict exits **75** with `{"error":{"code":"conflict","entries":[...],
 "kind":"content"|"delete"}}`. `content` → rerun with `--keep local` or
 `--keep remote`. `delete` (one side deleted, the other modified) → resolve by

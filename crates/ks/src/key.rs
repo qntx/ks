@@ -167,3 +167,52 @@ mod tests {
         assert!(age::Encryptor::with_recipients([key_ref, other_ref].into_iter()).is_err());
     }
 }
+
+/// The session key: the vault key either lives in this process (`Local`) or
+/// in the session agent (`Agent`, feature `agent`). Both implement
+/// `age::Identity` and `age::Recipient` by delegation.
+#[derive(Debug)]
+pub enum Key {
+    /// This process holds the vault key.
+    Local(LocalKey),
+    /// The vault key is remote, via the session agent.
+    #[cfg(feature = "agent")]
+    Agent(crate::agent::AgentKey),
+}
+
+impl age::Identity for Key {
+    fn unwrap_stanza(
+        &self,
+        stanza: &Stanza,
+    ) -> Option<std::result::Result<FileKey, age::DecryptError>> {
+        match self {
+            Self::Local(k) => k.unwrap_stanza(stanza),
+            #[cfg(feature = "agent")]
+            Self::Agent(k) => k.unwrap_stanza(stanza),
+        }
+    }
+
+    fn unwrap_stanzas(
+        &self,
+        stanzas: &[Stanza],
+    ) -> Option<std::result::Result<FileKey, age::DecryptError>> {
+        match self {
+            Self::Local(k) => k.unwrap_stanzas(stanzas),
+            #[cfg(feature = "agent")]
+            Self::Agent(k) => k.unwrap_stanzas(stanzas),
+        }
+    }
+}
+
+impl age::Recipient for Key {
+    fn wrap_file_key(
+        &self,
+        file_key: &FileKey,
+    ) -> std::result::Result<(Vec<Stanza>, HashSet<String>), age::EncryptError> {
+        match self {
+            Self::Local(k) => k.wrap_file_key(file_key),
+            #[cfg(feature = "agent")]
+            Self::Agent(k) => k.wrap_file_key(file_key),
+        }
+    }
+}

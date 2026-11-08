@@ -137,6 +137,29 @@ pub(crate) enum Command {
         #[arg(long, value_enum)]
         keep: Option<KeepSide>,
     },
+    /// Unlock the vault key into the session agent.
+    Unlock {
+        /// Idle timeout (e.g. 15m, 300s, 1h).
+        #[arg(long, default_value = "15m")]
+        ttl: String,
+        /// Maximum lifetime (e.g. 8h, max 24h).
+        #[arg(long, default_value = "8h")]
+        max: String,
+    },
+    /// Stop the session agent for this vault.
+    Lock,
+    /// Show vault, agent and git status (no unlock).
+    Status,
+    /// Session agent daemon (internal, spawned by `ks unlock`).
+    #[command(name = "__agent", hide = true)]
+    Agent {
+        /// Idle timeout in seconds.
+        #[arg(long)]
+        ttl: u64,
+        /// Maximum lifetime in seconds.
+        #[arg(long)]
+        max: u64,
+    },
     /// Run `git` inside the vault, passing all arguments through.
     Git {
         /// Arguments for git.

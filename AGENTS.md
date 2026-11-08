@@ -35,6 +35,8 @@ npx --yes markdownlint-cli2@0.23.3 "*.md" "skills/**/*.md"
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo clippy -p ks --all-targets --no-default-features -- -D warnings
+cargo clippy --workspace --all-targets --all-features --target x86_64-unknown-linux-gnu -- -D warnings
+cargo clippy --workspace --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
 cargo test --workspace --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
 cargo deny check
