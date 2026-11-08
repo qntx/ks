@@ -707,14 +707,14 @@ fn unlock_soft_fails_on_loose_state_dir() {
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     let with_pass = ks(&t, &["show", "a"])
         .env("XDG_RUNTIME_DIR", xdg.path())
-        .stdin(std::process::Stdio::null())
+        .stdin(Stdio::null())
         .output()
         .unwrap();
     let without = ks(&t, &["show", "a"])
         .env("XDG_RUNTIME_DIR", xdg.path())
         .env_remove("KS_PASSPHRASE_FILE")
         .env_remove("KS_PASSPHRASE")
-        .stdin(std::process::Stdio::null())
+        .stdin(Stdio::null())
         .output()
         .unwrap();
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode)).unwrap();
