@@ -55,6 +55,30 @@ impl Git {
         }
     }
 
+    /// git checkouts create files 0644 and dirs 0755 — the vault
+    /// requires 600/700, so cloned/pulled trees are re-permissioned
+    /// (skipping `.git`, which git manages itself). Otherwise every
+    /// clone and every pull that touches files trips doctor.
+    #[cfg(unix)]
+    fn tighten_perms(&self) {
+        let mut stack = vec![self.root.clone()];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                tighten_one(&mut stack, entry.path().as_path());
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    #[allow(
+        clippy::unused_self,
+        reason = "same signature as the unix implementation"
+    )]
+    const fn tighten_perms(&self) {}
+
     /// True when `<root>/.git` exists (a directory, or a file for worktrees).
     #[must_use]
     pub fn is_repo(&self) -> bool {
@@ -113,7 +137,9 @@ impl Git {
                 String::from_utf8_lossy(&out.stderr).trim()
             )));
         }
-        Ok(Self::new(root, allow_prompt))
+        let g = Self::new(root, allow_prompt);
+        g.tighten_perms();
+        Ok(g)
     }
 
     /// Commits exactly `paths` (relative or absolute under the root) with
@@ -223,6 +249,7 @@ impl Git {
                 ));
             }
         }
+        self.tighten_perms();
         Ok(report)
     }
 
@@ -372,6 +399,30 @@ impl Git {
     }
 }
 
+#[cfg(unix)]
+fn tighten_one(stack: &mut Vec<PathBuf>, path: &Path) {
+    use std::os::unix::fs::PermissionsExt as _;
+    if path.file_name().is_some_and(|n| n == ".git") {
+        return;
+    }
+    let Ok(meta) = path.symlink_metadata() else {
+        return;
+    };
+    // `set_permissions` follows symlinks: a remote-committed link must never
+    // let ks chmod a file outside the vault. Doctor reports the link itself.
+    if meta.file_type().is_symlink() {
+        return;
+    }
+    let mode = if meta.is_dir() { 0o700 } else { 0o600 };
+    drop(std::fs::set_permissions(
+        path,
+        std::fs::Permissions::from_mode(mode),
+    ));
+    if meta.is_dir() {
+        stack.push(path.to_path_buf());
+    }
+}
+
 fn concat_args(a: &[&str], b: &[&str], c: &[String]) -> Vec<String> {
     a.iter()
         .chain(b.iter())
@@ -413,6 +464,37 @@ pub(crate) fn unmerged_paths(porcelain: &[u8]) -> (Vec<String>, ConflictKind) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    #[allow(
+        clippy::unwrap_used,
+        reason = "test fixture setup may panic on filesystem errors"
+    )]
+    fn tighten_perms_never_follows_symlinks() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("tool");
+        std::fs::write(&target, b"#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let vault = tempfile::tempdir().unwrap();
+        std::fs::write(vault.path().join("x.age"), b"").unwrap();
+        std::os::unix::fs::symlink(&target, vault.path().join("link.age")).unwrap();
+
+        Git::new(vault.path(), false).tighten_perms();
+
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode(&target),
+            0o755,
+            "symlink target outside the vault was changed"
+        );
+        assert_eq!(
+            mode(&vault.path().join("x.age")),
+            0o600,
+            "entry was not tightened"
+        );
+    }
 
     #[test]
     fn unmerged_parsing() {

@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.0] — 2026-11-08
 
+Complete rewrite. The on-disk format, library API and CLI are new and
+incompatible with 0.5.0 and earlier; there is no migration — export
+secrets with the old binary and `ks set` them into a new vault.
+
 ### Added
+
+- Format: one standard age file per entry (`github/token.age`), each with
+  exactly one X25519 recipient that only ever exists in memory; the entry
+  name is bound in the first plaintext line; the vault key is an age
+  identity sealed with the master passphrase (`.identity.age`), so every
+  entry can always be recovered with the official `age` or `rage` CLI.
 
 - Vault storage and commands: `init`, `set`, `show`, `ls`, `rm`, `mv`,
   `passwd`, `gen`, `otp`, `run`, `edit`, `doctor` (M1).
@@ -22,6 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ks rekey`: key rotation — the only revocation measure; the passphrase
   must change, the agent is stopped and local device factors removed,
   interrupted rotations resume on the next run (M5).
+
+### Security
+
+- `ks sync` stages only entry files and the two git files, so a remote
+  that weakens `.gitignore` cannot get other files committed; `ks doctor`
+  reports and `--fix` restores tampered git files.
+- Hostile vault files are rejected before decryption: symlinks, oversized
+  files, scrypt work factors above 2^20, and anything other than a single
+  X25519 recipient.
 
 ### Removed
 
