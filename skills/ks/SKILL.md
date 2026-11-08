@@ -42,6 +42,8 @@ Inject secrets into a child process without printing them:
 
 ```bash
 ks run -e GH_TOKEN=github/token -e USER=github/token#user -- gh auth status
+Injected values are visible to same-user processes via the child
+environment (`/proc/<pid>/environ`); use `run` only with commands you trust.
 ```
 
 `ks otp <name>` prints a TOTP code; `ks doctor` checks vault health and
@@ -88,8 +90,9 @@ ks touchid disable / ks keychain disable
 
 A human enables a factor once; afterwards every command (AI agents
 included) unlocks without a passphrase source — Touch ID pops its own
-system dialog, the keychain needs nothing. On Linux the keychain is
-readable while the desktop session is unlocked (warned at enable).
+system dialog, the keychain needs nothing. The keychain factor is
+macOS/Windows only — on Linux `enable` reports `unavailable` (69); use
+`ks unlock` there.
 Device factors that hold a stale key are skipped with a warning and
 removed after a passphrase unlock — re-enable them afterwards.
 

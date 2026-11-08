@@ -1,0 +1,38 @@
+---
+title: Recovery
+description: Recover everything with only the official age tool and the passphrase.
+---
+
+Everything `ks` stores decrypts with the official `age` CLI alone — no
+`ks` binary required (guarantee G3).
+
+```bash
+# 1. Open the identity file (asks for the master passphrase)
+age -d ~/.ks/.identity.age > /tmp/vault-identity.txt
+# 2. Decrypt any entry with the identities inside
+age -d -i /tmp/vault-identity.txt ~/.ks/github/token.age | tail -n +2
+```
+
+The first plaintext line of an entry is `ks1 <kind> <name>` — a header
+binding the file to its path; the payload follows it. `rage` works too
+(`rage -d -i`).
+
+The check file `.check.age` is self-healing: if it is missing or stale,
+`ks` rebuilds it after a passphrase unlock — it is never needed for
+recovery.
+
+## Orphan entries after a rotation
+
+An entry written on another device after your `rekey` but before its
+sync was encrypted to the *old* key and no longer decrypts. Restore it
+from git history:
+
+```bash
+ks git log --oneline -- .identity.age            # find the "ks: rekey" commit <c>
+ks git show '<c>~1:.identity.age' > /tmp/old-identity.age
+age -d -i /tmp/old-identity.age <entry>.age | tail -n +2 | ks set <name> -m --force
+rm /tmp/old-identity.age
+```
+
+(This is the same path as the disaster recovery above — the reason the
+format stays plain age files.)

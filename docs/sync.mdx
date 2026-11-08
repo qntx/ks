@@ -1,0 +1,35 @@
+---
+title: Sync
+description: Git sync — commit, pull --rebase, push; conflicts and --keep.
+---
+
+A vault can be a git repository (`ks init --git`, or `ks init --clone
+<url>`). Every mutating command auto-commits only the paths it touched
+(`ks: set <name>` etc.); `KS_NO_COMMIT=1` disables that.
+
+```bash
+ks sync                # commit dirty tree, pull --rebase, push
+ks git log --oneline   # plain git passthrough inside the vault
+```
+
+`sync` never unlocks and never touches plaintext. On a rebase conflict
+it aborts, lists the conflicting entry names, and exits 75:
+
+```bash
+ks sync --keep local    # retry: keep your commits  (git -X theirs)
+ks sync --keep remote   # retry: keep upstream      (git -X ours)
+```
+
+A delete-vs-modify conflict has no keep side — resolve it with `ks git`
+manually, then `ks sync` again.
+
+## Known behaviours
+
+- `sync` on a vault without a remote just commits; with one remote and
+  no upstream it pushes `-u` to the same-name branch.
+- Conflicting `.age` files stay binary-opaque to ks; resolution picks a
+  whole version per file — the `--keep` retry re-runs the rebase with a
+  strategy, it does not merge contents.
+- An entry written on another device *between* your `rekey` and its
+  sync is encrypted to the old key — `ks doctor` reports it as
+  undecryptable; see [recovery](./recovery#orphan-entries-after-a-rotation).

@@ -26,6 +26,10 @@ pub mod local;
 mod name;
 mod passphrase;
 mod rekey;
+
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub mod fuzz_api;
 mod unlock;
 mod vault;
 

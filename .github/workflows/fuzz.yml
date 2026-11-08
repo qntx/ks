@@ -1,0 +1,16 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "37 4 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  fuzz:
+    uses: qntx/workflows/.github/workflows/ci-rust-fuzz.yml@v2
+    with:
+      fuzz-directory: fuzz
+      targets: "entry_decode name identity_text age_header agent_frames git_porcelain"
+      max-total-time: 300

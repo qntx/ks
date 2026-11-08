@@ -1,0 +1,48 @@
+[package]
+name    = "ks-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.10"
+ks            = { path = "../crates/ks", features = ["agent"] }
+
+[[bin]]
+name = "entry_decode"
+path = "fuzz_targets/entry_decode.rs"
+test = false
+doc  = false
+
+[[bin]]
+name = "name"
+path = "fuzz_targets/name.rs"
+test = false
+doc  = false
+
+[[bin]]
+name = "identity_text"
+path = "fuzz_targets/identity_text.rs"
+test = false
+doc  = false
+
+[[bin]]
+name = "age_header"
+path = "fuzz_targets/age_header.rs"
+test = false
+doc  = false
+
+[[bin]]
+name = "agent_frames"
+path = "fuzz_targets/agent_frames.rs"
+test = false
+doc  = false
+
+[[bin]]
+name = "git_porcelain"
+path = "fuzz_targets/git_porcelain.rs"
+test = false
+doc  = false

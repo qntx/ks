@@ -1,0 +1,25 @@
+---
+title: Install
+description: Build or install ks, and the optional age-plugin-se for Touch ID.
+---
+
+Requires Rust 1.99 (pinned by `rust-toolchain.toml`).
+
+```bash
+cargo install --git https://github.com/qntx/ks ks-cli   # installs `ks`
+# or from a checkout:
+cargo install --path crates/ks-cli
+```
+
+The binary is a single file; the default vault is `~/.ks` (override with
+`--vault` or `KS_VAULT`).
+
+## Touch ID (optional, macOS)
+
+`ks touchid enable` needs `age-plugin-se` on `PATH`:
+
+```bash
+brew install age-plugin-se
+```
+
+The OS keychain factor needs no extra software (macOS and Windows only).
