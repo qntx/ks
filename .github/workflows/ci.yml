@@ -76,9 +76,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for f in vectors/vault/*.age; do
-            [ "$(basename "$f")" = ".identity.age" ] && continue
-            [ "$(basename "$f")" = ".check.age" ] && continue
+          mapfile -t files < <(find vectors/vault -name '*.age' ! -name '.*' | sort)
+          want="$(jq '.entries | length' vectors/vault.json)"
+          [ "${#files[@]}" -eq "$want" ] || { echo "found ${#files[@]} entries, expected $want"; exit 1; }
+          for f in "${files[@]}"; do
             out="$(age -d -i vectors/vault-identity.txt "$f")"
             header="$(printf '%s' "$out" | head -n1)"
             [[ "$header" == ks1\ *\ * ]] || { echo "$f: bad header: $header"; exit 1; }
