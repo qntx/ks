@@ -30,6 +30,8 @@
 Local gate before a pull request (`just gate` runs all of it):
 
 ```bash
+npx --yes @taplo/cli@0.7.0 fmt --check
+npx --yes markdownlint-cli2@0.23.3 "*.md" "skills/**/*.md"
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo clippy -p ks --all-targets --no-default-features -- -D warnings

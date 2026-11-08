@@ -14,7 +14,7 @@ categories   = ["command-line-utilities"]
 [[bin]]
 name = "ks"
 path = "src/main.rs"
-doc = false
+doc  = false
 
 [dependencies]
 ks         = { workspace = true }

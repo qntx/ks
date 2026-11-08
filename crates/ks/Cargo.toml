@@ -12,21 +12,21 @@ keywords     = { workspace = true }
 categories   = { workspace = true }
 
 [dependencies]
-age          = { workspace = true }
-age-core     = { workspace = true }
-sha2         = { workspace = true }
-tempfile     = { workspace = true }
-fd-lock      = { workspace = true }
-directories  = { workspace = true }
-totp-rs      = { workspace = true }
-thiserror    = { workspace = true }
-zeroize      = { workspace = true }
-rand         = { workspace = true }
-zxcvbn       = { workspace = true }
+age         = { workspace = true }
+age-core    = { workspace = true }
+sha2        = { workspace = true }
+tempfile    = { workspace = true }
+fd-lock     = { workspace = true }
+directories = { workspace = true }
+totp-rs     = { workspace = true }
+thiserror   = { workspace = true }
+zeroize     = { workspace = true }
+rand        = { workspace = true }
+zxcvbn      = { workspace = true }
 
 [dev-dependencies]
-proptest     = { workspace = true }
-serde_json   = { workspace = true }
+proptest   = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

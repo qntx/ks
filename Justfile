@@ -2,6 +2,12 @@
 
 default: gate
 
+toml:
+    npx --yes @taplo/cli@0.7.0 fmt --check
+
+md:
+    npx --yes markdownlint-cli2@0.23.3 "*.md" "skills/**/*.md"
+
 fmt:
     cargo fmt --all --check
 
@@ -18,4 +24,4 @@ deny:
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
 
-gate: fmt lint test deny doc
+gate: toml md fmt lint test deny doc

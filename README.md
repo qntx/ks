@@ -1,21 +1,21 @@
-<!-- markdownlint-disable MD033 MD041 -->
-
 # ks
 
-Personal local secret vault with an age-compatible on-disk format.
+Personal local secret vault in Rust: per-entry age-encrypted files you can sync with git and always recover with the official age CLI, as a library and the `ks` CLI.
 
-`ks` keeps secrets in per-entry [age](https://age-encryption.org)-encrypted
-files in a local directory that can be synced between your own devices with
-plain git. Every file can always be recovered with the official `age` CLI —
-no dependency on `ks` itself.
-
-> **Status:** being rewritten from scratch towards 0.8.0. The 0.7 code, file
-> formats and CLI were removed without migration.
+User documentation lives in [docs/](docs/); changes are tracked in [CHANGELOG.md](CHANGELOG.md); layering rules and gates for contributors live in [AGENTS.md](AGENTS.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
-[MIT license](LICENSE-MIT) at your option.
+Licensed under either of:
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <https://www.apache.org/licenses/LICENSE-2.0>)
+- MIT License ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/licenses/MIT>)
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this project shall be dual-licensed as above, without any
+additional terms or conditions.
 
 ---
 
