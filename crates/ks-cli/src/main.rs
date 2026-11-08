@@ -54,7 +54,7 @@ fn run() -> i32 {
 fn dispatch(cli: &cli::Cli, out: &output::Out) -> CliResult<i32> {
     use cli::Command as C;
     match &cli.command {
-        C::Init => commands::init::run(cli, out),
+        C::Init { git, clone } => commands::init::run(cli, out, *git, clone.as_deref()),
         C::Ls { prefix } => commands::ls::run(cli, out, prefix.as_deref()),
         C::Show { name, field, copy } => {
             commands::show::run(cli, out, name, field.as_deref(), *copy)
@@ -87,6 +87,8 @@ fn dispatch(cli: &cli::Cli, out: &output::Out) -> CliResult<i32> {
         C::Run { env, command } => commands::run::run(cli, out, env, command),
         C::Passwd => commands::passwd::run(cli, out),
         C::Doctor { fix } => commands::doctor::run(cli, out, *fix),
+        C::Sync { keep } => commands::sync::run(cli, out, *keep),
+        C::Git { args } => commands::git::run(cli, out, args),
         C::ClipboardDaemon { secs } => Ok(commands::daemon::run_daemon(*secs)),
     }
 }

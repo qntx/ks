@@ -47,6 +47,26 @@ ks run -e GH_TOKEN=github/token -e USER=github/token#user -- gh auth status
 `ks otp <name>` prints a TOTP code; `ks doctor` checks vault health and
 `ks doctor --fix` removes temp files and fixes permissions.
 
+## git sync
+
+```bash
+ks init --git                          # new vault + git repo + "ks: init" commit
+ks init --clone <url> --vault <dir>    # clone an existing vault
+ks sync                                # commit -> pull --rebase -> push
+ks sync --keep local                   # on conflict, keep this side
+ks sync --keep remote                  # or the remote side
+```
+
+Every modifying command auto-commits only its own paths
+(`ks: set <name>` / `ks: rm <name>` / `ks: mv <a> <b>` / `ks: passwd`).
+`KS_NO_COMMIT=1` disables that for bulk imports. Use `ks git <args>...` for
+raw git inside the vault (exit code passthrough).
+
+A sync conflict exits **75** with `{"error":{"code":"conflict","entries":[...],
+"kind":"content"|"delete"}}`. `content` → rerun with `--keep local` or
+`--keep remote`. `delete` (one side deleted, the other modified) → resolve by
+hand: `ks git pull --rebase`, `ks git rm|add <file>`, `ks git rebase --continue`.
+
 ## Exit codes
 
 0 ok · 64 usage (bad name/args, missing `--force`) · 65 corrupt or

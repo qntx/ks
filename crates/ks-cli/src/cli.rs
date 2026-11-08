@@ -1,6 +1,6 @@
 //! Command-line surface.
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 /// Personal local secret vault with an age-compatible on-disk format.
 #[derive(Debug, Parser)]
@@ -27,7 +27,14 @@ pub(crate) struct Cli {
 /// Subcommands.
 pub(crate) enum Command {
     /// Create a new vault.
-    Init,
+    Init {
+        /// Also create a git repository and commit.
+        #[arg(long, conflicts_with = "clone")]
+        git: bool,
+        /// Clone the vault from this URL instead of creating it.
+        #[arg(long)]
+        clone: Option<String>,
+    },
     /// List entries (no unlock needed).
     Ls {
         /// Optional name prefix (segment-wise).
@@ -124,6 +131,18 @@ pub(crate) enum Command {
         #[arg(long)]
         fix: bool,
     },
+    /// Commit, pull --rebase and push the vault (no unlock).
+    Sync {
+        /// On conflict keep this side.
+        #[arg(long, value_enum)]
+        keep: Option<KeepSide>,
+    },
+    /// Run `git` inside the vault, passing all arguments through.
+    Git {
+        /// Arguments for git.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        args: Vec<String>,
+    },
     /// Internal: clipboard helper process.
     #[command(hide = true)]
     ClipboardDaemon {
@@ -143,4 +162,13 @@ impl Cli {
             .as_ref()
             .map_or_else(ks::Vault::default_path, |v| Ok(std::path::PathBuf::from(v)))
     }
+}
+
+/// Which side `ks sync --keep` retains on a conflict.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub(crate) enum KeepSide {
+    /// The local commits being replayed.
+    Local,
+    /// The upstream (remote) version.
+    Remote,
 }

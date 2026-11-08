@@ -4,7 +4,7 @@ use ks::pwgen::{Charset, generate};
 use ks::{Entry, ErrorCode};
 use zeroize::Zeroizing;
 
-use super::{Cli, CliResult, Out, clipboard, err, fail, name, prompt, unlock};
+use super::{Cli, CliResult, Out, autocommit, clipboard, err, fail, name, prompt, unlock};
 
 /// Generates a password; prints it, stores it under `name`, or copies it.
 pub(crate) fn run(
@@ -45,6 +45,12 @@ pub(crate) fn run(
             }
             let entry = Entry::text(Zeroizing::new(value.to_string())).map_err(|e| err(&e))?;
             session.set(&name, &entry, true).map_err(|e| err(&e))?;
+            autocommit(
+                cli,
+                out,
+                &[name.path_in(session.vault().root())],
+                &format!("ks: set {name}"),
+            );
             Ok(out.ok_value(
                 &format!("stored {name}"),
                 serde_json::json!({ "name": name.to_string(), "stored": true }),

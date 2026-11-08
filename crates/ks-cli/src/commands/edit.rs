@@ -5,7 +5,7 @@ use std::io::Write as _;
 use ks::{Entry, ErrorCode, Kind};
 use zeroize::Zeroizing;
 
-use super::{Cli, CliResult, Out, err, fail, name, unlock};
+use super::{Cli, CliResult, Out, autocommit, err, fail, name, unlock};
 
 /// Opens the entry in `$VISUAL`/`$EDITOR`/`vi` inside a private temp dir.
 pub(crate) fn run(cli: &Cli, out: &Out, n: &str) -> CliResult<i32> {
@@ -103,6 +103,12 @@ pub(crate) fn run(cli: &Cli, out: &Out, n: &str) -> CliResult<i32> {
     }
     let entry = Entry::text(Zeroizing::new(new_text)).map_err(|e| err(&e))?;
     session.set(&name, &entry, true).map_err(|e| err(&e))?;
+    autocommit(
+        cli,
+        out,
+        &[name.path_in(session.vault().root())],
+        &format!("ks: set {name}"),
+    );
     Ok(out.ok_value(
         &format!("stored {name}"),
         serde_json::json!({ "name": name.to_string(), "stored": true }),

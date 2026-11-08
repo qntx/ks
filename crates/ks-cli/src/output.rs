@@ -17,6 +17,7 @@ pub(crate) const fn exit_code(code: ErrorCode) -> i32 {
         ErrorCode::Unavailable => 69,
         ErrorCode::Exists => 73,
         ErrorCode::Io => 74,
+        ErrorCode::Conflict => 75,
         ErrorCode::Locked | ErrorCode::WrongPassphrase => 77,
         ErrorCode::Cancelled => 1,
         _ => 70,
@@ -89,8 +90,37 @@ impl Out {
         0
     }
 
+    /// Writes a human-mode informational line to stderr (no-op in JSON mode).
+    pub(crate) fn note(&self, line: &str) {
+        if !self.json {
+            writeln!(std::io::stderr(), "{line}").ok();
+        }
+    }
+
     /// Emits an error and returns its exit code.
     pub(crate) fn error(&self, code: ErrorCode, message: &str) -> i32 {
         exit_error(self.json, code, message)
+    }
+
+    /// Emits an error with extra JSON fields (e.g. conflict `entries`/`kind`).
+    pub(crate) fn error_details(
+        &self,
+        code: ErrorCode,
+        message: &str,
+        details: &serde_json::Value,
+    ) -> i32 {
+        if self.json {
+            let mut obj =
+                serde_json::json!({ "error": { "code": code.as_str(), "message": message } });
+            if let Some(extra) = details.as_object()
+                && let Some(err) = obj.get_mut("error").and_then(|e| e.as_object_mut())
+            {
+                err.extend(extra.iter().map(|(k, v)| (k.clone(), v.clone())));
+            }
+            writeln!(std::io::stdout(), "{obj}").ok();
+        } else {
+            writeln!(std::io::stderr(), "error: {message}").ok();
+        }
+        exit_code(code)
     }
 }

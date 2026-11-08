@@ -17,6 +17,7 @@
 
 mod entry;
 mod error;
+pub mod git;
 mod header;
 mod key;
 mod name;
@@ -42,6 +43,7 @@ fn hex<const N: usize>(bytes: [u8; N]) -> String {
 }
 
 pub use entry::{Entry, Kind, Text};
+pub use error::ConflictKind;
 pub use error::{Error, ErrorCode, Result};
 pub use key::LocalKey;
 pub use name::Name;

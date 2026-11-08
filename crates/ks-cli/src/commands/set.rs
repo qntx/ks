@@ -3,7 +3,7 @@
 use ks::{Entry, ErrorCode};
 use zeroize::Zeroizing;
 
-use super::{Cli, CliResult, Out, err, fail, name, prompt, unlock};
+use super::{Cli, CliResult, Out, autocommit, err, fail, name, prompt, unlock};
 
 /// Reads the secret and stores it.
 pub(crate) fn run(
@@ -53,6 +53,12 @@ pub(crate) fn run(
         Entry::text(text).map_err(|e| err(&e))?
     };
     session.set(&name, &entry, true).map_err(|e| err(&e))?;
+    autocommit(
+        cli,
+        out,
+        &[name.path_in(session.vault().root())],
+        &format!("ks: set {name}"),
+    );
     Ok(out.ok_value(
         &format!("stored {name}"),
         serde_json::json!({ "name": name.to_string(), "stored": true }),

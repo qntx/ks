@@ -1,6 +1,6 @@
 //! `ks mv <from> <to> [--force]` — rename an entry.
 
-use super::{Cli, CliResult, Out, err, name, prompt, unlock};
+use super::{Cli, CliResult, Out, autocommit, err, name, prompt, unlock};
 
 /// Re-encrypts under the new name, then deletes the old file.
 pub(crate) fn run(cli: &Cli, out: &Out, from: &str, to: &str, force: bool) -> CliResult<i32> {
@@ -15,7 +15,14 @@ pub(crate) fn run(cli: &Cli, out: &Out, from: &str, to: &str, force: bool) -> Cl
             return Err(err(&ks::Error::Exists(to.to_string())));
         }
     }
+    let root = session.vault().root();
     session.rename(&from, &to, true).map_err(|e| err(&e))?;
+    autocommit(
+        cli,
+        out,
+        &[from.path_in(root), to.path_in(root)],
+        &format!("ks: mv {from} {to}"),
+    );
     Ok(out.ok_value(
         &format!("renamed {from} -> {to}"),
         serde_json::json!({ "from": from.to_string(), "to": to.to_string(), "renamed": true }),

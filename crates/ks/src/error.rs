@@ -52,6 +52,17 @@ pub enum Error {
     /// The passphrase did not decrypt the identity file.
     #[error("wrong passphrase")]
     WrongPassphrase,
+    /// An external tool or service is unavailable (git, clipboard, ...).
+    #[error("{0}")]
+    Unavailable(String),
+    /// A sync conflict was aborted; `entries` are the conflicting names.
+    #[error("sync conflicts: {}", .entries.join(", "))]
+    Conflict {
+        /// Conflicting entry names (`.age` suffix already stripped).
+        entries: Vec<String>,
+        /// Whether a `--keep` retry can resolve it.
+        kind: ConflictKind,
+    },
     /// An internal invariant failed (a program defect, not user input).
     #[error("internal error: {0}")]
     Internal(&'static str),
@@ -80,7 +91,29 @@ impl Error {
             Self::Cancelled => ErrorCode::Cancelled,
             Self::WrongPassphrase => ErrorCode::WrongPassphrase,
             Self::Io { .. } => ErrorCode::Io,
+            Self::Unavailable(_) => ErrorCode::Unavailable,
+            Self::Conflict { .. } => ErrorCode::Conflict,
             Self::Internal(_) => ErrorCode::Internal,
+        }
+    }
+}
+
+/// How a sync conflict can be resolved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictKind {
+    /// Content conflicts; retryable with `--keep local` or `--keep remote`.
+    Content,
+    /// One side deleted what the other modified; resolve via `ks git`.
+    Delete,
+}
+
+impl ConflictKind {
+    /// The JSON `kind` string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Content => "content",
+            Self::Delete => "delete",
         }
     }
 }
@@ -109,6 +142,8 @@ pub enum ErrorCode {
     Io,
     /// The user cancelled an operation.
     Cancelled,
+    /// A sync conflict was aborted.
+    Conflict,
     /// Internal error.
     Internal,
 }
@@ -128,6 +163,7 @@ impl ErrorCode {
             Self::Unavailable => "unavailable",
             Self::Io => "io",
             Self::Cancelled => "cancelled",
+            Self::Conflict => "conflict",
             Self::Internal => "internal",
         }
     }
