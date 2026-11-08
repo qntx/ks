@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use interprocess::local_socket::{
-    Listener, ListenerNonblockingMode, ListenerOptions,
-    traits::{Listener as _, Stream as _, StreamCommon as _},
+    Listener, ListenerOptions,
+    traits::{Listener as _, StreamCommon as _},
 };
 use ks::ErrorCode;
 use ks::agent::{ConnectionEnd, Handler};
@@ -29,7 +29,7 @@ pub(crate) fn run(cli: &Cli, _out: &Out, ttl: u64, max: u64) -> CliResult<i32> {
         Handler::new(age::secrecy::SecretString::from(std::mem::take(&mut *text)))
             .map_err(|e| err(&e))?,
     );
-    harden_agent();
+    crate::harden::agent();
     let ep = ks::agent::endpoint(&v).map_err(|e| err(&e))?;
 
     // Stale-socket rule: a connect+hello proves a live agent -> refuse to
@@ -45,16 +45,7 @@ pub(crate) fn run(cli: &Cli, _out: &Out, ttl: u64, max: u64) -> CliResult<i32> {
     let name = ep.socket_name().map_err(|e| err(&e))?;
     let options = ListenerOptions::new().name(name).reclaim_name(false);
     #[cfg(windows)]
-    {
-        use interprocess::os::windows::security_descriptor::SecurityDescriptor;
-        // SDDL: protected DACL, GENERIC_ALL for the object owner only.
-        let sd = SecurityDescriptor::deserialize(
-            &widestring::U16CString::from_str("D:P(A;;GA;;;OW)")
-                .map_err(|e| (ErrorCode::Internal, format!("bad SDDL: {e}")))?,
-        )
-        .map_err(|e| (ErrorCode::Internal, format!("bad security descriptor: {e}")))?;
-        let options = options.security_descriptor(sd);
-    }
+    let options = options.security_descriptor(owner_only_dacl()?);
     let listener = options.create_sync_as::<Listener>().map_err(|e| {
         (
             ErrorCode::Unavailable,
@@ -81,40 +72,51 @@ pub(crate) fn run(cli: &Cli, _out: &Out, ttl: u64, max: u64) -> CliResult<i32> {
     let last_activity = Arc::new(AtomicU64::new(now_secs()));
     let born = Instant::now();
 
+    let own_uid = own_uid();
+    let wake = Arc::new({
+        let root = v.root().to_path_buf();
+        move || {
+            if let Ok(v2) = ks::Vault::open(&root) {
+                drop(ks::agent::connect_raw(&v2));
+            }
+        }
+    });
+
     std::thread::spawn({
         let stop = Arc::clone(&stop);
         let last = Arc::clone(&last_activity);
-        move || watchdog(&stop, &last, born, ttl, max)
+        let wake = Arc::clone(&wake);
+        move || watchdog(&stop, &last, born, ttl, max, &*wake)
     });
 
-    listener
-        .set_nonblocking(ListenerNonblockingMode::Accept)
-        .map_err(|e| {
-            (
-                ErrorCode::Unavailable,
-                format!("cannot nonblock listener: {e}"),
-            )
-        })?;
-
-    while !stop.load(Ordering::Relaxed) {
+    // Blocking accept; stop events wake it with a throwaway self-connect.
+    loop {
         match listener.accept() {
+            Ok(_wake) if stop.load(Ordering::Relaxed) => break,
             Ok(stream) => {
-                if !same_user(&stream) {
+                if !same_user(&stream, own_uid) {
                     continue;
                 }
                 let handler = Arc::clone(&handler);
                 let stop = Arc::clone(&stop);
                 let last = Arc::clone(&last_activity);
-                std::thread::spawn(move || serve(stream, &handler, &stop, &last, ttl, born, max));
+                let wake = Arc::clone(&wake);
+                std::thread::spawn(move || {
+                    serve(
+                        stream,
+                        &ConnCtx {
+                            handler: &handler,
+                            stop: &stop,
+                            last: &last,
+                            ttl,
+                            born,
+                            max,
+                            wake: &*wake,
+                        },
+                    );
+                });
             }
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::ConnectionAborted
-                ) =>
-            {
-                sleep(Duration::from_millis(50));
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionAborted => {}
             Err(_) => break,
         }
     }
@@ -123,48 +125,59 @@ pub(crate) fn run(cli: &Cli, _out: &Out, ttl: u64, max: u64) -> CliResult<i32> {
     Ok(0)
 }
 
-/// Idle/lifetime watchdog: flips `stop` when either limit is reached.
-fn watchdog(stop: &AtomicBool, last: &AtomicU64, born: Instant, ttl: u64, max: u64) {
+/// Idle/lifetime watchdog: flips `stop` when either limit is reached, then
+/// wakes the blocked accept with a throwaway self-connect.
+fn watchdog(
+    stop: &AtomicBool,
+    last: &AtomicU64,
+    born: Instant,
+    ttl: u64,
+    max: u64,
+    wake: &(dyn Fn() + Send + Sync),
+) {
     while !stop.load(Ordering::Relaxed) {
         let idle = now_secs().saturating_sub(last.load(Ordering::Relaxed));
         if idle >= ttl || born.elapsed().as_secs() >= max {
             stop.store(true, Ordering::Relaxed);
+            wake();
             return;
         }
-        sleep(Duration::from_millis(250));
+        sleep_250();
     }
 }
 
-/// Blocking sleep inside the daemon (no async runtime in the agent).
+/// 250 ms poll for the watchdog — cheap and not in the command path.
 #[allow(
     clippy::disallowed_methods,
-    reason = "the agent is a blocking sync daemon; a short poll sleep is the whole loop"
+    reason = "blocking sync daemon; the watchdog polls outside the request path"
 )]
-fn sleep(d: Duration) {
-    std::thread::sleep(d);
+fn sleep_250() {
+    std::thread::sleep(Duration::from_millis(250));
 }
 
-/// Serves one accepted connection on its own thread.
-fn serve(
-    stream: interprocess::local_socket::Stream,
-    handler: &Handler,
-    stop: &AtomicBool,
-    last: &AtomicU64,
+/// Per-connection state shared with `serve`.
+struct ConnCtx<'a> {
+    handler: &'a Handler,
+    stop: &'a AtomicBool,
+    last: &'a AtomicU64,
     ttl: u64,
     born: Instant,
     max: u64,
-) {
-    // Streams inherit the listener's nonblocking flag on unix; the framed
-    // protocol needs plain blocking I/O.
-    let _reverted = stream.set_nonblocking(false);
-    let end = handler.serve_connection(
+    wake: &'a (dyn Fn() + Send + Sync),
+}
+
+/// Serves one accepted connection on its own thread. A `lock` request stops
+/// the agent and wakes the blocked accept with a throwaway self-connect.
+fn serve(stream: interprocess::local_socket::Stream, ctx: &ConnCtx<'_>) {
+    let end = ctx.handler.serve_connection(
         stream,
-        &|| last.store(now_secs(), Ordering::Relaxed),
-        &|| idle_left(last, ttl),
-        &|| life_left(&born, max),
+        &|| ctx.last.store(now_secs(), Ordering::Relaxed),
+        &|| idle_left(ctx.last, ctx.ttl),
+        &|| life_left(&ctx.born, ctx.max),
     );
     if matches!(end, Ok(ConnectionEnd::LockRequested)) {
-        stop.store(true, Ordering::Relaxed);
+        ctx.stop.store(true, Ordering::Relaxed);
+        (ctx.wake)();
     }
 }
 
@@ -187,68 +200,36 @@ fn ep_path(ep: &ks::agent::Endpoint) -> Option<&std::path::Path> {
     ep.path()
 }
 
-/// Same-user check: the peer's euid must equal ours.
 #[cfg(unix)]
-fn same_user(stream: &interprocess::local_socket::Stream) -> bool {
-    use std::os::unix::fs::MetadataExt as _;
-    let Ok(creds) = stream.peer_creds() else {
-        return false;
-    };
-    let Some(euid) = creds.euid() else {
-        return false;
-    };
-    // A file we create carries our uid; avoids libc/unsafe for getuid.
-    let Ok(dir) = tempfile::tempdir() else {
-        return false;
-    };
-    std::fs::metadata(dir.path()).is_ok_and(|m| m.uid() == euid)
+fn own_uid() -> u32 {
+    rustix::process::getuid().as_raw()
+}
+
+#[cfg(windows)]
+fn own_uid() -> u32 {
+    0
+}
+
+/// Same-user check: the peer's euid must equal `own_uid`.
+#[cfg(unix)]
+fn same_user(stream: &interprocess::local_socket::Stream, own_uid: u32) -> bool {
+    stream.peer_creds().ok().and_then(|c| c.euid()) == Some(own_uid)
+}
+
+/// Builds the SDDL `D:P(A;;GA;;;OW)` descriptor: a protected DACL granting
+/// GENERIC_ALL to the pipe object's owner (the current user) only.
+#[cfg(windows)]
+fn owner_only_dacl() -> CliResult<interprocess::os::windows::security_descriptor::SecurityDescriptor>
+{
+    use interprocess::os::windows::security_descriptor::SecurityDescriptor;
+    let sddl = widestring::U16CString::from_str("D:P(A;;GA;;;OW)")
+        .map_err(|e| (ErrorCode::Internal, format!("bad SDDL: {e}")))?;
+    SecurityDescriptor::deserialize(&sddl)
+        .map_err(|e| (ErrorCode::Internal, format!("bad security descriptor: {e}")))
 }
 
 /// Windows relies on the listener's owner-only security descriptor.
 #[cfg(windows)]
-fn same_user(_stream: &interprocess::local_socket::Stream) -> bool {
+fn same_user(_stream: &interprocess::local_socket::Stream, _own_uid: u32) -> bool {
     true
 }
-
-/// Agent-specific hardening on top of the startup hardening.
-#[cfg(all(unix, not(target_os = "linux"), not(target_os = "macos")))]
-#[allow(unsafe_code, reason = "setsid is a syscall")]
-fn harden_agent() {
-    // SAFETY: setsid detaches the daemon from its controlling terminal.
-    let _ = unsafe { libc::setsid() };
-}
-
-#[cfg(target_os = "linux")]
-#[allow(
-    unsafe_code,
-    reason = "process hardening syscalls; each call is a single op with a SAFETY note"
-)]
-fn harden_agent() {
-    // SAFETY: setsid detaches the daemon from its controlling terminal.
-    let _ = unsafe { libc::setsid() };
-    // SAFETY: mlockall pins current and future memory; best-effort, and the
-    // calls touch no memory themselves.
-    unsafe {
-        libc::mlockall(libc::MCL_CURRENT | libc::MCL_FUTURE);
-    }
-}
-
-#[cfg(target_os = "macos")]
-#[allow(
-    unsafe_code,
-    reason = "process hardening syscalls; each call is a single op with a SAFETY note"
-)]
-fn harden_agent() {
-    // SAFETY: setsid detaches the daemon from its controlling terminal.
-    unsafe {
-        libc::setsid();
-    }
-    // SAFETY: ptrace(PT_DENY_ATTACH) asks the kernel to refuse debugger
-    // attachment to this process; no memory is dereferenced.
-    unsafe {
-        libc::ptrace(libc::PT_DENY_ATTACH, 0, std::ptr::null_mut(), 0);
-    }
-}
-
-#[cfg(windows)]
-fn harden_agent() {}

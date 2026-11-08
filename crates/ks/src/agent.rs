@@ -162,7 +162,7 @@ impl Endpoint {
 }
 
 /// Checks a unix endpoint directory: must be owned by the current uid and
-/// carry no group/other permission bits (std `MetadataExt`, no unsafe).
+/// carry no group/other permission bits (`MetadataExt` + `rustix`, no unsafe).
 #[cfg(unix)]
 fn check_dir_perms(dir: &std::path::Path) -> Result<()> {
     use std::os::unix::fs::MetadataExt as _;
@@ -170,28 +170,9 @@ fn check_dir_perms(dir: &std::path::Path) -> Result<()> {
         path: dir.to_path_buf(),
         source: e,
     })?;
-    if meta.mode() & 0o077 != 0 {
+    if meta.uid() != rustix::process::getuid().as_raw() || meta.mode() & 0o077 != 0 {
         return Err(Error::Unavailable(
-            "agent endpoint directory is not private to this user".into(),
-        ));
-    }
-    // A file we create carries our uid; compare without libc/unsafe.
-    let probe = tempfile::NamedTempFile::new_in(dir).map_err(|e| Error::Io {
-        path: dir.to_path_buf(),
-        source: e,
-    })?;
-    if meta.uid()
-        != probe
-            .as_file()
-            .metadata()
-            .map_err(|e| Error::Io {
-                path: dir.to_path_buf(),
-                source: e,
-            })?
-            .uid()
-    {
-        return Err(Error::Unavailable(
-            "agent endpoint directory is not owned by this user".into(),
+            "agent endpoint directory is not owned privately by this user".into(),
         ));
     }
     Ok(())

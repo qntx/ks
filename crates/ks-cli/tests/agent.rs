@@ -316,3 +316,21 @@ fn admin_passwd_skips_agent() {
     let o = c.output().unwrap();
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
 }
+
+/// Windows: the agent starts and serves with the owner-only DACL applied
+/// to its named pipe. Exercises the `owner_only_dacl` + `security_descriptor`
+/// path; same-user enforcement then relies on that descriptor.
+#[cfg(windows)]
+#[test]
+fn agent_windows_owner_dacl_roundtrip() {
+    let t = mk();
+    init(&t);
+    let _g = Guard(&t);
+    let (code, out, err) = unlock(&t, &[]);
+    assert!(code == 0, "unlock failed: {out} {err}");
+    let (code, out, err) = ks(&t, &["set", "tok"], b"v", false);
+    assert!(code == 0, "set via agent failed: {out} {err}");
+    let (code, out, _) = ks(&t, &["show", "tok"], b"", false);
+    assert_eq!(code, 0);
+    assert_eq!(out.trim(), "v");
+}
