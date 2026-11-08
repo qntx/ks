@@ -34,7 +34,8 @@ pub fn exit_error(json: bool, code: ErrorCode, message: &str) -> i32 {
         use std::io::Write as _;
         writeln!(std::io::stdout(), "{obj}").ok();
     } else {
-        eprintln!("error: {message}");
+        use std::io::Write as _;
+        writeln!(std::io::stderr(), "error: {message}").ok();
     }
     exit_code(code)
 }
@@ -45,7 +46,7 @@ pub struct Out {
     /// True when `--json` was passed.
     pub json: bool,
     /// Warnings collected on the way to a result.
-    pub warnings: Vec<String>,
+    pub warnings: std::cell::RefCell<Vec<String>>,
     /// Whether stdin and stderr are terminals and `--json` is absent.
     pub interactive: bool,
 }
@@ -58,42 +59,46 @@ impl Out {
             !json && std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
         Self {
             json,
-            warnings: Vec::new(),
+            warnings: std::cell::RefCell::new(Vec::new()),
             interactive,
         }
     }
 
     /// Adds a warning; human mode also echoes it on stderr immediately.
-    pub fn warn(&mut self, msg: impl Into<String>) {
+    pub fn warn(&self, msg: impl Into<String>) {
+        use std::io::Write as _;
         let msg = msg.into();
         if !self.json {
-            eprintln!("warning: {msg}");
+            writeln!(std::io::stderr(), "warning: {msg}").ok();
         }
-        self.warnings.push(msg);
+        self.warnings.borrow_mut().push(msg);
     }
 
     /// Emits a successful result: `human` on stdout (or JSON object).
-    pub fn ok_value(&mut self, human: &str, value: serde_json::Value) -> i32 {
+    pub fn ok_value(&self, human: &str, value: serde_json::Value) -> i32 {
+        use std::io::Write as _;
         if self.json {
             let mut obj = value;
-            if !self.warnings.is_empty() {
-                obj["warnings"] = serde_json::json!(self.warnings);
+            let warnings = self.warnings.borrow();
+            if !warnings.is_empty()
+                && let Some(map) = obj.as_object_mut()
+            {
+                map.insert("warnings".to_owned(), serde_json::json!(*warnings));
             }
-            use std::io::Write as _;
             writeln!(std::io::stdout(), "{obj}").ok();
         } else if !human.is_empty() {
-            println!("{human}");
+            writeln!(std::io::stdout(), "{human}").ok();
         }
         0
     }
 
     /// Emits a successful result with no payload.
-    pub fn ok_silent(&mut self, value: serde_json::Value) -> i32 {
+    pub fn ok_silent(&self, value: serde_json::Value) -> i32 {
         self.ok_value("", value)
     }
 
     /// Emits an error and returns its exit code.
-    pub fn error(&mut self, code: ErrorCode, message: &str) -> i32 {
+    pub fn error(&self, code: ErrorCode, message: &str) -> i32 {
         exit_error(self.json, code, message)
     }
 }

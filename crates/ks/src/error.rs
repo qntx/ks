@@ -43,6 +43,9 @@ pub enum Error {
     /// The target already exists.
     #[error("already exists: {0}")]
     Exists(String),
+    /// The user cancelled an interactive prompt.
+    #[error("cancelled")]
+    Cancelled,
     /// No usable key source was available.
     #[error("vault is locked")]
     Locked,
@@ -74,6 +77,7 @@ impl Error {
             Self::NotFound(_) => ErrorCode::NotFound,
             Self::Exists(_) => ErrorCode::Exists,
             Self::Locked => ErrorCode::Locked,
+            Self::Cancelled => ErrorCode::Cancelled,
             Self::WrongPassphrase => ErrorCode::WrongPassphrase,
             Self::Io { .. } => ErrorCode::Io,
             Self::Internal(_) => ErrorCode::Internal,

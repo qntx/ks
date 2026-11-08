@@ -12,7 +12,7 @@ pub fn run(cli: &Cli, out: &mut Out, env: &[String], command: &[String]) -> CliR
         return fail(ErrorCode::Usage, "at least one -e VAR=name is required");
     }
     let session = unlock(cli, out)?;
-    let mut vars = Vec::with_capacity(env.len());
+    let mut vars: Vec<(String, zeroize::Zeroizing<String>)> = Vec::with_capacity(env.len());
     for spec in env {
         let (var, target) = spec.split_once('=').ok_or((
             ErrorCode::Usage,
@@ -48,7 +48,7 @@ pub fn run(cli: &Cli, out: &mut Out, env: &[String], command: &[String]) -> CliR
                     )))
                 })?
         };
-        vars.push((var.to_owned(), value));
+        vars.push((var.to_owned(), zeroize::Zeroizing::new(value)));
     }
     let Some((program, args)) = command.split_first() else {
         return fail(ErrorCode::Usage, "no command given");
@@ -59,7 +59,7 @@ pub fn run(cli: &Cli, out: &mut Out, env: &[String], command: &[String]) -> CliR
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
     for (k, v) in &vars {
-        cmd.env(k, v);
+        cmd.env(k, v.as_str());
     }
     let status = cmd
         .status()

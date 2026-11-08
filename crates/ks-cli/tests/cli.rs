@@ -518,3 +518,40 @@ fn cli_help_no_hidden_commands() {
     // no example takes a passphrase as an argument
     assert!(!help.contains("KS_PASSPHRASE="));
 }
+
+#[cfg(unix)]
+#[test]
+fn cli_json_stderr_clean_and_broken_pipe() {
+    let t = mk();
+    init(&t);
+    run(&t, &["set", "a"], b"v");
+    // --json: stderr must be exactly empty
+    let (code, _v, err) = json(&t, &["ls"], b"");
+    assert_eq!(code, 0);
+    assert_eq!(err, "");
+    // warn path also stays silent in --json (group-readable pass file)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&t.pass_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let (_c, _v, err) = json(&t, &["ls"], b"");
+        assert_eq!(err, "");
+        std::fs::set_permissions(&t.pass_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    // broken pipe: `ks ls | head -c1` must not exit 101 (panic)
+    let mut reader = Command::new(assert_cmd::cargo::cargo_bin!("ks"))
+        .args(["ls", "--vault"])
+        .arg(&t.vault)
+        .env(PASS_ENV, &t.pass_file)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdout = reader.stdout.take().unwrap();
+    use std::io::Read as _;
+    let mut byte = [0u8; 1];
+    let _ = stdout.read_exact(&mut byte);
+    drop(stdout);
+    let status = reader.wait().unwrap();
+    assert_ne!(status.code(), Some(101), "ks panicked on a broken pipe");
+}

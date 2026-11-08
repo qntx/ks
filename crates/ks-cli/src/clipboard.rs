@@ -2,10 +2,11 @@
 //! from stdin (never argv/env), sets the clipboard, and clears it after the
 //! timeout only if the value is unchanged.
 
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::process::{Command, Stdio};
 
 use ks::ErrorCode;
+use zeroize::Zeroizing;
 
 use crate::output::CliResult;
 
@@ -51,51 +52,48 @@ pub fn copy(value: &[u8]) -> CliResult<()> {
 /// Sets the clipboard in this process, waits `secs`, clears if unchanged.
 /// Used by the `__clipboard` daemon subcommand.
 pub fn daemon(secs: u64) -> i32 {
-    use std::io::Read as _;
-    let mut value = Vec::new();
+    let mut value = Zeroizing::new(Vec::new());
     if std::io::stdin().read_to_end(&mut value).is_err() {
         return 1;
     }
     let Ok(mut cb) = arboard::Clipboard::new() else {
         return 1;
     };
-    let Ok(text) = String::from_utf8(value) else {
+    let Ok(utf8) = String::from_utf8(value.to_vec()) else {
         return 1;
     };
-    if set(&mut cb, &text).is_err() {
+    let text = Zeroizing::new(utf8);
+    if set(&mut cb, &text, secs).is_err() {
         return 1;
     }
+    // wait_until on linux already blocked for `secs`; other platforms sleep.
+    #[cfg(not(target_os = "linux"))]
     std::thread::sleep(std::time::Duration::from_secs(secs));
     // Clear only if the clipboard still holds our value.
     if cb.get_text().ok().as_deref() == Some(text.as_str()) {
-        let _ = cb.set_text(String::new());
+        cb.set_text(String::new()).ok();
     }
     0
 }
 
 #[cfg(target_os = "linux")]
-fn set(cb: &mut arboard::Clipboard, text: &str) -> Result<(), arboard::Error> {
+fn set(cb: &mut arboard::Clipboard, text: &str, secs: u64) -> Result<(), arboard::Error> {
+    // wait_until keeps ownership until the deadline, then returns; the clear
+    // below still runs at `secs`, not an hour later.
     use arboard::SetExtLinux as _;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
     cb.set().wait_until(deadline).text(text)
 }
 
 #[cfg(not(target_os = "linux"))]
-fn set(cb: &mut arboard::Clipboard, text: &str) -> Result<(), arboard::Error> {
+fn set(cb: &mut arboard::Clipboard, text: &str, _secs: u64) -> Result<(), arboard::Error> {
     cb.set_text(text)
 }
 
 #[cfg(unix)]
 fn detach(cmd: &mut Command) {
-    // SAFETY: runs in the child immediately before exec; only calls
-    // async-signal-safe libc functions.
-    unsafe {
-        use std::os::unix::process::CommandExt as _;
-        cmd.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
+    use std::os::unix::process::CommandExt as _;
+    cmd.process_group(0);
 }
 
 #[cfg(windows)]

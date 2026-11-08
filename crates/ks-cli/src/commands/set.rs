@@ -32,25 +32,25 @@ pub fn run(
         if bytes.is_empty() {
             return fail(ErrorCode::Usage, "empty input on stdin");
         }
-        Entry::binary(Zeroizing::new(bytes)).map_err(|e| err(&e))?
+        Entry::binary(bytes).map_err(|e| err(&e))?
     } else {
         let text = if multiline {
             let raw = prompt::stdin_all()?;
-            String::from_utf8(raw)
-                .map_err(|_| (ErrorCode::Usage, "stdin is not UTF-8".to_owned()))?
-                .replace("\r\n", "\n")
+            let s = String::from_utf8(raw.as_slice().to_vec())
+                .map_err(|_| (ErrorCode::Usage, "stdin is not UTF-8".to_owned()))?;
+            Zeroizing::new(s.replace("\r\n", "\n"))
         } else if out.interactive {
             let input = cliclack::password("value")
                 .interact()
                 .map_err(|_| (ErrorCode::Cancelled, "cancelled".to_owned()))?;
-            input
+            Zeroizing::new(input)
         } else {
             prompt::stdin_first_line()?
         };
         if text.is_empty() {
             return fail(ErrorCode::Usage, "empty value");
         }
-        Entry::text(Zeroizing::new(text)).map_err(|e| err(&e))?
+        Entry::text(text).map_err(|e| err(&e))?
     };
     session.set(&name, &entry, true).map_err(|e| err(&e))?;
     Ok(out.ok_value(

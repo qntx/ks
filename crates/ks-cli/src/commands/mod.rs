@@ -30,7 +30,7 @@ pub fn vault(cli: &Cli) -> CliResult<Vault> {
 /// Unlocks the vault with the passphrase source chain.
 pub fn unlock(cli: &Cli, out: &mut Out) -> CliResult<ks::Session> {
     let v = vault(cli)?;
-    let source = prompt::passphrase_source(cli, out.interactive);
+    let source = prompt::passphrase_source(cli, out);
     let session = v.unlock(Some(&source)).map_err(|e| err(&e))?;
     for w in session.warnings() {
         out.warn(w.clone());

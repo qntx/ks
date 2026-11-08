@@ -118,7 +118,8 @@ fn scrub(dir: &tempfile::TempDir) {
             && let Ok(len) = p.metadata().map(|m| m.len())
         {
             let zeros = vec![0u8; usize::try_from(len).unwrap_or(0)];
-            let _ = std::fs::write(&p, zeros);
+            // Best-effort scrub: the TempDir still deletes the file on drop.
+            std::fs::write(&p, zeros).ok();
         }
     }
 }

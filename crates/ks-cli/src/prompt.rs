@@ -1,9 +1,11 @@
 //! Passphrase sources and interactive prompts.
 
 use std::io::Read as _;
+use std::path::Path;
 
 use age::secrecy::SecretString;
 use ks::{Error, ErrorCode};
+use zeroize::Zeroizing;
 
 use crate::cli::Cli;
 use crate::output::{CliResult, Out, err};
@@ -15,43 +17,42 @@ use crate::output::{CliResult, Out, err};
 /// hidden prompt. Absent everything: `locked`.
 pub fn passphrase_source<'a>(
     cli: &'a Cli,
-    interactive: bool,
+    out: &'a Out,
 ) -> impl Fn() -> ks::Result<SecretString> + 'a {
     move || {
-        if let Some(file) = cli.passphrase_file.as_deref().or_env("KS_PASSPHRASE_FILE") {
-            return read_passphrase_file(std::path::Path::new(&file));
+        let file = cli
+            .passphrase_file
+            .clone()
+            .or_else(|| env_nonempty("KS_PASSPHRASE_FILE"));
+        if let Some(file) = file {
+            return read_passphrase_file(Path::new(&file), out);
         }
         if let Some(pass) = crate::harden::captured_passphrase() {
             return Ok(pass);
         }
-        if interactive {
+        if out.interactive {
             return prompt_hidden("master passphrase");
         }
         Err(Error::Locked)
     }
 }
 
-trait OrEnv {
-    fn or_env(self, var: &str) -> Option<String>;
-}
-impl OrEnv for Option<&str> {
-    fn or_env(self, var: &str) -> Option<String> {
-        self.map(str::to_owned)
-            .or_else(|| std::env::var(var).ok().filter(|v| !v.is_empty()))
-    }
+fn env_nonempty(var: &str) -> Option<String> {
+    std::env::var(var).ok().filter(|v| !v.is_empty())
 }
 
 /// Reads a passphrase file, stripping one trailing `\r\n` or `\n`. Warns on
-/// unix when the file is group/other readable (warning goes to stderr in
-/// human mode via the caller — here we just read).
-fn read_passphrase_file(path: &std::path::Path) -> ks::Result<SecretString> {
+/// unix when the file is group/other readable.
+fn read_passphrase_file(path: &Path, out: &Out) -> ks::Result<SecretString> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        if let Ok(meta) = path.metadata() {
-            if meta.permissions().mode() & 0o077 != 0 {
-                eprintln!("warning: passphrase file {path:?} is readable by group/other");
-            }
+        if let Ok(meta) = path.metadata()
+            && meta.permissions().mode() & 0o077 != 0
+        {
+            out.warn(format!(
+                "passphrase file {path:?} is readable by group/other"
+            ));
         }
     }
     let mut bytes = std::fs::read(path).map_err(|e| Error::Io {
@@ -68,11 +69,11 @@ fn read_passphrase_file(path: &std::path::Path) -> ks::Result<SecretString> {
     Ok(SecretString::from(text))
 }
 
-/// Hidden single-line prompt (cliclack).
+/// Hidden single-line prompt (cliclack); interrupt/escape -> `cancelled`.
 fn prompt_hidden(label: &str) -> ks::Result<SecretString> {
     let input = cliclack::password(label)
         .interact()
-        .map_err(|_| Error::Locked)?;
+        .map_err(|_| Error::Cancelled)?;
     Ok(SecretString::from(input))
 }
 
@@ -91,11 +92,9 @@ pub fn new_passphrase(out: &Out) -> CliResult<SecretString> {
         }
         return Ok(SecretString::from(first));
     }
-    match std::env::var("KS_NEW_PASSPHRASE_FILE") {
-        Ok(file) if !file.is_empty() => {
-            read_passphrase_file(std::path::Path::new(&file)).map_err(|e| err(&e))
-        }
-        _ => Err((
+    match env_nonempty("KS_NEW_PASSPHRASE_FILE") {
+        Some(file) => read_passphrase_file(Path::new(&file), out).map_err(|e| err(&e)),
+        None => Err((
             ErrorCode::Usage,
             "new passphrase required: set KS_NEW_PASSPHRASE_FILE non-interactively".to_owned(),
         )),
@@ -103,7 +102,7 @@ pub fn new_passphrase(out: &Out) -> CliResult<SecretString> {
 }
 
 /// Reads the first line of stdin for `set` (trailing `\n`/`\r\n` removed).
-pub fn stdin_first_line() -> CliResult<String> {
+pub fn stdin_first_line() -> CliResult<Zeroizing<String>> {
     let mut line = String::new();
     let n = std::io::stdin()
         .read_line(&mut line)
@@ -116,16 +115,16 @@ pub fn stdin_first_line() -> CliResult<String> {
     } else if line.ends_with('\n') {
         line.truncate(line.len() - 1);
     }
-    Ok(line)
+    Ok(Zeroizing::new(line))
 }
 
 /// Reads all of stdin as bytes.
-pub fn stdin_all() -> CliResult<Vec<u8>> {
+pub fn stdin_all() -> CliResult<Zeroizing<Vec<u8>>> {
     let mut buf = Vec::new();
     std::io::stdin()
         .read_to_end(&mut buf)
         .map_err(|e| (ErrorCode::Io, format!("reading stdin: {e}")))?;
-    Ok(buf)
+    Ok(Zeroizing::new(buf))
 }
 
 /// Interactive yes/no confirmation; non-interactive returns the `missing`
