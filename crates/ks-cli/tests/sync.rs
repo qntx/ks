@@ -247,6 +247,11 @@ fn sync_clone_roundtrip_and_exists() {
     );
     assert!(code == 0, "clone failed: {out} {err}");
     assert!(t.b.join(".identity.age").exists());
+    // a freshly cloned vault must pass doctor (permissions tightened)
+    let (code, out, err) = ks(&t, &t.b, &["doctor", "--json"], b"");
+    assert_eq!(code, 0, "{out} {err}");
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
     let (_, va, _) = json(&t, &t.a, &["ls"], b"");
     let (_, vb, _) = json(&t, &t.b, &["ls"], b"");
     assert_eq!(va["entries"], vb["entries"]);
