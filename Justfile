@@ -15,6 +15,12 @@ lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     cargo clippy -p ks --all-targets --no-default-features -- -D warnings
 
+# Cross-target lint catches cfg(unix)/cfg(windows) code the host never compiles
+# (needs `rustup target add x86_64-unknown-linux-gnu x86_64-pc-windows-msvc`).
+lint-cross:
+    cargo clippy --workspace --all-targets --all-features --target x86_64-unknown-linux-gnu -- -D warnings
+    cargo clippy --workspace --all-targets --all-features --target x86_64-pc-windows-msvc -- -D warnings
+
 test:
     cargo test --workspace --all-features
 
@@ -24,4 +30,4 @@ deny:
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
 
-gate: toml md fmt lint test deny doc
+gate: toml md fmt lint lint-cross test deny doc
