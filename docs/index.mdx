@@ -1,6 +1,43 @@
 ---
 title: ks
-description: Documentation stub.
+description: A personal local secret vault, synced with git, recoverable with age alone.
 ---
 
-Documentation stub.
+ks is a personal secret vault for one user across several owned devices:
+passwords, API tokens, TOTP seeds, certificates — stored as ordinary `age`
+files, synced with git, and always recoverable with the official `age`
+tool and the master passphrase alone.
+
+```bash
+ks init                       # new vault
+ks set github/token           # store a secret
+ks show github/token          # read it back
+ks sync                       # commit, rebase, push
+```
+
+## The model
+
+```text
+~/.ks/
+  .identity.age   K as an age identity file, sealed with the passphrase (scrypt)
+  .check.age      "ks1 check <sha256 of .identity.age>", encrypted to R
+  .lock           write lock for every mutation
+  github/
+    token.age     entry: single X25519 stanza, plaintext header "ks1 text github/token"
+```
+
+Every entry is a standard age file with exactly one recipient: `R`, the
+public half of the vault key `K`. `R` is never written to disk, printed,
+or transmitted — a file forged without it is rejected before decryption.
+The plaintext's first line binds the file to its path, so entries cannot
+be swapped under their names.
+
+## Reading this documentation
+
+- [install](./install) — build or install `ks`
+- [cli](./cli) — every command, flag, JSON shape and exit code
+- [unlock](./unlock) — passphrase, agent, Touch ID, keychain, rekey
+- [sync](./sync) — git sync and conflicts
+- [recovery](./recovery) — age-only recovery, orphan entries after rekey
+- [security](./security) — what ks guarantees and what it does not
+- [library](./library) — the `ks` Rust crate

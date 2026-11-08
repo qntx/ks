@@ -1,1 +1,5 @@
-{ "title": "ks", "description": "Documentation stub.", "pages": ["index"] }
+{
+  "title": "ks",
+  "description": "A personal local secret vault.",
+  "pages": ["index", "install", "cli", "unlock", "sync", "recovery", "security", "library"]
+}

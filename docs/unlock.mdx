@@ -1,0 +1,61 @@
+---
+title: Unlock model
+description: Passphrase, session agent, Touch ID, OS keychain, and key rotation.
+---
+
+Unlock order: **agent → Touch ID → keychain → master passphrase**. Every
+device factor must prove it holds the current key by decrypting
+`.check.age` (which binds the sha256 of `.identity.age`); a factor that
+fails the check is *stale* — skipped with a warning and removed after a
+successful passphrase unlock.
+
+## Master passphrase
+
+Seals `.identity.age` (scrypt, work factor 2^18). Policy: ≥15 characters,
+zxcvbn score ≥3, no control characters; non-fatal quality notes become
+warnings. It is the only factor that can *verify* a device source.
+
+## Session agent (`ks unlock` / `ks lock`)
+
+`ks unlock` asks once for the passphrase, then spawns a private per-user
+daemon holding `K`. Commands run without a passphrase source until the
+idle `--ttl` (default 15m, reset by use) or the hard `--max` (default 8h)
+expires, or `ks lock` runs. The agent answers age unwrap/wrap over a
+per-user socket — `K` and `R` never leave it, so `passwd`, `rekey` and
+`unlock` itself always need the real passphrase. A same-user process can
+request operations while the agent runs; keep the TTL short on shared
+machines.
+
+## Touch ID (macOS)
+
+`ks touchid enable` runs `age-plugin-se keygen
+--access-control=any-biometry-or-passcode` and stores the vault key
+encrypted to the `age1se1…` recipient under the local state dir. Every
+unlock then triggers the system dialog — works non-interactively too.
+
+## OS keychain (macOS, Windows)
+
+`ks keychain enable` stores the vault key in the platform credential
+store (service `ks`, account = vault id). **Not supported on Linux**:
+Secret Service exposes the key to every process of the user for the
+whole desktop session — a strictly worse window than the TTL-bound
+agent. Use `ks unlock` on Linux.
+
+## `ks passwd` is not revocation
+
+`passwd` re-seals the same `K` under a new passphrase. The old passphrase
+still opens the old identity file (in git history, on other devices).
+
+## `ks rekey` is the only revocation measure
+
+Requires a **different new passphrase** — a lost device keeps its git
+credentials and could open a new identity sealed with the old one. Steps:
+clean-tree check (fresh runs; an interrupted rotation resumes on a dirty
+tree), decryptability pre-check of every entry, removal of the agent and
+local device factors, then — crash-safely, under the write lock — a
+two-key identity `[K', K]`, per-entry re-encryption to `K'`, and the
+final single-key identity. After `rekey`: `ks sync` to push; on other
+devices unlock once with the new passphrase (stale device factors are
+removed automatically), re-enable Touch ID/keychain, and revoke the lost
+device's git credentials. Rekey protects only data written afterwards —
+secrets it already saw must be rotated at their source.

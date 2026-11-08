@@ -1,0 +1,74 @@
+---
+title: CLI reference
+description: Every ks command, flag, environment variable, JSON shape and exit code.
+---
+
+## Global options
+
+| Option | Effect |
+| --- | --- |
+| `--vault <dir>` | Vault directory (`KS_VAULT`; default `~/.ks`) |
+| `--json` | One JSON object on stdout, nothing else |
+| `--passphrase-file <f>` | Master passphrase from a file (`KS_PASSPHRASE_FILE`) |
+| `--no-agent` | Do not use (or start) the session agent |
+| `-V`, `--version` | Print version |
+
+Environment: `KS_VAULT`, `KS_PASSPHRASE`, `KS_PASSPHRASE_FILE`,
+`KS_NEW_PASSPHRASE_FILE` (new passphrase for `init`/`passwd`/`rekey`),
+`KS_CLIP_TIME` (clipboard lifetime in seconds, default 45),
+`VISUAL`/`EDITOR` (`edit`), `GIT_TERMINAL_PROMPT=0` is always set by ks.
+
+## Commands
+
+| Command | Unlocks | Summary |
+| --- | --- | --- |
+| `ks init [--git] [--clone <url>]` | new passphrase | Create (or clone) a vault |
+| `ks ls [prefix]` | no | List entries |
+| `ks show <name>` | yes | Print an entry's text (or `payload`/`fields` with `--json`) |
+| `ks set <name> [-m\|-b] [--force]` | yes | Store: one line, `-m` multiline, `-b` binary stdin |
+| `ks edit <name>` | yes | Edit a text entry in `$VISUAL`/`$EDITOR`/`vi` |
+| `ks gen [opts]` | no | Generate a random password |
+| `ks rm <name>` | yes | Remove an entry |
+| `ks mv <a> <b>` | yes | Rename |
+| `ks otp <name>` | yes | TOTP code + seconds remaining |
+| `ks run [--env NAME=entry] -- cmd…` | yes | Inject secrets as env vars into a child |
+| `ks passwd` | yes (no agent) | Re-seal the identity under a new passphrase |
+| `ks doctor [--fix]` | yes | Vault health check |
+| `ks sync [--keep local\|remote]` | no | Commit, `pull --rebase`, push |
+| `ks rekey` | yes (no agent) | Rotate K; requires a *new* passphrase |
+| `ks unlock [--ttl 15m] [--max 8h]` | yes (no agent) | Start the session agent |
+| `ks lock` | no | Stop the agent |
+| `ks status` | no | Vault, agent, device factors, git state |
+| `ks touchid enable\|disable` | yes (no agent) | macOS Secure Enclave factor |
+| `ks keychain enable\|disable` | yes (no agent) | OS keychain factor |
+| `ks git <args…>` | no | Run `git` inside the vault |
+
+## JSON shapes
+
+```jsonc
+// ks status --json
+{ "vault": "/path", "agent": {"ttl_left": 900, "life_left": 28000} | null,
+  "touchid": false, "keychain": false,
+  "git": {"repo": true, "dirty": false} }
+// ks unlock --json            ks lock --json          ks rekey --json
+{"unlocked":true,"ttl":900,"max":28800}   {"locked":true,"was_running":true}
+{"rekeyed":true,"resumed":false,"entries":12}
+// ks sync --json    ks touchid/keychain enable --json      disable
+{"committed":true,"pulled":true,"pushed":true}   {"enabled":true}  {"disabled":true,"was_enabled":true}
+// errors: {"error":"locked","message":"vault is locked"} on stderr-side channel
+```
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | success |
+| 64 | usage / invalid input |
+| 65 | corrupt vault file, or weak passphrase |
+| 66 | entry not found |
+| 69 | external tool/service unavailable (git, age-plugin-se, keychain) |
+| 70 | internal error / cancelled |
+| 73 | entry already exists |
+| 74 | I/O error |
+| 75 | sync conflict (retry with `--keep`) |
+| 77 | locked, or wrong passphrase |

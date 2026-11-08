@@ -1,0 +1,37 @@
+---
+title: Security
+description: What ks guarantees, what it does not, and the threat model.
+---
+
+## Guarantees
+
+| ID | ks guarantees |
+| --- | --- |
+| G1 | No one can read entries without the master passphrase or an enabled device factor (age + scrypt 2^18; passphrase ≥15 chars, zxcvbn ≥3). |
+| G2 | The remote cannot inject an entry ks accepts, or move one entry's content under another name (single recipient `R` never on disk; the header binds the name). |
+| G3 | All content is always recoverable with only `age`/`rage` + the passphrase. |
+| G4 | After the agent exits it can neither decrypt nor wrap further files (K and R never leave the agent). |
+| G5 | A crash at any point corrupts nothing and loses no acknowledged write (atomic writes; the two-key rotation; self-healing check file). |
+| G6 | Hostile files cannot crash ks, escape bounds, or exhaust resources (strict parsing, size caps, scrypt work-factor cap, no symlinks, fuzz targets in CI). |
+| G7 | After `rekey`, a lost device with git credentials and the old passphrase cannot read later entries; synced devices reject the old key. |
+
+## Not guaranteed
+
+| ID | ks does **not**… |
+| --- | --- |
+| N1 | hide entry names, counts, or mtimes (names are visible by design) |
+| N2 | detect rollbacks — the remote can restore old versions (all values are ones you wrote; audit with git log) |
+| N3 | protect against a malicious same-user process while the agent runs — it can ask the agent to decrypt/wrap and keep what it got; use short `--ttl`, `ks lock` when done, `rekey` on suspicion |
+| N4 | revoke data a device already read — `rekey` protects only future writes |
+| N5 | resist store-now-decrypt-later against a quantum computer |
+| N6 | destroy history — `rm`/overwrites change only the current version; git history stays readable by the keys of its time |
+| N7 | revoke a passphrase with `passwd` (K does not change — use `rekey`) |
+| N8 | retire a key on devices that never sync or never unlock with the passphrase again |
+
+## Threat summary
+
+Reading entries without any factor → blocked (G1). Injecting or
+rebinding entries, e.g. swapping a private key → blocked (G2). Rage
+against lost backups/git history → not covered — rotate secrets at their
+source. A compromised local session → limited by agent TTL (N3), revoked
+only by `rekey` (G7).
