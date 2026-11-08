@@ -109,14 +109,6 @@ fn regenerate_fixture() {
         "bin/blob",
         Entry::binary(Zeroizing::new(vec![0xde, 0xad, 0xbe, 0xef, 0x00, 0x01])).unwrap(),
     );
-    set("seed", Entry::mnemonic(Zeroizing::new("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\npassphrase: fixture".to_owned())).unwrap());
-    set(
-        "eth/deployer",
-        Entry::key(Zeroizing::new(
-            "0101010101010101010101010101010101010101010101010101010101010101\nchain: evm"
-                .to_owned(),
-        ))
-        .unwrap(),
-    );
+
     std::io::stdout().write_all(b"fixture regenerated").unwrap();
 }

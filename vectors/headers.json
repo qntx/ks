@@ -1,16 +1,76 @@
 {
   "entries": [
-    { "plaintext": "ks1 text a/b\nvalue\nkey: v\nfree", "name": "a/b", "ok": true, "kind": "text" },
-    { "plaintext": "ks1 binary a\nAAA=", "name": "a", "ok": true, "kind": "binary" },
-    { "plaintext": "ks1 mnemonic seed\nword1 word2 word3", "name": "seed", "ok": true, "kind": "mnemonic" },
-    { "plaintext": "ks1 key eth/k\n0101\nchain: evm", "name": "eth/k", "ok": true, "kind": "key" },
-    { "plaintext": "ks1 text a/c\nvalue", "name": "a/b", "ok": false, "reason": "name does not match path" },
-    { "plaintext": "ks1  text a/b\nvalue", "name": "a/b", "ok": false, "reason": "double space in header" },
-    { "plaintext": "ks1 unknown a/b\nvalue", "name": "a/b", "ok": false, "reason": "unknown kind" },
-    { "plaintext": "ks2 text a/b\nvalue", "name": "a/b", "ok": false, "reason": "bad magic" },
-    { "plaintext": "ks1 text a/b extra\nvalue", "name": "a/b", "ok": false, "reason": "extra header bytes" },
-    { "plaintext": "ks1 text a/b\n", "name": "a/b", "ok": false, "reason": "empty payload" },
-    { "plaintext": "ks1 text a/b", "name": "a/b", "ok": false, "reason": "missing newline" },
-    { "plaintext": "ks1 text a/b\nva\rlue", "name": "a/b", "ok": false, "reason": "CR byte" }
+    {
+      "plaintext": "ks1 text a/b\nvalue\nkey: v\nfree",
+      "name": "a/b",
+      "ok": true,
+      "kind": "text"
+    },
+    {
+      "plaintext": "ks1 binary a\nAAA=",
+      "name": "a",
+      "ok": true,
+      "kind": "binary"
+    },
+    {
+      "plaintext": "ks1 mnemonic seed\nword1 word2 word3",
+      "name": "seed",
+      "ok": false,
+      "reason": "unknown kind"
+    },
+    {
+      "plaintext": "ks1 key eth/k\n0101\nchain: evm",
+      "name": "eth/k",
+      "ok": false,
+      "reason": "unknown kind"
+    },
+    {
+      "plaintext": "ks1 text a/c\nvalue",
+      "name": "a/b",
+      "ok": false,
+      "reason": "name does not match path"
+    },
+    {
+      "plaintext": "ks1  text a/b\nvalue",
+      "name": "a/b",
+      "ok": false,
+      "reason": "double space in header"
+    },
+    {
+      "plaintext": "ks1 unknown a/b\nvalue",
+      "name": "a/b",
+      "ok": false,
+      "reason": "unknown kind"
+    },
+    {
+      "plaintext": "ks2 text a/b\nvalue",
+      "name": "a/b",
+      "ok": false,
+      "reason": "bad magic"
+    },
+    {
+      "plaintext": "ks1 text a/b extra\nvalue",
+      "name": "a/b",
+      "ok": false,
+      "reason": "extra header bytes"
+    },
+    {
+      "plaintext": "ks1 text a/b\n",
+      "name": "a/b",
+      "ok": false,
+      "reason": "empty payload"
+    },
+    {
+      "plaintext": "ks1 text a/b",
+      "name": "a/b",
+      "ok": false,
+      "reason": "missing newline"
+    },
+    {
+      "plaintext": "ks1 text a/b\nva\rlue",
+      "name": "a/b",
+      "ok": false,
+      "reason": "CR byte"
+    }
   ]
 }
