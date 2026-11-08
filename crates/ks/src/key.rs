@@ -61,6 +61,36 @@ impl LocalKey {
         })
     }
 
+    /// Number of identities (`1`, or `2` mid-rotation).
+    #[must_use]
+    pub(crate) fn key_count(&self) -> usize {
+        self.keys.len()
+    }
+
+    /// A two-key key `[K', self's K]` with a fresh current identity — the
+    /// identity file's mid-rotation form. Consumes `self` (which must hold
+    /// a single key).
+    pub(crate) fn with_new_current(self) -> Self {
+        let mut keys = Vec::with_capacity(self.keys.len() + 1);
+        keys.push(age::x25519::Identity::generate());
+        keys.extend(self.keys);
+        Self {
+            keys,
+            label: new_label(),
+        }
+    }
+
+    /// The current identity alone — the identity file's post-rotation form.
+    /// Consumes `self`.
+    pub(crate) fn current_only(self) -> Self {
+        let mut keys = self.keys;
+        keys.truncate(1);
+        Self {
+            keys,
+            label: new_label(),
+        }
+    }
+
     /// Serializes as an `age` identity file (`# ks vault key` header).
     #[must_use]
     pub(crate) fn to_identity_text(&self) -> SecretString {

@@ -25,6 +25,7 @@ mod key;
 pub mod local;
 mod name;
 mod passphrase;
+mod rekey;
 mod unlock;
 mod vault;
 
@@ -53,6 +54,7 @@ pub use error::ConflictKind;
 pub use error::{Error, ErrorCode, Result};
 pub use key::Key;
 pub use key::LocalKey;
+pub use rekey::RekeyReport;
 pub use name::Name;
 pub use passphrase::check_new_passphrase;
 pub use vault::{Session, Vault};
