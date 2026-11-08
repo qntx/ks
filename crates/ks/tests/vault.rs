@@ -213,6 +213,20 @@ fn rename_and_remove() {
 }
 
 #[test]
+fn rename_same_name() {
+    let (_d, session) = create();
+    session.set(&name("a"), &text("v"), false).unwrap();
+    assert!(matches!(
+        session.rename(&name("a"), &name("a"), true),
+        Err(Error::InvalidInput(_))
+    ));
+    assert_eq!(
+        session.get(&name("a")).unwrap().as_text().unwrap().value(),
+        "v"
+    );
+}
+
+#[test]
 fn list_rules() {
     let (_d, session) = create();
     for n in ["b", "a/z", "a/y", "a/b/c"] {

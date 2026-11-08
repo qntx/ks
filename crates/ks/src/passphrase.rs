@@ -21,7 +21,7 @@ pub(crate) fn seal_identity(key: &LocalKey, passphrase: &SecretString) -> Result
     recipient.set_work_factor(WORK_FACTOR);
     let recipient: &dyn age::Recipient = &recipient;
     let encryptor = age::Encryptor::with_recipients(core::iter::once(recipient))
-        .map_err(|e| Error::InvalidInput(format!("encryption setup failed: {e}")))?;
+        .map_err(|_| Error::Internal("age encryption setup failed"))?;
     let plaintext = key.to_identity_text();
     let mut out = Vec::new();
     let mut writer = encryptor.wrap_output(&mut out).map_err(|e| Error::Io {
@@ -67,12 +67,15 @@ pub(crate) fn open_identity(bytes: &[u8], passphrase: &SecretString) -> Result<L
             }
             _ => corrupt("cannot be decrypted"),
         })?;
-    let mut plaintext = String::new();
+    let mut plaintext = zeroize::Zeroizing::new(Vec::with_capacity(bytes.len()));
     reader
         .take(1024 * 1024)
-        .read_to_string(&mut plaintext)
+        .read_to_end(&mut plaintext)
         .map_err(|_| corrupt("decrypted plaintext is not text"))?;
-    LocalKey::from_identity_text(&SecretString::from(plaintext))
+    core::str::from_utf8(&plaintext).map_err(|_| corrupt("decrypted plaintext is not UTF-8"))?;
+    let text = String::from_utf8(core::mem::take(&mut *plaintext))
+        .map_err(|_| corrupt("decrypted plaintext is not UTF-8"))?;
+    LocalKey::from_identity_text(&SecretString::from(text))
 }
 
 /// Validates a new passphrase. Returns warnings (non-fatal concerns).

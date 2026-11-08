@@ -49,6 +49,9 @@ pub enum Error {
     /// The passphrase did not decrypt the identity file.
     #[error("wrong passphrase")]
     WrongPassphrase,
+    /// An internal invariant failed (a program defect, not user input).
+    #[error("internal error: {0}")]
+    Internal(&'static str),
     /// A filesystem operation failed.
     #[error("I/O error on {path:?}: {source}")]
     Io {
@@ -73,6 +76,7 @@ impl Error {
             Self::Locked => ErrorCode::Locked,
             Self::WrongPassphrase => ErrorCode::WrongPassphrase,
             Self::Io { .. } => ErrorCode::Io,
+            Self::Internal(_) => ErrorCode::Internal,
         }
     }
 }

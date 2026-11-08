@@ -32,7 +32,9 @@ impl Vault {
     ///
     /// [`Error::InvalidInput`] when the home directory cannot be determined.
     pub fn default_path() -> Result<PathBuf> {
-        if let Some(custom) = std::env::var_os("KS_VAULT") {
+        if let Some(custom) = std::env::var_os("KS_VAULT")
+            && !custom.is_empty()
+        {
             return Ok(PathBuf::from(custom));
         }
         let home = directories::BaseDirs::new()
@@ -100,7 +102,7 @@ impl Vault {
         let identity_bytes = crate::passphrase::seal_identity(&key, passphrase)?;
         vault.with_write_lock(|| {
             vault.atomic_write(&vault.root.join(IDENTITY_FILE), &identity_bytes)?;
-            write_check(&key, &vault.root)?;
+            vault.write_check(&key)?;
             vault.atomic_write(&vault.root.join(".gitattributes"), GITATTRIBUTES.as_bytes())?;
             vault.atomic_write(&vault.root.join(".gitignore"), GITIGNORE.as_bytes())?;
             Ok(())
@@ -215,16 +217,55 @@ impl Vault {
         let mut cursor = self.root.clone();
         for component in path
             .strip_prefix(&self.root)
-            .map_err(|_| Error::InvalidInput("path outside vault".into()))?
+            .map_err(|_| Error::Internal("path outside vault"))?
             .components()
         {
             cursor.push(component);
             match cursor.symlink_metadata() {
                 Ok(meta) if meta.file_type().is_symlink() => return Err(corrupt(&cursor)),
-                Ok(_) | Err(_) => {}
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(Error::Io {
+                        path: cursor.clone(),
+                        source: e,
+                    });
+                }
             }
         }
         Ok(())
+    }
+
+    /// Checks `.check.age` under `key`: exists, single-X25519, decrypts, and
+    /// contains exactly `ks1 check <sha256 of .identity.age>\n`. Every read
+    /// goes through [`Vault::read_file`] (symlink refusal, size cap).
+    pub(crate) fn verify_check(&self, key: &LocalKey) -> bool {
+        self.verify_check_inner(key).unwrap_or(false)
+    }
+
+    fn verify_check_inner(&self, key: &LocalKey) -> Option<bool> {
+        let identity_bytes = self
+            .read_file(&self.root.join(IDENTITY_FILE), MAX_SMALL_FILE)
+            .ok()?;
+        let expected = format!("ks1 check {}\n", hex_sha256(&identity_bytes));
+        let check_path = self.root.join(CHECK_FILE);
+        let check_bytes = self.read_file(&check_path, MAX_SMALL_FILE).ok()?;
+        header::check_single_x25519(&check_bytes, &check_path).ok()?;
+        let decryptor = age::Decryptor::new_buffered(&check_bytes[..]).ok()?;
+        let identity: &dyn age::Identity = key;
+        let reader = decryptor.decrypt(core::iter::once(identity)).ok()?;
+        let mut plaintext = Zeroizing::new(Vec::with_capacity(check_bytes.len()));
+        reader.take(1024).read_to_end(&mut plaintext).ok()?;
+        Some(*plaintext == *expected.as_bytes())
+    }
+
+    /// Encrypts `ks1 check <sha256 of .identity.age>` to the current key and
+    /// atomically writes `.check.age`.
+    pub(crate) fn write_check(&self, key: &LocalKey) -> Result<()> {
+        let identity_bytes = self.read_file(&self.root.join(IDENTITY_FILE), MAX_SMALL_FILE)?;
+        let plaintext = format!("ks1 check {}\n", hex_sha256(&identity_bytes));
+        let encrypted = encrypt_to(key, Zeroizing::new(plaintext.into_bytes()))?;
+        self.atomic_write(&self.root.join(CHECK_FILE), &encrypted)
     }
 
     /// Runs `f` holding the exclusive write lock on `<root>/.lock`.
@@ -246,20 +287,44 @@ impl Vault {
         f()
     }
 
+    /// Removes directories below the vault root that became empty after a
+    /// deletion. Best-effort: stops at the first non-empty or failing dir.
+    /// Caller must hold the write lock.
+    fn prune_empty_parents(&self, path: &Path) {
+        let mut dir = path.parent();
+        while let Some(d) = dir {
+            if d == self.root {
+                break;
+            }
+            match std::fs::remove_dir(d) {
+                Ok(()) => dir = d.parent(),
+                Err(_) => break,
+            }
+        }
+    }
+
     /// Atomically replaces `path` with `bytes`: `.tmp*` tempfile in the target
     /// directory, write + fsync, rename, then fsync the directory (unix).
     pub(crate) fn atomic_write(&self, path: &Path, bytes: &[u8]) -> Result<()> {
         self.check_no_symlinks(path)?;
         let dir = path.parent().unwrap_or(&self.root);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt as _;
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(dir)
+                .map_err(|e| Error::Io {
+                    path: dir.to_path_buf(),
+                    source: e,
+                })?;
+        }
+        #[cfg(not(unix))]
         std::fs::create_dir_all(dir).map_err(|e| Error::Io {
             path: dir.to_path_buf(),
             source: e,
         })?;
-        #[cfg(unix)]
-        drop(std::fs::set_permissions(
-            dir,
-            std::fs::Permissions::from_mode(0o700),
-        ));
         let mut tmp = tempfile::Builder::new()
             .prefix(".tmp")
             .tempfile_in(dir)
@@ -301,43 +366,6 @@ fn io_or_notfound(path: &Path, e: std::io::Error) -> Error {
     }
 }
 
-/// Computes the SHA-256 of `.identity.age` and checks `.check.age` under
-/// `key`: exists, single-X25519, decrypts, and contains exactly
-/// `ks1 check <hex>\n`.
-pub(crate) fn verify_check(key: &LocalKey, root: &Path) -> bool {
-    verify_check_inner(key, root).unwrap_or(false)
-}
-
-fn verify_check_inner(key: &LocalKey, root: &Path) -> Option<bool> {
-    let identity_bytes = std::fs::read(root.join(IDENTITY_FILE)).ok()?;
-    let expected = format!("ks1 check {}\n", hex_sha256(&identity_bytes));
-    let check_path = root.join(CHECK_FILE);
-    let check_bytes = std::fs::read(&check_path).ok()?;
-    if u64::try_from(check_bytes.len()).unwrap_or(u64::MAX) > MAX_SMALL_FILE {
-        return Some(false);
-    }
-    header::check_single_x25519(&check_bytes, &check_path).ok()?;
-    let decryptor = age::Decryptor::new_buffered(&check_bytes[..]).ok()?;
-    let identity: &dyn age::Identity = key;
-    let reader = decryptor.decrypt(core::iter::once(identity)).ok()?;
-    let mut plaintext = Vec::new();
-    reader.take(1024).read_to_end(&mut plaintext).ok()?;
-    Some(plaintext == expected.as_bytes())
-}
-
-/// Encrypts `ks1 check <sha256 of .identity.age>` to the current key and
-/// atomically writes `.check.age`.
-pub(crate) fn write_check(key: &LocalKey, root: &Path) -> Result<()> {
-    let identity_bytes = std::fs::read(root.join(IDENTITY_FILE))
-        .map_err(|e| io_or_notfound(&root.join(IDENTITY_FILE), e))?;
-    let plaintext = format!("ks1 check {}\n", hex_sha256(&identity_bytes));
-    let encrypted = encrypt_to(key, Zeroizing::new(plaintext.into_bytes()))?;
-    let vault = Vault {
-        root: root.to_path_buf(),
-    };
-    vault.atomic_write(&root.join(CHECK_FILE), &encrypted)
-}
-
 pub(crate) fn hex_sha256(bytes: &[u8]) -> String {
     use sha2::Digest as _;
     crate::hex(sha2::Sha256::digest(bytes).into())
@@ -351,11 +379,11 @@ pub(crate) fn hex_sha256(bytes: &[u8]) -> String {
 pub(crate) fn encrypt_to(key: &LocalKey, plaintext: Zeroizing<Vec<u8>>) -> Result<Vec<u8>> {
     let recipient: &dyn age::Recipient = key;
     let encryptor = age::Encryptor::with_recipients(core::iter::once(recipient))
-        .map_err(|e| Error::InvalidInput(format!("encryption setup failed: {e}")))?;
+        .map_err(|_| Error::Internal("age encryption setup failed"))?;
     let mut out = Vec::new();
     let mut writer = encryptor
         .wrap_output(&mut out)
-        .map_err(|e| Error::InvalidInput(format!("encryption failed: {e}")))?;
+        .map_err(|_| Error::Internal("age wrap failed"))?;
     writer
         .write_all(&plaintext)
         .and_then(|()| writer.finish().map(|_| ()))
@@ -383,12 +411,12 @@ pub(crate) fn decrypt_entry(
     let reader = decryptor
         .decrypt(core::iter::once(identity))
         .map_err(|_| corrupt("cannot be decrypted with the current key"))?;
-    let mut plaintext = Vec::new();
+    let mut plaintext = Zeroizing::new(Vec::with_capacity(bytes.len()));
     reader
         .take(crate::entry::MAX_ENTRY_PLAINTEXT + 4096)
         .read_to_end(&mut plaintext)
         .map_err(|_| corrupt("decryption failed"))?;
-    Entry::decode(Zeroizing::new(plaintext), name, path)
+    Entry::decode(plaintext, name, path)
 }
 
 /// An unlocked session over a [`Vault`].
@@ -454,19 +482,10 @@ impl Session {
             std::fs::remove_file(&path).map_err(|e| Error::Io {
                 path: path.clone(),
                 source: e,
-            })
-        })?;
-        let mut dir = path.parent();
-        while let Some(d) = dir {
-            if d == self.vault.root {
-                break;
-            }
-            match std::fs::remove_dir(d) {
-                Ok(()) => dir = d.parent(),
-                Err(_) => break,
-            }
-        }
-        Ok(())
+            })?;
+            self.vault.prune_empty_parents(&path);
+            Ok(())
+        })
     }
 
     /// Re-encrypts an entry under a new name, then deletes the old file.
@@ -477,14 +496,19 @@ impl Session {
     /// [`Error::NotFound`] if `from` is absent; [`Error::Exists`] when `to`
     /// exists and `overwrite` is false.
     pub fn rename(&self, from: &Name, to: &Name, overwrite: bool) -> Result<()> {
+        if from == to {
+            return Err(Error::InvalidInput(
+                "source and destination are the same entry".into(),
+            ));
+        }
         let from_path = from.path_in(&self.vault.root);
         let to_path = to.path_in(&self.vault.root);
-        let bytes = self.vault.read_file(&from_path, MAX_ENTRY_FILE)?;
-        let entry = decrypt_entry(&self.key, &bytes, from, &from_path)?;
-        if !overwrite && to_path.exists() {
-            return Err(Error::Exists(to.to_string()));
-        }
         self.vault.with_write_lock(|| {
+            let bytes = self.vault.read_file(&from_path, MAX_ENTRY_FILE)?;
+            let entry = decrypt_entry(&self.key, &bytes, from, &from_path)?;
+            if !overwrite && to_path.exists() {
+                return Err(Error::Exists(to.to_string()));
+            }
             let encrypted = encrypt_to(&self.key, entry.encode(to))?;
             self.vault.atomic_write(&to_path, &encrypted)?;
             std::fs::remove_file(&from_path).map_err(|e| Error::Io {
@@ -507,7 +531,7 @@ impl Session {
             let identity_bytes = crate::passphrase::seal_identity(&self.key, new_passphrase)?;
             self.vault
                 .atomic_write(&self.vault.root.join(IDENTITY_FILE), &identity_bytes)?;
-            write_check(&self.key, &self.vault.root)
+            self.vault.write_check(&self.key)
         })
     }
 

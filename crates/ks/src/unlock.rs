@@ -3,7 +3,7 @@
 
 use age::secrecy::SecretString;
 
-use crate::vault::{IDENTITY_FILE, MAX_SMALL_FILE, verify_check, write_check};
+use crate::vault::{IDENTITY_FILE, MAX_SMALL_FILE};
 use crate::{Error, Result, Session, Vault};
 
 impl Vault {
@@ -21,16 +21,16 @@ impl Vault {
     /// - [`Error::WrongPassphrase`], [`Error::Corrupt`], [`Error::Io`] as
     ///   applicable.
     pub fn unlock(&self, passphrase: Option<&dyn Fn() -> Result<SecretString>>) -> Result<Session> {
+        let identity_path = self.root().join(IDENTITY_FILE);
+        let bytes = self.read_file(&identity_path, MAX_SMALL_FILE)?;
         let Some(get_passphrase) = passphrase else {
             return Err(Error::Locked);
         };
         let secret = get_passphrase()?;
-        let identity_path = self.root().join(IDENTITY_FILE);
-        let bytes = self.read_file(&identity_path, MAX_SMALL_FILE)?;
         let key = crate::passphrase::open_identity(&bytes, &secret)?;
         let mut warnings = Vec::new();
-        if !verify_check(&key, self.root()) {
-            self.with_write_lock(|| write_check(&key, self.root()))?;
+        if !self.verify_check(&key) {
+            self.with_write_lock(|| self.write_check(&key))?;
             warnings.push("check file rebuilt".to_owned());
         }
         Ok(Session::new(Self::open(self.root())?, key, warnings))

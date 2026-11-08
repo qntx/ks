@@ -1,5 +1,6 @@
-//! `vectors/` conformance: name rules, header decoding, and the committed
-//! fixture vault. `regenerate_fixture` (ignored) rebuilds `vectors/vault`.
+//! `vectors/` conformance: name rules and the committed fixture vault.
+//! `regenerate_fixture` (ignored) rebuilds `vectors/vault`. Header vectors are
+//! asserted against `Entry::decode` in `entry.rs` unit tests.
 
 #![allow(
     unused_crate_dependencies,
@@ -45,59 +46,6 @@ fn name_vectors() {
             Name::parse(name).is_err(),
             "invalid name accepted: {name} ({reason})"
         );
-    }
-}
-
-#[test]
-fn header_vectors() {
-    let json: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(vectors().join("headers.json")).unwrap())
-            .unwrap();
-    for case in json["entries"].as_array().unwrap() {
-        let plaintext = case["plaintext"].as_str().unwrap();
-        let name = Name::parse(case["name"].as_str().unwrap()).unwrap();
-        let ok = case["ok"].as_bool().unwrap();
-        // Round-trip through the crate's private decode via a live vault is
-        // covered by the fixture; here we check the public-facing outcome by
-        // re-deriving what decode accepts through `Entry` constructors.
-        let result = decode_like_ks(plaintext, &name);
-        assert_eq!(result.is_ok(), ok, "{plaintext:?} ({})", case["reason"]);
-        if ok {
-            assert_eq!(
-                result.unwrap().kind().as_str(),
-                case["kind"].as_str().unwrap()
-            );
-        }
-    }
-}
-
-/// Mirrors the strict header parsing in `entry::decode` using only public
-/// pieces, so the vector table stays honest about the wire format.
-fn decode_like_ks(plaintext: &str, expected: &Name) -> ks::Result<Entry> {
-    let path = Path::new("vector");
-    let corrupt = || ks::Error::Corrupt {
-        path: path.to_path_buf(),
-        reason: "vector",
-    };
-    let (header, payload) = plaintext.split_once('\n').ok_or_else(corrupt)?;
-    let mut parts = header.splitn(3, ' ');
-    if parts.next() != Some("ks1") {
-        return Err(corrupt());
-    }
-    let kind = parts.next().ok_or_else(corrupt)?;
-    let name = parts.next().ok_or_else(corrupt)?;
-    if name.contains(' ') || name != expected.as_str() {
-        return Err(corrupt());
-    }
-    if payload.contains('\r') || payload.is_empty() {
-        return Err(corrupt());
-    }
-    match kind {
-        "text" => Entry::text(Zeroizing::new(payload.to_owned())),
-        "binary" => Entry::binary(Zeroizing::new(payload.as_bytes().to_vec())),
-        "mnemonic" => Entry::mnemonic(Zeroizing::new(payload.to_owned())),
-        "key" => Entry::key(Zeroizing::new(payload.to_owned())),
-        _ => Err(corrupt()),
     }
 }
 

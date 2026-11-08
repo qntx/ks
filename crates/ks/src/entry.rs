@@ -364,6 +364,29 @@ mod tests {
         assert_eq!(t.fields().count(), 3);
     }
 
+    #[test]
+    fn header_vectors() {
+        let json: serde_json::Value =
+            serde_json::from_str(include_str!("../../../vectors/headers.json")).unwrap();
+        for case in json["entries"].as_array().unwrap() {
+            let plaintext = case["plaintext"].as_str().unwrap();
+            let name = Name::parse(case["name"].as_str().unwrap()).unwrap();
+            let ok = case["ok"].as_bool().unwrap();
+            let result = Entry::decode(
+                Zeroizing::new(plaintext.as_bytes().to_vec()),
+                &name,
+                Path::new("vector"),
+            );
+            assert_eq!(result.is_ok(), ok, "{plaintext:?} ({})", case["reason"]);
+            if ok {
+                assert_eq!(
+                    result.unwrap().kind().as_str(),
+                    case["kind"].as_str().unwrap()
+                );
+            }
+        }
+    }
+
     proptest! {
         #[test]
         fn decode_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..1024)) {

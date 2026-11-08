@@ -32,8 +32,14 @@ impl LocalKey {
     ///
     /// [`Error::Corrupt`] on bad lines or the wrong key count.
     pub(crate) fn from_identity_text(text: &SecretString) -> Result<Self> {
+        if text.expose_secret().contains('\r') {
+            return Err(Error::Corrupt {
+                path: "identity file".into(),
+                reason: "contains CR",
+            });
+        }
         let mut keys = Vec::new();
-        for line in text.expose_secret().lines() {
+        for line in text.expose_secret().split('\n') {
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
@@ -58,7 +64,8 @@ impl LocalKey {
     /// Serializes as an `age` identity file (`# ks vault key` header).
     #[must_use]
     pub(crate) fn to_identity_text(&self) -> SecretString {
-        let mut out = String::from("# ks vault key\n");
+        let mut out = String::with_capacity(16 + 65 * self.keys.len());
+        out.push_str("# ks vault key\n");
         for key in &self.keys {
             out.push_str(key.to_string().expose_secret());
             out.push('\n');
