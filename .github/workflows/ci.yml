@@ -58,3 +58,38 @@ jobs:
       - uses: qntx/workflows/actions/hardened-checkout@v2
       - uses: qntx/workflows/actions/setup-rust@v2
       - run: cargo test --workspace --all-features
+
+  # The fixture vault must recover with the official age CLI alone (G3);
+  # vault-identity.txt is the decrypted .identity.age — public test
+  # material since the fixture passphrase is committed in vault.json.
+  age-recovery:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq age jq
+      - run: age --version
+      - name: decrypt every entry with age -d -i and verify header + payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in vectors/vault/*.age; do
+            [ "$(basename "$f")" = ".identity.age" ] && continue
+            [ "$(basename "$f")" = ".check.age" ] && continue
+            out="$(age -d -i vectors/vault-identity.txt "$f")"
+            header="$(printf '%s' "$out" | head -n1)"
+            [[ "$header" == ks1\ *\ * ]] || { echo "$f: bad header: $header"; exit 1; }
+            kind="${header#ks1 }"; kind="${kind%% *}"
+            name="${header##* }"
+            path="vectors/vault/$name.age"
+            [ "$f" = "$path" ] || { echo "$f: name $name != path"; exit 1; }
+            payload="$(printf '%s' "$out" | tail -n +2)"
+            expected="$(jq -r --arg n "$name" '.entries[] | select(.name==$n) | .payload // empty' vectors/vault.json)"
+            if [ -n "$expected" ]; then
+              [ "$payload" = "$expected" ] || { echo "$f: payload mismatch"; exit 1; }
+            fi
+            echo "$name: ok ($kind)"
+          done

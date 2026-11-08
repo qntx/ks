@@ -83,6 +83,30 @@ fn fixture_vault() {
 }
 
 /// Regenerates `vectors/vault` and `vectors/vault.json` from scratch:
+/// `vectors/vault-identity.txt` must be the decrypted `.identity.age` —
+/// the CI recovery job depends on it and it cannot be allowed to drift.
+#[test]
+fn vault_identity_txt_matches_identity_age() {
+    let root = vectors().join("vault");
+    let meta: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(vectors().join("vault.json")).unwrap())
+            .unwrap();
+    let passphrase = SecretString::from(meta["passphrase"].as_str().unwrap());
+    let bytes = std::fs::read(root.join(".identity.age")).unwrap();
+    let decryptor = age::Decryptor::new_buffered(&bytes[..]).unwrap();
+    let mut scrypt = age::scrypt::Identity::new(passphrase);
+    scrypt.set_max_work_factor(20);
+    let scrypt_ref: &dyn age::Identity = &scrypt;
+    let mut reader = decryptor.decrypt(std::iter::once(scrypt_ref)).unwrap();
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut reader, &mut text).unwrap();
+    let committed = std::fs::read_to_string(vectors().join("vault-identity.txt")).unwrap();
+    assert_eq!(
+        text, committed,
+        "vault-identity.txt drifted; regenerate with `cargo test -p ks --test vectors -- --ignored regenerate_fixture`"
+    );
+}
+
 /// `cargo test -p ks --test vectors -- --ignored regenerate_fixture`
 #[test]
 #[ignore = "fixture generation: run only to regenerate vectors/vault"]
@@ -110,5 +134,17 @@ fn regenerate_fixture() {
         Entry::binary(Zeroizing::new(vec![0xde, 0xad, 0xbe, 0xef, 0x00, 0x01])).unwrap(),
     );
 
+    // The decrypted identity file is public test material (the fixture
+    // passphrase is committed in vault.json): vault-identity.txt lets CI
+    // verify `age -d -i` recovery without a TTY.
+    let identity_bytes = std::fs::read(dir.join(".identity.age")).unwrap();
+    let decryptor = age::Decryptor::new_buffered(&identity_bytes[..]).unwrap();
+    let mut scrypt = age::scrypt::Identity::new(passphrase);
+    scrypt.set_max_work_factor(20);
+    let scrypt_ref: &dyn age::Identity = &scrypt;
+    let mut reader = decryptor.decrypt(std::iter::once(scrypt_ref)).unwrap();
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut reader, &mut text).unwrap();
+    std::fs::write(vectors().join("vault-identity.txt"), &text).unwrap();
     std::io::stdout().write_all(b"fixture regenerated").unwrap();
 }

@@ -1,5 +1,5 @@
 [workspace]
-exclude = ["fuzz"]
+exclude         = ["fuzz"]
 members         = ["crates/ks", "crates/ks-cli"]
 default-members = ["crates/ks-cli"]
 resolver        = "3"
