@@ -181,6 +181,16 @@ fn vault_overwrite_needs_force() {
     assert_eq!(out.trim(), "two");
 }
 
+#[test]
+fn vault_edit_binary_is_usage() {
+    let t = mk();
+    init(&t);
+    run(&t, &["set", "bin/blob", "-b"], &[0xde, 0xad]);
+    let (code, _, err) = run(&t, &["edit", "bin/blob"], b"");
+    assert_eq!(code, 64);
+    assert!(err.contains("binary"));
+}
+
 #[cfg(unix)]
 #[test]
 fn vault_edit_via_editor() {

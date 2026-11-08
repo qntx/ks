@@ -9,9 +9,6 @@ use super::{Cli, CliResult, Out, autocommit, err, fail, name, unlock};
 
 /// Opens the entry in `$VISUAL`/`$EDITOR`/`vi` inside a private temp dir.
 pub(crate) fn run(cli: &Cli, out: &Out, n: &str) -> CliResult<i32> {
-    if !out.interactive {
-        return fail(ErrorCode::Usage, "edit requires an interactive terminal");
-    }
     let session = unlock(cli, out)?;
     let name = name(n)?;
     let existing = match session.get(&name) {
@@ -24,10 +21,17 @@ pub(crate) fn run(cli: &Cli, out: &Out, n: &str) -> CliResult<i32> {
     {
         return fail(ErrorCode::Usage, "binary entries cannot be edited");
     }
-    let current = existing
-        .as_ref()
-        .and_then(|e| e.as_text().map(|t| t.as_str().to_owned()))
-        .unwrap_or_default();
+    if !out.interactive {
+        return fail(ErrorCode::Usage, "edit requires an interactive terminal");
+    }
+    let current = match &existing {
+        None => String::new(),
+        Some(e) => e
+            .as_text()
+            .ok_or_else(|| (ErrorCode::Internal, "text entry without text".to_owned()))?
+            .as_str()
+            .to_owned(),
+    };
 
     let dir = tempfile::Builder::new()
         .prefix("ks-edit-")
