@@ -49,5 +49,8 @@ windows-native-keyring-store = { workspace = true, optional = true }
 proptest   = { workspace = true }
 serde_json = { workspace = true, optional = false }
 
+[package.metadata.docs.rs]
+all-features = true
+
 [lints]
 workspace = true
