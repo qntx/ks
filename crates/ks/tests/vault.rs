@@ -500,7 +500,7 @@ fn unlock_without_source_is_locked() {
 }
 
 #[test]
-fn key_changed_rejects_writes_during_rotation() {
+fn admin_rekey_concurrent_writer_gets_key_changed() {
     let (_d, r) = root();
     let session = Vault::create(&r, &passphrase()).unwrap();
     let name = name("a");
