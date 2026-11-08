@@ -147,10 +147,17 @@ fn vault_show_copy() {
     init(&t);
     run(&t, &["set", "a"], b"v");
     let (code, out, err) = run(&t, &["show", "a", "-c"], b"");
-    assert!(
-        code == 0 || err.contains("unavailable") || out.contains("unavailable"),
-        "{code} {out} {err}"
-    );
+    // A headless Linux runner has no clipboard: the helper must say so
+    // instead of pretending; everywhere else the copy must succeed.
+    let headless = cfg!(target_os = "linux")
+        && std::env::var_os("DISPLAY").is_none()
+        && std::env::var_os("WAYLAND_DISPLAY").is_none();
+    if headless {
+        assert_eq!(code, 69, "{out} {err}");
+        assert!(err.contains("could not set the clipboard"), "{err}");
+    } else {
+        assert_eq!(code, 0, "{out} {err}");
+    }
 }
 
 #[test]
@@ -684,27 +691,35 @@ fn unlock_soft_fails_on_loose_state_dir() {
     let t = mk();
     init(&t);
     run(&t, &["set", "a"], b"v");
-    let mut shared = {
-        let base = std::env::home_dir().unwrap();
-        if cfg!(target_os = "macos") {
-            base.join("Library/Application Support/ks")
-        } else {
-            base.join(".local/share/ks")
-        }
+    // Loosen the directory holding the agent endpoint. Linux: a private
+    // XDG_RUNTIME_DIR owned by this test. macOS: the shared run dir under
+    // Application Support (directories ignores env), restored afterwards.
+    let xdg = tempfile::tempdir().unwrap();
+    let dir = if cfg!(target_os = "macos") {
+        std::env::home_dir()
+            .unwrap()
+            .join("Library/Application Support/ks/run")
+    } else {
+        xdg.path().join("ks")
     };
-    if shared.join("run").is_dir() {
-        shared = shared.join("run");
-    }
-    let mode = shared.symlink_metadata().unwrap().permissions().mode() & 0o777;
-    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let (code, out, err) = run(&t, &["show", "a"], b"");
-    let p = ks(&t, &["show", "a"])
-        .env_remove("KS_PASSPHRASE_FILE")
-        .env_remove("KS_PASSPHRASE")
+    std::fs::create_dir_all(&dir).unwrap();
+    let mode = dir.symlink_metadata().unwrap().permissions().mode() & 0o777;
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let with_pass = ks(&t, &["show", "a"])
+        .env("XDG_RUNTIME_DIR", xdg.path())
+        .stdin(std::process::Stdio::null())
         .output()
         .unwrap();
-    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(mode)).unwrap();
-    assert_eq!(code, 0, "{out} {err}");
+    let without = ks(&t, &["show", "a"])
+        .env("XDG_RUNTIME_DIR", xdg.path())
+        .env_remove("KS_PASSPHRASE_FILE")
+        .env_remove("KS_PASSPHRASE")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode)).unwrap();
+    let err = String::from_utf8_lossy(&with_pass.stderr);
+    assert_eq!(with_pass.status.code(), Some(0), "{err}");
     assert!(err.contains("agent"), "expected an agent warning: {err}");
-    assert_eq!(p.status.code(), Some(77));
+    assert_eq!(without.status.code(), Some(77));
 }
