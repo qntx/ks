@@ -22,8 +22,22 @@ pub(crate) enum Reason {
     /// Max session lifetime.
     Max,
     /// System sleep.
+    #[cfg_attr(
+        not(target_os = "macos"),
+        expect(
+            dead_code,
+            reason = "emitted only by the macOS platform module until D7 adds Windows and Linux signals"
+        )
+    )]
     Sleep,
     /// Screen locked / session resigned.
+    #[cfg_attr(
+        not(target_os = "macos"),
+        expect(
+            dead_code,
+            reason = "emitted only by the macOS platform module until D7 adds Windows and Linux signals"
+        )
+    )]
     ScreenLock,
     /// `.identity.age` changed under the session.
     KeyChanged,
