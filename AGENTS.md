@@ -43,3 +43,7 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
 cargo deny check
 bun run lint && bun run typecheck && bun run build && bun run test
 ```
+
+`vp run` caches task results locally (`run.cache` is off only when `CI` is
+set); prefix the JS gate with `CI=1` for an uncached run before a pull
+request.
