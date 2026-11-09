@@ -122,7 +122,20 @@ impl Git {
     ///
     /// [`Error::Unavailable`] when `root` is not a repo or git fails.
     pub fn status(&self) -> Result<GitStatus> {
-        let out = self.git(&[&["status", "--porcelain=v2", "--branch"], STAGE_PATHS].concat())?;
+        // `--no-optional-locks`: a status read never takes `index.lock`, so
+        // it cannot contend with a concurrent commit or sync.
+        let out = self.git(
+            &[
+                &[
+                    "--no-optional-locks",
+                    "status",
+                    "--porcelain=v2",
+                    "--branch",
+                ],
+                STAGE_PATHS,
+            ]
+            .concat(),
+        )?;
         let text = String::from_utf8_lossy(&out.stdout);
         let mut status = GitStatus::default();
         for line in text.lines() {
