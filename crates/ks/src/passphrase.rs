@@ -199,3 +199,45 @@ mod tests {
         );
     }
 }
+
+/// Structured strength report for UIs (create/change passphrase hints).
+#[derive(Debug, Clone)]
+pub struct Strength {
+    /// zxcvbn score 0-4.
+    pub score: u8,
+    /// Whether the passphrase passes policy (≥15 chars, no control chars,
+    /// zxcvbn ≥3).
+    pub ok: bool,
+    /// First policy problem when `!ok`.
+    pub problem: Option<String>,
+    /// zxcvbn suggestions.
+    pub suggestions: Vec<String>,
+}
+
+/// Computes the structured strength of a candidate passphrase without
+/// enforcing the policy (for live feedback).
+#[must_use]
+pub fn strength(passphrase: &str) -> Strength {
+    let entropy = zxcvbn::zxcvbn(passphrase, &[]);
+    let mut problem = None;
+    if passphrase.chars().count() < 15 {
+        problem = Some("must be at least 15 characters".to_owned());
+    } else if passphrase.chars().any(char::is_control) {
+        problem = Some("must not contain control characters".to_owned());
+    } else if entropy.score() < zxcvbn::Score::Three {
+        problem = Some("zxcvbn score below 3".to_owned());
+    }
+    let mut suggestions = Vec::new();
+    if let Some(feedback) = entropy.feedback() {
+        if let Some(w) = feedback.warning() {
+            suggestions.push(w.to_string());
+        }
+        suggestions.extend(feedback.suggestions().iter().map(ToString::to_string));
+    }
+    Strength {
+        score: u8::from(entropy.score()),
+        ok: problem.is_none(),
+        problem,
+        suggestions,
+    }
+}
