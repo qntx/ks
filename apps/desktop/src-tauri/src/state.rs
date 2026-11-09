@@ -2,7 +2,8 @@
 //! watcher and lock timers. Locking drops the Session (key zeroized).
 
 use std::sync::Mutex;
-use std::time::Instant;
+use std::sync::mpsc::Sender;
+use std::time::{Duration, Instant};
 
 use crate::watch::Watcher;
 
@@ -14,10 +15,38 @@ pub(crate) struct Open {
     pub session: Option<ks::Session>,
     /// Filesystem watcher feeding `EntriesChanged`/`key_changed`.
     pub watcher: Option<Watcher>,
+    /// Auto-lock watchdog stop channel; `None` while locked.
+    pub watchdog: Option<Sender<crate::lock::Wake>>,
     /// Last unwrap/wrap or command activity.
     pub last_activity: Instant,
     /// When the session was unlocked.
     pub unlocked_at: Option<Instant>,
+}
+
+impl Open {
+    /// Stops the auto-lock watchdog, if running.
+    fn stop_watchdog(&mut self) {
+        if let Some(tx) = self.watchdog.take() {
+            drop(tx.send(crate::lock::Wake));
+        }
+    }
+
+    /// (Re)starts the auto-lock watchdog for this session.
+    pub(crate) fn start_watchdog(
+        &mut self,
+        state: std::sync::Arc<AppState>,
+        idle: Duration,
+        max: Duration,
+    ) {
+        self.stop_watchdog();
+        self.watchdog = Some(crate::lock::start(state, idle, max));
+    }
+}
+
+impl Drop for Open {
+    fn drop(&mut self) {
+        self.stop_watchdog();
+    }
 }
 
 /// Shared app state behind one mutex; commands borrow it briefly.
@@ -61,6 +90,8 @@ impl AppState {
         if o.session.take().is_none() {
             return false;
         }
+        o.unlocked_at = None;
+        o.stop_watchdog();
         crate::lock::on_locked(reason);
         true
     }

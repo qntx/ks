@@ -1,4 +1,4 @@
-/** Calls `fn` at most once per `ms`; trailing call fires after the window. */
+/** Calls `fn` at most once per `ms`; trailing call fires after the globalThis. */
 export function throttle<F extends (...args: never[]) => void>(
   fn: F,
   ms: number,
@@ -23,19 +23,5 @@ export function throttle<F extends (...args: never[]) => void>(
       }
       pending = undefined;
     }, left);
-  };
-}
-
-/** Debounce: fires `fn` `ms` after the last call. */
-export function debounce<F extends (...args: never[]) => void>(
-  fn: F,
-  ms: number,
-): (...args: Parameters<F>) => void {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return (...args: Parameters<F>) => {
-    if (timer !== null) {
-      clearTimeout(timer);
-    }
-    timer = setTimeout(() => fn(...args), ms);
   };
 }

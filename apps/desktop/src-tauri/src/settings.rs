@@ -1,5 +1,7 @@
 //! Non-secret settings persisted as JSON in the app config dir.
 
+use std::path::{Path, PathBuf};
+
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
@@ -31,12 +33,38 @@ impl Default for Settings {
     }
 }
 
+/// The app's config dir. Under `cfg(test)` it is a per-process temp dir
+/// so tests never touch the real user config.
+fn dir() -> PathBuf {
+    if cfg!(test) {
+        return std::env::temp_dir().join(format!("ks-desktop-{}", std::process::id()));
+    }
+    directories::BaseDirs::new().map_or_else(|| PathBuf::from("ks"), |d| d.config_dir().join("ks"))
+}
+
 /// Path of the settings file under the app config dir.
-pub(crate) fn path() -> std::path::PathBuf {
-    directories::BaseDirs::new().map_or_else(
-        || std::path::PathBuf::from("ks-settings.json"),
-        |d| d.config_dir().join("ks").join("settings.json"),
-    )
+pub(crate) fn path() -> PathBuf {
+    dir().join("settings.json")
+}
+
+/// Path of the app state file (last vault) under the app config dir.
+fn state_path() -> PathBuf {
+    dir().join("state.json")
+}
+
+/// Atomically writes `bytes` to `p` with 0600 permissions.
+fn write_atomic(p: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(d) = p.parent() {
+        std::fs::create_dir_all(d)?;
+    }
+    let tmp = p.with_extension("tmp");
+    std::fs::write(&tmp, bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::rename(&tmp, p)
 }
 
 /// Loads settings; missing/corrupt file yields defaults.
@@ -48,17 +76,22 @@ pub(crate) fn load() -> Settings {
 }
 
 /// Saves settings atomically with 0600 permissions.
-pub(crate) fn save(s: &Settings) -> Result<(), std::io::Error> {
-    let p = path();
-    if let Some(dir) = p.parent() {
-        std::fs::create_dir_all(dir)?;
+pub(crate) fn save(s: &Settings) -> std::io::Result<()> {
+    write_atomic(&path(), &serde_json::to_vec(s)?)
+}
+
+/// The last vault successfully opened, created or cloned.
+pub(crate) fn last_vault() -> Option<PathBuf> {
+    let bytes = std::fs::read(state_path()).ok()?;
+    let state: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    state.get("lastVault")?.as_str().map(PathBuf::from)
+}
+
+/// Remembers `path` as the last-used vault; persistence is
+/// best-effort, so write failures are ignored.
+pub(crate) fn remember_vault(path: &Path) {
+    let state = serde_json::json!({ "lastVault": path.display().to_string() });
+    if let Ok(bytes) = serde_json::to_vec(&state) {
+        drop(write_atomic(&state_path(), &bytes));
     }
-    let tmp = p.with_extension("tmp");
-    std::fs::write(&tmp, serde_json::to_vec(s)?)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
-    }
-    std::fs::rename(&tmp, &p)
 }

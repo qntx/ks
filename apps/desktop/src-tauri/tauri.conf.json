@@ -13,11 +13,13 @@
       {
         "label": "main",
         "title": "ks",
-        "width": 1100,
-        "height": 720,
-        "minWidth": 800,
-        "minHeight": 560,
-        "contentProtected": true
+        "width": 1180,
+        "height": 760,
+        "minWidth": 960,
+        "minHeight": 600,
+        "contentProtected": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {
@@ -34,6 +36,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    }
   }
 }

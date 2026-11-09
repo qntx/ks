@@ -75,6 +75,7 @@ fn mk_git() -> Fixture {
     let state = Arc::new(AppState::new());
     app.manage(state.clone());
     commands::create_vault(
+        app.handle().clone(),
         app.state::<Arc<AppState>>(),
         vault.display().to_string(),
         SecretText::new(PASS),
@@ -88,8 +89,6 @@ fn mk_git() -> Fixture {
         state,
     };
     git_local_config(&f.vault);
-    let (code, _w) = unlock(&f);
-    assert!(code.is_none());
     f
 }
 
@@ -441,6 +440,7 @@ fn desk_core_onboard_create_open_invalid_and_settings() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("new-vault");
     let v = commands::create_vault(
+        f.app.handle().clone(),
         f.app.state::<Arc<AppState>>(),
         p.display().to_string(),
         SecretText::new(PASS),
@@ -449,6 +449,12 @@ fn desk_core_onboard_create_open_invalid_and_settings() {
     .unwrap();
     assert_eq!(v.path, p.canonicalize().unwrap().display().to_string());
     assert!(p.join(".identity.age").exists());
+    // create keeps the session: the new vault is already unlocked.
+    assert!(commands::app_state(f.app.state::<Arc<AppState>>()).unlocked);
+    assert_eq!(
+        commands::list_entries(f.app.state::<Arc<AppState>>()).unwrap(),
+        Vec::<String>::new()
+    );
 
     let mut s = commands::get_settings();
     s.auto_lock_minutes = 7;
@@ -488,6 +494,7 @@ fn desk_core_onboard_clone_local_repo() {
     let dir = tempfile::tempdir().unwrap();
     let dst = dir.path().join("cloned");
     let v = tauri::async_runtime::block_on(commands::clone_vault(
+        f.app.handle().clone(),
         f.app.state::<Arc<AppState>>(),
         f.vault.display().to_string(),
         dst.display().to_string(),
@@ -496,6 +503,56 @@ fn desk_core_onboard_clone_local_repo() {
     .unwrap();
     assert_eq!(v.path, dst.canonicalize().unwrap().display().to_string());
     assert!(dst.join(".identity.age").exists());
+    // clone keeps the session: the cloned vault is already unlocked.
+    assert_eq!(
+        commands::list_entries(f.app.state::<Arc<AppState>>()).unwrap(),
+        vec!["a".to_owned()]
+    );
+}
+
+#[test]
+fn desk_core_totp_field_ref_returns_code_not_seed() {
+    let f = mk();
+    unlock(&f);
+    set(
+        &f,
+        "otp",
+        "value\ntotp: GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+        false,
+    );
+    let code = commands::reveal_field(
+        f.app.state::<Arc<AppState>>(),
+        "otp".into(),
+        commands::FieldRef::Totp,
+    )
+    .unwrap();
+    assert_eq!(code.expose().len(), 6);
+    assert!(code.expose().chars().all(|c| c.is_ascii_digit()));
+    assert_ne!(code.expose(), "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ");
+    #[cfg(target_os = "macos")]
+    {
+        let c = commands::copy_field(
+            f.app.state::<Arc<AppState>>(),
+            "otp".into(),
+            commands::FieldRef::Totp,
+        )
+        .unwrap();
+        assert!(c.clears_in_secs > 0);
+    }
+}
+
+#[test]
+fn desk_core_last_vault_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let p = dir.path().join("v");
+    // Other tests share this process's state file; retry to win any race.
+    for _ in 0..50 {
+        crate::settings::remember_vault(&p);
+        if crate::settings::last_vault().as_deref() == Some(p.as_path()) {
+            return;
+        }
+    }
+    panic!("last_vault did not round-trip");
 }
 
 /// Repo-local git identity so tests never read the developer's or
@@ -514,4 +571,23 @@ fn git_local_config(vault: &PathBuf) {
             .unwrap();
         assert!(st.success());
     }
+}
+
+#[test]
+fn desk_core_watchdog_thread_exits_after_auto_lock() {
+    let f = mk();
+    let (err, _) = unlock(&f);
+    assert!(err.is_none());
+    // idle=ZERO: the first tick's deadline is already past.
+    let tx = crate::lock::start(f.state.clone(), Duration::ZERO, Duration::from_secs(3600));
+    for _ in 0..200 {
+        if !commands::app_state(f.app.state::<Arc<AppState>>()).unlocked {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!commands::app_state(f.app.state::<Arc<AppState>>()).unlocked);
+    std::thread::sleep(Duration::from_secs(1));
+    // The receiver is gone: the watchdog returned instead of busy-spinning.
+    assert!(tx.send(crate::lock::Wake).is_err());
 }
