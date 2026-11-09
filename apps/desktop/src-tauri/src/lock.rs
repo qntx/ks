@@ -103,6 +103,7 @@ fn time_left(state: &std::sync::Arc<AppState>, idle: Duration, max: Duration) ->
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     i.open.as_ref().and_then(|o| {
+        o.session.as_ref()?;
         let u = o.unlocked_at?;
         Some(
             idle.saturating_sub(o.last_activity.elapsed())
@@ -125,7 +126,7 @@ pub(crate) fn start(
                 None => Duration::from_secs(60),
                 Some(d) if d.is_zero() => {
                     let _ = lock_now(&state, expired_reason(&state, idle));
-                    continue;
+                    return;
                 }
                 Some(d) => d.min(Duration::from_secs(5)),
             };

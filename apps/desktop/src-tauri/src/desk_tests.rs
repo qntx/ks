@@ -572,3 +572,22 @@ fn git_local_config(vault: &PathBuf) {
         assert!(st.success());
     }
 }
+
+#[test]
+fn desk_core_watchdog_thread_exits_after_auto_lock() {
+    let f = mk();
+    let (err, _) = unlock(&f);
+    assert!(err.is_none());
+    // idle=ZERO: the first tick's deadline is already past.
+    let tx = crate::lock::start(f.state.clone(), Duration::ZERO, Duration::from_secs(3600));
+    for _ in 0..200 {
+        if !commands::app_state(f.app.state::<Arc<AppState>>()).unlocked {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!commands::app_state(f.app.state::<Arc<AppState>>()).unlocked);
+    std::thread::sleep(Duration::from_secs(1));
+    // The receiver is gone: the watchdog returned instead of busy-spinning.
+    assert!(tx.send(crate::lock::Wake).is_err());
+}

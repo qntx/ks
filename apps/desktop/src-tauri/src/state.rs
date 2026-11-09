@@ -90,6 +90,7 @@ impl AppState {
         if o.session.take().is_none() {
             return false;
         }
+        o.unlocked_at = None;
         o.stop_watchdog();
         crate::lock::on_locked(reason);
         true
