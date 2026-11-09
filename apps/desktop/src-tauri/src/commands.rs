@@ -762,17 +762,17 @@ pub(crate) fn edit_entry(
     Ok(SecretText::new(t.as_str().to_owned()))
 }
 
-fn autocommit(v: &ks::Vault, msg: &str) -> Vec<String> {
-    if !v.root().join(".git").exists() {
+/// Autocommit of the caller's message. Writes take `state.git` before
+/// the file op, so a running sync can never stage a half-written
+/// change — attribution is deterministic.
+fn autocommit(root: &std::path::Path, msg: &str) -> Vec<String> {
+    if !root.join(".git").exists() {
         return Vec::new();
     }
-    match Ok::<_, ks::Error>(ks::git::Git::new(v.root(), false)) {
-        Ok(g) => g
-            .commit_paths(&[std::path::PathBuf::from("*.age")], msg)
-            .map(|_| Vec::<String>::new())
-            .unwrap_or_default(),
-        Err(_) => Vec::new(),
-    }
+    ks::git::Git::new(root, false)
+        .commit_paths(&[std::path::PathBuf::from("*.age")], msg)
+        .map(|_| Vec::<String>::new())
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -783,6 +783,10 @@ pub(crate) fn save_entry(
     text: SecretText,
     overwrite: bool,
 ) -> R<Vec<String>> {
+    let _git = state
+        .git
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     state.with_session(|s| {
         s.set(
             &ks::Name::parse(&name)?,
@@ -790,17 +794,15 @@ pub(crate) fn save_entry(
             overwrite,
         )
     })?;
-    let warnings = {
+    let root = {
         let i = state
             .inner
             .lock()
             .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-        i.open
-            .as_ref()
-            .map_or_else(Vec::new, |o| autocommit(&o.vault, &format!("set {name}")))
+        i.open.as_ref().map(|o| o.vault.root().to_path_buf())
     };
     crate::sync::after_write(state.inner());
-    Ok(warnings)
+    Ok(root.map_or_else(Vec::new, |r| autocommit(&r, &format!("set {name}"))))
 }
 
 #[tauri::command]
@@ -811,19 +813,21 @@ pub(crate) fn rename_entry(
     to: String,
     overwrite: bool,
 ) -> R<Vec<String>> {
+    let _git = state
+        .git
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     state
         .with_session(|s| s.rename(&ks::Name::parse(&from)?, &ks::Name::parse(&to)?, overwrite))?;
-    let warnings = {
+    let root = {
         let i = state
             .inner
             .lock()
             .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-        i.open.as_ref().map_or_else(Vec::new, |o| {
-            autocommit(&o.vault, &format!("mv {from} {to}"))
-        })
+        i.open.as_ref().map(|o| o.vault.root().to_path_buf())
     };
     crate::sync::after_write(state.inner());
-    Ok(warnings)
+    Ok(root.map_or_else(Vec::new, |r| autocommit(&r, &format!("mv {from} {to}"))))
 }
 
 #[tauri::command]
@@ -832,18 +836,20 @@ pub(crate) fn delete_entry(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
     name: String,
 ) -> R<Vec<String>> {
+    let _git = state
+        .git
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     state.with_session(|s| s.remove(&ks::Name::parse(&name)?))?;
-    let warnings = {
+    let root = {
         let i = state
             .inner
             .lock()
             .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-        i.open
-            .as_ref()
-            .map_or_else(Vec::new, |o| autocommit(&o.vault, &format!("rm {name}")))
+        i.open.as_ref().map(|o| o.vault.root().to_path_buf())
     };
     crate::sync::after_write(state.inner());
-    Ok(warnings)
+    Ok(root.map_or_else(Vec::new, |r| autocommit(&r, &format!("rm {name}"))))
 }
 
 #[tauri::command]
@@ -872,6 +878,10 @@ pub(crate) fn import_binary(
         path: src.to_path_buf(),
         source: e,
     })?;
+    let _git = state
+        .git
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     state.with_session(|s| {
         s.set(
             &ks::Name::parse(&name)?,
@@ -879,17 +889,15 @@ pub(crate) fn import_binary(
             overwrite,
         )
     })?;
-    let warnings = {
+    let root = {
         let i = state
             .inner
             .lock()
             .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-        i.open.as_ref().map_or_else(Vec::new, |o| {
-            autocommit(&o.vault, &format!("import {name}"))
-        })
+        i.open.as_ref().map(|o| o.vault.root().to_path_buf())
     };
     crate::sync::after_write(state.inner());
-    Ok(warnings)
+    Ok(root.map_or_else(Vec::new, |r| autocommit(&r, &format!("import {name}"))))
 }
 
 #[tauri::command]

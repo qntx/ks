@@ -59,6 +59,14 @@ impl Drop for Open {
 pub(crate) struct AppState {
     /// Single-flight sync slot — never held across git I/O.
     pub(crate) sync: Mutex<crate::sync::SyncSlot>,
+    /// Serializes every app-initiated git process. Write commands hold
+    /// it across file write + autocommit so a running sync can never
+    /// stage a half-written change; a write during a sync simply waits.
+    ///
+    /// Lock order: `git` is outermost — `inner`/`sync` may be acquired
+    /// while it is held, but `inner`/`sync` are never held while
+    /// waiting on `git`.
+    pub(crate) git: Mutex<()>,
     /// Inner state.
     pub inner: Mutex<Inner>,
 }
@@ -85,6 +93,7 @@ impl AppState {
                 write_due: None,
                 debounce_pending: false,
             }),
+            git: Mutex::new(()),
         }
     }
 

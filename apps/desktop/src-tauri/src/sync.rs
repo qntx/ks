@@ -175,7 +175,13 @@ pub(crate) fn run_sync(
         s.state = SyncState::Running;
     }
     emit(&SyncState::Running);
-    let result = ks::git::Git::new(root, false).sync(keep);
+    let result = {
+        let _guard = state
+            .git
+            .lock()
+            .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+        ks::git::Git::new(root, false).sync(keep)
+    };
     let (outcome, final_state, err) = match result {
         Ok(r) => (
             Some(SyncOutcome::Synced {

@@ -1056,3 +1056,42 @@ fn desk_sync_quit_waits_for_sync() {
 
     assert!(remote_tree(&bare).contains("e.age"));
 }
+
+/// Regression for the CI flake: an unlock-triggered background sync and
+/// write autocommits share one git mutex — every autocommit must land.
+#[test]
+fn desk_sync_writes_during_unlock_sync_all_commit() {
+    let f = mk_git();
+    unlock(&f);
+    let _bare = wire_remote(&f);
+    // exactly what begin_session fires after a successful unlock
+    crate::sync::after_unlock(&f.state);
+    set(&f, "a", "v", false);
+    commands::rename_entry(
+        f.app.state::<Arc<AppState>>(),
+        "a".to_owned(),
+        "b".to_owned(),
+        false,
+    )
+    .unwrap();
+    commands::delete_entry(f.app.state::<Arc<AppState>>(), "b".to_owned()).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let out = std::process::Command::new("git")
+            .args(["-C"])
+            .arg(&f.vault)
+            .args(["log", "--format=%s"])
+            .output()
+            .unwrap();
+        let log = String::from_utf8_lossy(&out.stdout);
+        if log.contains("set a") && log.contains("mv a b") && log.contains("rm b") {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "autocommits lost to a racing sync: {log}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
