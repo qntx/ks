@@ -54,6 +54,7 @@ export const en = {
   },
   lockReason: {
     manual: "",
+    terminal: "Locked from the terminal",
     idle: "Locked after inactivity",
     max: "Session time limit reached",
     sleep: "Locked when your Mac slept",

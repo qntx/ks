@@ -69,6 +69,7 @@ export async function boot(): Promise<void> {
     phase: view.vault === null ? "welcome" : view.unlocked ? "unlocked" : "locked",
     vault: view.vault ?? undefined,
     settings: view.settings,
+    lockReason: view.lockReason ?? undefined,
   });
 }
 

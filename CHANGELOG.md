@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+- `ks lock` returns only after the session agent has exited, and
+  `ks status` shows unbounded agent timers as `no limit`
+
 ### Fixed
 
+- `ks unlock` no longer races the agent it replaces for the endpoint
 - copied secrets are marked concealed/transient and kept off Universal
   Clipboard on macOS, and out of clipboard history and cloud sync on
   Windows

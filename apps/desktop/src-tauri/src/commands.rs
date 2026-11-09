@@ -5,6 +5,8 @@ use specta::Type;
 
 use sha2::Digest as _;
 
+use age::secrecy::SecretString;
+
 use crate::error::AppError;
 use crate::secret::SecretText;
 use crate::state::AppState;
@@ -43,6 +45,8 @@ pub(crate) struct AppView {
     pub vault: Option<VaultInfo>,
     /// Whether a session is unlocked.
     pub unlocked: bool,
+    /// Why the vault last locked, so a reloaded webview can show it.
+    pub lock_reason: Option<crate::lock::Reason>,
     /// Current settings.
     pub settings: crate::settings::Settings,
 }
@@ -57,6 +61,7 @@ pub(crate) fn app_state(state: tauri::State<'_, std::sync::Arc<AppState>>) -> Ap
     AppView {
         vault: i.open.as_ref().map(|o| info(&o.vault)),
         unlocked: i.open.as_ref().is_some_and(|o| o.session.is_some()),
+        lock_reason: i.last_lock_reason,
         settings: crate::settings::load(),
     }
 }
@@ -80,6 +85,7 @@ pub(crate) fn install_open(state: &std::sync::Arc<AppState>, vault: ks::Vault) -
         .lock()
         .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
     i.open = Some(crate::state::Open {
+        agent: None,
         vault,
         session: None,
         watcher: None,
@@ -98,35 +104,105 @@ fn begin_session<RT: tauri::Runtime>(
     state: &std::sync::Arc<AppState>,
     session: ks::Session,
 ) -> R<Vec<String>> {
-    let warnings = session.warnings().to_vec();
-    let mut i = state
-        .inner
-        .lock()
-        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-    let o = i.open.as_mut().ok_or(ks::Error::Locked)?;
-    let root = o.vault.root().to_path_buf();
-    let identity_hash = std::fs::read(root.join(".identity.age"))
-        .ok()
-        .map(|b| sha2::Sha256::digest(&b).to_vec())
-        .unwrap_or_default();
-    o.session = Some(session);
-    o.unlocked_at = Some(std::time::Instant::now());
-    o.last_activity = std::time::Instant::now();
-    o.watcher = crate::watch::Watcher::start(
-        app.clone(),
-        std::sync::Arc::clone(state),
-        root,
-        identity_hash,
-    );
-    #[cfg(target_os = "macos")]
-    drop(app.run_on_main_thread(crate::lock::platform::begin_activity));
-    let st = crate::settings::load();
-    o.start_watchdog(
-        std::sync::Arc::clone(state),
-        duration_or_never(st.auto_lock_minutes, 60),
-        duration_or_never(st.max_session_hours, 3600),
-    );
+    let mut warnings = session.warnings().to_vec();
+    let agent_identity = session.agent_identity();
+
+    // Under the lock: install the session, clocks, watcher, watchdog.
+    let (root, installed_at, idle, max) = {
+        let mut i = state
+            .inner
+            .lock()
+            .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+        let o = i.open.as_mut().ok_or(ks::Error::Locked)?;
+        let root = o.vault.root().to_path_buf();
+        let identity_hash = std::fs::read(root.join(".identity.age"))
+            .ok()
+            .map(|b| sha2::Sha256::digest(&b).to_vec())
+            .unwrap_or_default();
+        let at = std::time::Instant::now();
+        o.session = Some(session);
+        o.unlocked_at = Some(at);
+        o.last_activity = at;
+        o.watcher = crate::watch::Watcher::start(
+            app.clone(),
+            std::sync::Arc::clone(state),
+            root.clone(),
+            identity_hash,
+        );
+        #[cfg(target_os = "macos")]
+        drop(app.run_on_main_thread(crate::lock::platform::begin_activity));
+        let st = crate::settings::load();
+        let idle = duration_or_never(st.auto_lock_minutes, 60);
+        let max = duration_or_never(st.max_session_hours, 3600);
+        o.start_watchdog(std::sync::Arc::clone(state), idle, max);
+        i.last_lock_reason = None;
+        (root, at, idle, max)
+    };
+
+    // Host the agent endpoint so the CLI/agent work without a passphrase
+    // (ADR-16) — outside the state lock: `ks::agent::lock` can block ~2 s
+    // while a superseded agent exits, and `Server::start` binds a socket.
+    // A running `ks unlock` agent is asked to exit first; the app then
+    // takes over. Failure does not block the session.
+    let started = ks::Vault::open(&root)
+        .map_err(|e| e.to_string())
+        .and_then(|v| {
+            drop(ks::agent::lock(&v));
+            agent_identity
+                .ok_or_else(|| "vault has no exportable identity".to_owned())
+                .and_then(|identity| {
+                    ks::agent::Server::start(
+                        &v,
+                        identity,
+                        ks::agent::ServerConfig {
+                            ttl: idle,
+                            max,
+                            host: ks::agent::Host::Desktop,
+                        },
+                    )
+                    .map_err(|e| e.to_string())
+                })
+        });
+    match started {
+        Ok(server) => {
+            let mut i = state
+                .inner
+                .lock()
+                .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+            let same_session = i
+                .open
+                .as_ref()
+                .is_some_and(|o| o.session.is_some() && o.unlocked_at == Some(installed_at));
+            if same_session {
+                if let Some(o) = i.open.as_mut() {
+                    o.agent = Some(server.handle());
+                }
+                let st2 = std::sync::Arc::clone(state);
+                drop(i);
+                std::thread::spawn(move || wait_agent(server, st2));
+            } else {
+                // Locked or replaced while the endpoint was being set up.
+                drop(i);
+                let _ = server.stop();
+            }
+        }
+        Err(e) => warnings.push(format!("terminal session unavailable: {e}")),
+    }
     Ok(warnings)
+}
+
+/// Agent waiter thread: `Server::wait` blocks until the endpoint dies,
+/// then maps the stop reason to an app lock (`Stopped` needs none).
+fn wait_agent(server: ks::agent::Server, state: std::sync::Arc<AppState>) {
+    let reason = match server.wait() {
+        ks::agent::StopReason::Idle => Some(crate::lock::Reason::Idle),
+        ks::agent::StopReason::MaxLifetime => Some(crate::lock::Reason::Max),
+        ks::agent::StopReason::LockRequested => Some(crate::lock::Reason::Terminal),
+        ks::agent::StopReason::Stopped => None,
+    };
+    if let Some(reason) = reason {
+        let _ = state.lock(reason);
+    }
 }
 
 /// Settings encode "never" as `0`; map it to an unbounded duration.
@@ -161,10 +237,7 @@ pub(crate) fn create_vault<RT: tauri::Runtime>(
     git: bool,
 ) -> R<VaultInfo> {
     let p = std::path::Path::new(&path);
-    let session = ks::Vault::create(
-        p,
-        &age::secrecy::SecretString::from(passphrase.expose().to_owned()),
-    )?;
+    let session = ks::Vault::create(p, &SecretString::from(passphrase.expose().to_owned()))?;
     if git {
         ks::git::Git::new(p, false).init("ks init")?;
     }
@@ -190,9 +263,7 @@ pub(crate) async fn clone_vault<RT: tauri::Runtime>(
         drop(g);
         ks::Vault::open(std::path::Path::new(&path)).and_then(|v| {
             v.unlock_without_agent(Some(&|| {
-                Ok(age::secrecy::SecretString::from(
-                    passphrase.expose().to_owned(),
-                ))
+                Ok(SecretString::from(passphrase.expose().to_owned()))
             }))
         })
     })
@@ -256,11 +327,7 @@ pub(crate) fn unlock<RT: tauri::Runtime>(
             .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
         let o = i.open.as_mut().ok_or(ks::Error::Locked)?;
         let text = passphrase.as_ref().map(|p| p.expose().to_owned());
-        let cb = move || {
-            Ok(age::secrecy::SecretString::from(
-                text.clone().unwrap_or_default(),
-            ))
-        };
+        let cb = move || Ok(SecretString::from(text.clone().unwrap_or_default()));
         o.vault.unlock_without_agent(Some(&cb))?
     };
     let warnings = begin_session(&app, state.inner(), session)?;

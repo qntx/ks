@@ -60,6 +60,7 @@ async function bootTo(phase: "welcome" | "locked" | "unlocked"): Promise<void> {
   ipc.commands.appState.mockResolvedValue({
     vault: phase === "welcome" ? null : ipc.store.vault,
     unlocked: phase === "unlocked",
+    lockReason: null,
     settings: ipc.store.settings,
   });
   await boot();

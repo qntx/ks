@@ -55,6 +55,7 @@ export const zh = {
   },
   lockReason: {
     manual: "",
+    terminal: "已在终端中锁定",
     idle: "因闲置已锁定",
     max: "已达到会话时长上限",
     sleep: "Mac 睡眠时已锁定",
