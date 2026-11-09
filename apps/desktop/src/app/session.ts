@@ -22,6 +22,9 @@ const DEFAULT_SETTINGS: Settings_Serialize = {
   clipboardSeconds: 45,
   lockOnSleep: true,
   language: "system",
+  syncOnUnlock: true,
+  syncOnLock: true,
+  syncAfterWrite: false,
 };
 
 let state: SessionState = {

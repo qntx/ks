@@ -1,6 +1,14 @@
 import { vi } from "vite-plus/test";
 
-import type { Devices, AppError, AppView_Serialize, Settings_Serialize } from "../ipc/bindings.gen";
+import type {
+  Devices,
+  AppError,
+  AppView_Serialize,
+  GitStatus_Serialize,
+  Settings_Serialize,
+  SyncOutcome,
+  SyncState,
+} from "../ipc/bindings.gen";
 
 const ok = async <T>(data: T): Promise<{ status: "ok"; data: T }> => {
   await Promise.resolve();
@@ -20,6 +28,9 @@ export const DEFAULT_SETTINGS: Settings_Serialize = {
   clipboardSeconds: 45,
   lockOnSleep: true,
   language: "system",
+  syncOnUnlock: true,
+  syncOnLock: true,
+  syncAfterWrite: false,
 };
 
 function createBindingsMockImpl() {
@@ -29,6 +40,8 @@ function createBindingsMockImpl() {
       touchId: { supported: false, enabled: false, reason: null },
       keychain: { supported: true, enabled: false, reason: null },
     } as Devices,
+    gitStatus: undefined as GitStatus_Serialize | undefined,
+    syncState: { status: "idle" } as SyncState,
     texts: new Map<string, string>([
       [
         "work/github",
@@ -44,8 +57,10 @@ function createBindingsMockImpl() {
 
   type LockedCb = (e: { payload: { reason: string } }) => void;
   type ChangedCb = () => void;
+  type SyncCb = (e: { payload: SyncState }) => void;
   const lockedCbs = new Set<LockedCb>();
   const changedCbs = new Set<ChangedCb>();
+  const syncCbs = new Set<SyncCb>();
 
   const emitLocked = (reason: string): void => {
     for (const cb of lockedCbs) {
@@ -80,6 +95,20 @@ function createBindingsMockImpl() {
     ),
     unlockDevice: vi.fn(async () => ok({ unlocked: false, warnings: [], stale: false })),
     devices: vi.fn(async () => ok(store.devices)),
+    gitStatus: vi.fn(async () => ok(store.gitStatus)),
+    syncNow: vi.fn(async (_keep: unknown): Promise<{ status: "ok"; data: SyncOutcome }> =>
+      ok({
+        status: "synced",
+        committed: false,
+        pulled: false,
+        pushed: false,
+        warnings: [],
+      }),
+    ),
+    syncState: vi.fn(async () => {
+      await Promise.resolve();
+      return store.syncState;
+    }),
     setDevice: vi.fn(async (kind: "touch_id" | "keychain", enabled: boolean) => {
       store.devices[kind === "touch_id" ? "touchId" : "keychain"].enabled = enabled;
       return ok([]);
@@ -191,6 +220,14 @@ function createBindingsMockImpl() {
         };
       }),
     },
+    syncState: {
+      listen: vi.fn((cb: SyncCb) => {
+        syncCbs.add(cb);
+        return () => {
+          syncCbs.delete(cb);
+        };
+      }),
+    },
     entriesChanged: {
       listen: vi.fn((cb: ChangedCb) => {
         changedCbs.add(cb);
@@ -201,7 +238,14 @@ function createBindingsMockImpl() {
     },
   };
 
-  return { commands, events, store, emitLocked, emitChanged };
+  const emitSyncState = (syncState: SyncState): void => {
+    store.syncState = syncState;
+    for (const cb of syncCbs) {
+      cb({ payload: syncState });
+    }
+  };
+
+  return { commands, events, store, emitLocked, emitChanged, emitSyncState };
 }
 
 /** Exported factory (explicit boundary type via the impl). */

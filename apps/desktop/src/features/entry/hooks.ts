@@ -37,6 +37,7 @@ function useVaultMutation<TVars>(
     onSuccess: async (warnings) => {
       await qc.invalidateQueries({ queryKey: queryKeys.entries });
       await qc.invalidateQueries({ queryKey: queryKeys.entryAll });
+      await qc.invalidateQueries({ queryKey: queryKeys.gitStatus });
       for (const w of warnings) {
         toast(w);
       }

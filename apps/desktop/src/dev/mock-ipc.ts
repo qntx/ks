@@ -12,6 +12,9 @@ const settings = {
   clipboardSeconds: 45,
   lockOnSleep: true,
   language: "system",
+  syncOnUnlock: true,
+  syncOnLock: true,
+  syncAfterWrite: false,
 };
 
 const texts = new Map<string, string>([
@@ -37,8 +40,13 @@ const binaries = new Map<string, number>([["personal/passport.pdf", 248_102]]);
 
 let hasVault = false;
 let unlocked = false;
+let lastSyncState: unknown = { status: "idle" };
+let syncUsed = false;
 
 const params = new URLSearchParams(location.search);
+const conflictParam = params.get("conflict");
+const conflictKind =
+  conflictParam === "content" || conflictParam === "delete" ? conflictParam : null;
 const mode = params.get("mock");
 let touchIdEnabled = params.get("touchid") !== null;
 let keychainEnabled = params.get("keychain") !== null;
@@ -178,6 +186,33 @@ const dispatch = (cmd: string, payload: unknown): unknown => {
       }
       unlocked = true;
       return { warnings: [] };
+    case "git_status":
+      return { branch: "main", upstream: "origin/main", ahead: 1, behind: 0, changes: 2 };
+    case "sync_state":
+      return lastSyncState;
+    case "sync_now":
+      if (!syncUsed && conflictKind !== null) {
+        syncUsed = true;
+        lastSyncState = {
+          status: "conflict",
+          entries: ["mail/github", "bank"],
+          kind: conflictKind,
+        };
+        void emit("sync-state", lastSyncState);
+        return lastSyncState;
+      }
+      lastSyncState = { status: "running" };
+      void emit("sync-state", lastSyncState);
+      setTimeout(() => {
+        lastSyncState = {
+          status: "synced",
+          at_secs: Math.floor(Date.now() / 1000),
+        };
+        void emit("sync-state", lastSyncState);
+        void emit("entries-changed", null);
+      }, 600);
+      return { status: "synced", committed: false, pulled: true, pushed: true, warnings: [] };
+
     case "devices":
       return {
         touchId: { supported: true, enabled: touchIdEnabled, reason: null },

@@ -5,6 +5,7 @@ import { lock } from "../../app/session";
 import { useMessages } from "../../i18n";
 import { leafName } from "../../lib/paths";
 import { Button, cn, IconButton } from "../../ui";
+import { SyncPill } from "../sync";
 import { FolderRows } from "./folder-tree";
 import type { FolderNode } from "./tree";
 
@@ -50,7 +51,7 @@ export function Sidebar({
       <div className="px-4 pb-3">
         <p className="text-ink truncate text-lg font-bold">{vaultTitle(vaultPath)}</p>
         <p className="text-muted truncate text-xs">
-          {vaultPath} · {isGit ? m.vault.gitSynced : m.vault.localOnly}
+          {vaultPath} · {isGit ? m.vault.git : m.vault.localOnly}
         </p>
       </div>
       <div className="px-3 pb-2">
@@ -118,6 +119,7 @@ export function Sidebar({
           }
         />
       </nav>
+      <SyncPill />
       <div className="flex items-center gap-2 px-3 pt-2 pb-3">
         <IconButton
           icon={SettingsIcon}

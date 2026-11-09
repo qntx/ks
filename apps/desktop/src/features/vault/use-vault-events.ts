@@ -16,6 +16,7 @@ export function useVaultEvents(): void {
       const u = await events.entriesChanged.listen(() => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.entries });
         void queryClient.invalidateQueries({ queryKey: queryKeys.entryAll });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.gitStatus });
       });
       if (dead) {
         u();

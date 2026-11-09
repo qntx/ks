@@ -19,6 +19,12 @@ pub(crate) struct Settings {
     pub lock_on_sleep: bool,
     /// UI language: "system", "en" or "zh".
     pub language: String,
+    /// Sync right after the vault unlocks.
+    pub sync_on_unlock: bool,
+    /// Sync right after the vault locks.
+    pub sync_on_lock: bool,
+    /// Debounced sync after writes.
+    pub sync_after_write: bool,
 }
 
 impl Default for Settings {
@@ -29,6 +35,9 @@ impl Default for Settings {
             clipboard_seconds: 45,
             lock_on_sleep: true,
             language: "system".to_owned(),
+            sync_on_unlock: true,
+            sync_on_lock: true,
+            sync_after_write: false,
         }
     }
 }

@@ -41,6 +41,7 @@ mod settings;
     reason = "state glue"
 )]
 mod state;
+mod sync;
 #[allow(
     clippy::pedantic,
     clippy::restriction,
@@ -107,6 +108,9 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             unlock_device::<tauri::Wry>,
             devices,
             set_device,
+            sync::git_status,
+            sync::sync_now,
+            sync::sync_state,
             lock,
             heartbeat,
             list_entries,
@@ -127,6 +131,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ])
         .events(tauri_specta::collect_events![
             lock::Locked,
+            sync::SyncState,
             watch::EntriesChanged
         ])
 }
@@ -161,9 +166,6 @@ fn tray(app: &tauri::App) -> tauri::Result<()> {
                 }
             }
             "quit" => {
-                if let Some(state) = handle.try_state::<Arc<state::AppState>>() {
-                    state.lock(lock::Reason::Quit);
-                }
                 handle.exit(0);
             }
             _ => {}
@@ -206,8 +208,34 @@ fn main() -> tauri::Result<()> {
         })
         .build(tauri::generate_context!())
         .map(|app| {
-            app.run(|_, _| {});
+            app.run(|handle, event| {
+                if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                    on_exit_requested(handle, &api);
+                }
+            });
         })
+}
+
+/// One-shot exit gate: the first `ExitRequested` is prevented so a
+/// thread can run `sync::quit` (lock + bounded sync wait); the second —
+/// issued by that thread — proceeds.
+fn on_exit_requested(handle: &tauri::AppHandle, api: &tauri::ExitRequestApi) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static EXITING: AtomicBool = AtomicBool::new(false);
+    if EXITING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    api.prevent_exit();
+    let st = handle
+        .try_state::<Arc<state::AppState>>()
+        .map(|s| Arc::clone(s.inner()));
+    let h = handle.clone();
+    std::thread::spawn(move || {
+        if let Some(st) = st {
+            sync::quit(&st);
+        }
+        h.exit(0);
+    });
 }
 
 #[cfg(test)]

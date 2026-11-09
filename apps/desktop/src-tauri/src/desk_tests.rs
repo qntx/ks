@@ -25,9 +25,9 @@
     reason = "test harness: panicking asserts and verbose fixtures are intentional"
 )]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use age::secrecy::SecretString;
 use sha2::Digest as _;
@@ -105,8 +105,8 @@ fn unlock(f: &Fixture) -> (Option<crate::error::AppError>, Vec<String>) {
         Ok(s) => {
             let w = s.warnings().to_vec();
             o.session = Some(s);
-            o.unlocked_at = Some(std::time::Instant::now());
-            o.last_activity = std::time::Instant::now();
+            o.unlocked_at = Some(Instant::now());
+            o.last_activity = Instant::now();
             (None, w)
         }
         Err(e) => (Some(e.into()), Vec::new()),
@@ -557,6 +557,41 @@ fn desk_core_last_vault_round_trip() {
 
 /// Repo-local git identity so tests never read the developer's or
 /// runner's global git config (no signing hooks either).
+/// Runs `git -C dir <args>` and asserts success.
+fn git_at(dir: &Path, args: &[&str]) {
+    let st = std::process::Command::new("git")
+        .args(["-C"])
+        .arg(dir)
+        .args(args)
+        .status()
+        .unwrap();
+    assert!(st.success(), "git {args:?} failed in {dir:?}");
+}
+
+/// Wires a fresh bare remote `r` next to the vault and pushes upstream.
+fn wire_remote(f: &Fixture) -> PathBuf {
+    let bare = f.vault.parent().unwrap().join("r");
+    std::fs::create_dir(&bare).unwrap();
+    git_at(&bare, &["init", "-q", "--bare"]);
+    git_at(
+        &f.vault,
+        &["remote", "add", "origin", bare.to_str().unwrap()],
+    );
+    git_at(&f.vault, &["push", "-q", "-u", "origin", "HEAD"]);
+    bare
+}
+
+/// `git -C dir ls-tree -r --name-only HEAD`.
+fn remote_tree(dir: &Path) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-C"])
+        .arg(dir)
+        .args(["ls-tree", "-r", "--name-only", "HEAD"])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
 fn git_local_config(vault: &PathBuf) {
     for args in [
         vec!["config", "user.name", "ks-test"],
@@ -880,4 +915,183 @@ fn desk_core_set_device_keychain_round_trip() {
     let d = commands::devices(f.app.state::<Arc<AppState>>()).unwrap();
     assert!(!d.keychain.enabled);
     commands::lock(f.app.state::<Arc<AppState>>()).unwrap();
+}
+
+/// `git_status` is `None` on a non-git vault and `Some` on a repo.
+#[test]
+fn desk_sync_git_status_optional() {
+    let f = mk();
+    assert!(
+        crate::sync::git_status(f.app.state::<Arc<AppState>>())
+            .unwrap()
+            .is_none()
+    );
+    let g = mk_git();
+    git_local_config(&g.vault);
+    let st = crate::sync::git_status(g.app.state::<Arc<AppState>>())
+        .unwrap()
+        .unwrap();
+    assert!(st.branch.is_some());
+}
+
+/// `sync_now` pushes a written entry to the bare remote.
+#[test]
+fn desk_sync_now_pushes() {
+    let f = mk_git();
+    set(&f, "new/entry", "v1", false);
+    let bare = wire_remote(&f);
+    let out =
+        tauri::async_runtime::block_on(crate::sync::sync_now(f.app.state::<Arc<AppState>>(), None))
+            .unwrap();
+    assert!(matches!(out, crate::sync::SyncOutcome::Synced { .. }));
+    let log = std::process::Command::new("git")
+        .args(["-C"])
+        .arg(&bare)
+        .args(["ls-tree", "-r", "--name-only", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&log.stdout).contains("new/entry.age"));
+}
+
+/// A concurrent second run is refused with `unavailable`.
+#[test]
+fn desk_sync_now_refuses_when_running() {
+    let f = mk();
+    f.state.sync.lock().unwrap().running = true;
+    let r = crate::sync::run_sync(&f.state, &f.vault, None);
+    assert!(r.is_err());
+}
+
+/// Settings defaults for the three new sync fields.
+#[test]
+fn desk_sync_settings_defaults() {
+    let st = crate::settings::Settings::default();
+    assert!(st.sync_on_unlock && st.sync_on_lock && !st.sync_after_write);
+}
+
+/// Two clones editing the same entry → `sync_now` reports a content
+/// conflict naming it; `keep local` resolves and pushes local bytes.
+#[test]
+fn desk_sync_content_conflict_then_keep_local() {
+    let f = mk_git();
+    unlock(&f);
+    set(&f, "x", "local", false);
+    let bare = wire_remote(&f);
+
+    // the second clone writes a different x.age and pushes
+    let other = f.vault.parent().unwrap().join("o");
+    git_at(
+        f.vault.parent().unwrap(),
+        &["clone", "-q", bare.to_str().unwrap(), "o"],
+    );
+    git_local_config(&other);
+    std::fs::write(other.join("x.age"), b"REMOTE").unwrap();
+    git_at(&other, &["add", "-Af", "--", "*.age"]);
+    git_at(&other, &["commit", "-qm", "remote edit"]);
+    git_at(&other, &["push", "-q"]);
+
+    // a diverging local edit on the same entry
+    set(&f, "x", "local-v3", true);
+
+    let out =
+        tauri::async_runtime::block_on(crate::sync::sync_now(f.app.state::<Arc<AppState>>(), None))
+            .unwrap();
+    let crate::sync::SyncOutcome::Conflict { entries, kind } = out else {
+        panic!("expected conflict, got {out:?}");
+    };
+    assert_eq!(kind, crate::sync::ConflictKind::Content);
+    assert!(entries.iter().any(|e| e == "x"), "entries: {entries:?}");
+
+    let out = tauri::async_runtime::block_on(crate::sync::sync_now(
+        f.app.state::<Arc<AppState>>(),
+        Some(crate::sync::Keep::Local),
+    ))
+    .unwrap();
+    assert!(matches!(out, crate::sync::SyncOutcome::Synced { .. }));
+
+    // the remote now carries the local file bytes
+    let show = std::process::Command::new("git")
+        .args(["-C"])
+        .arg(&bare)
+        .args(["show", "HEAD:x.age"])
+        .output()
+        .unwrap();
+    assert_eq!(show.stdout, std::fs::read(f.vault.join("x.age")).unwrap());
+}
+
+/// With `sync_on_lock`, `commands::lock` pushes the pending commit —
+/// the lock itself returns instantly and the remote catches up after.
+#[test]
+fn desk_sync_on_lock_pushes() {
+    let f = mk_git();
+    unlock(&f);
+    let bare = wire_remote(&f);
+    set(&f, "e", "v", false);
+
+    commands::lock(f.app.state::<Arc<AppState>>()).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if remote_tree(&bare).contains("e.age") {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "sync_on_lock did not push the pending commit"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// `sync::quit` waits for the on-quit sync: when it returns, the remote
+/// already has the pending commit.
+#[test]
+fn desk_sync_quit_waits_for_sync() {
+    let f = mk_git();
+    unlock(&f);
+    let bare = wire_remote(&f);
+    set(&f, "e", "v", false);
+
+    crate::sync::quit(&f.state);
+
+    assert!(remote_tree(&bare).contains("e.age"));
+}
+
+/// Regression for the CI flake: an unlock-triggered background sync and
+/// write autocommits share one git mutex — every autocommit must land.
+#[test]
+fn desk_sync_writes_during_unlock_sync_all_commit() {
+    let f = mk_git();
+    unlock(&f);
+    let _bare = wire_remote(&f);
+    // exactly what begin_session fires after a successful unlock
+    crate::sync::after_unlock(&f.state);
+    set(&f, "a", "v", false);
+    commands::rename_entry(
+        f.app.state::<Arc<AppState>>(),
+        "a".to_owned(),
+        "b".to_owned(),
+        false,
+    )
+    .unwrap();
+    commands::delete_entry(f.app.state::<Arc<AppState>>(), "b".to_owned()).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let out = std::process::Command::new("git")
+            .args(["-C"])
+            .arg(&f.vault)
+            .args(["log", "--format=%s"])
+            .output()
+            .unwrap();
+        let log = String::from_utf8_lossy(&out.stdout);
+        if log.contains("set a") && log.contains("mv a b") && log.contains("rm b") {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "autocommits lost to a racing sync: {log}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }

@@ -19,5 +19,6 @@ export const queryKeys = {
   entry: (name: string) => ["entry", name],
   entryAll: ["entry"],
   devices: ["devices"],
+  gitStatus: ["git-status"],
   totp: (name: string) => ["totp", name],
 } as const;
