@@ -31,9 +31,11 @@ pub struct SyncReport {
     pub warnings: Vec<String>,
 }
 
-/// One-shot view of the sync-relevant repo state, from a single
-/// `git status --porcelain=v2 --branch` scoped to [`STAGE_PATHS`].
-/// `ahead`/`behind` reflect the last fetch — `status` never goes online.
+/// One-shot view of the sync-relevant repo state.
+///
+/// Read from a single `git status --porcelain=v2 --branch` scoped to the
+/// syncable paths (`*.age`, `.gitignore`, `.gitattributes`). `ahead` and
+/// `behind` reflect the last fetch — `status` never goes online.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct GitStatus {
     /// Current branch name; `None` on a detached HEAD.
@@ -44,7 +46,7 @@ pub struct GitStatus {
     pub ahead: u32,
     /// Commits behind the upstream.
     pub behind: u32,
-    /// Uncommitted entry/metadata changes inside [`STAGE_PATHS`].
+    /// Uncommitted changes in the syncable paths.
     pub changes: u32,
 }
 
