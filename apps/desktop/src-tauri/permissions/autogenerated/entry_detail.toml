@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-entry-detail"
+description = "Enables the entry_detail command without any pre-configured scope."
+commands.allow = ["entry_detail"]
+
+[[permission]]
+identifier = "deny-entry-detail"
+description = "Denies the entry_detail command without any pre-configured scope."
+commands.deny = ["entry_detail"]

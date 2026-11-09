@@ -434,31 +434,53 @@ pub(crate) enum DeviceKind {
 #[specta::specta]
 pub(crate) fn unlock_device<RT: tauri::Runtime>(
     app: tauri::AppHandle<RT>,
+    window: tauri::WebviewWindow<RT>,
     state: tauri::State<'_, std::sync::Arc<AppState>>,
 ) -> R<DeviceUnlockResult> {
-    let out = {
-        let i = state
-            .inner
-            .lock()
-            .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-        let o = i.open.as_ref().ok_or(ks::Error::Locked)?;
-        o.vault.unlock_devices()?
-    };
-    match out {
-        ks::DeviceUnlock::Unlocked(session) => {
-            let warnings = begin_session(&app, state.inner(), session)?;
-            Ok(DeviceUnlockResult {
-                unlocked: true,
+    unlock_device_impl(&app, window.label() == "quick", &state)
+}
+
+/// `unlock_device` minus the window param — `from_quick` carries the
+/// label check so tests can drive it without a `WebviewWindow` (the
+/// mock runtime cannot build one).
+pub(crate) fn unlock_device_impl<RT: tauri::Runtime>(
+    app: &tauri::AppHandle<RT>,
+    from_quick: bool,
+    state: &tauri::State<'_, std::sync::Arc<AppState>>,
+) -> R<DeviceUnlockResult> {
+    // From the quick panel: pin it against the resign-key hide — the
+    // Touch ID prompt takes key status for its own window.
+    let pin = from_quick.then(crate::quick::Pin::new);
+    let result = (|| {
+        let out = {
+            let i = state
+                .inner
+                .lock()
+                .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+            let o = i.open.as_ref().ok_or(ks::Error::Locked)?;
+            o.vault.unlock_devices()?
+        };
+        match out {
+            ks::DeviceUnlock::Unlocked(session) => {
+                let warnings = begin_session(app, state.inner(), session)?;
+                Ok(DeviceUnlockResult {
+                    unlocked: true,
+                    warnings,
+                    stale: false,
+                })
+            }
+            ks::DeviceUnlock::Unavailable { warnings, stale } => Ok(DeviceUnlockResult {
+                unlocked: false,
                 warnings,
-                stale: false,
-            })
+                stale,
+            }),
         }
-        ks::DeviceUnlock::Unavailable { warnings, stale } => Ok(DeviceUnlockResult {
-            unlocked: false,
-            warnings,
-            stale,
-        }),
+    })();
+    if from_quick {
+        drop(pin);
+        crate::quick::show_quick(app);
     }
+    result
 }
 
 /// Reads the device-source state without ever prompting (attribute-only
@@ -655,14 +677,12 @@ pub(crate) fn entry_detail(
         Some(t) => {
             let mut fields = Vec::new();
             let mut notes_len = 0;
-            let mut totp = false;
             for (k, v) in t.fields() {
                 if k == "notes" {
                     notes_len = v.len() as u32;
                     continue;
                 }
-                if k == "totp" {
-                    totp = true;
+                if ks::totp::FIELDS.contains(&k) {
                     continue;
                 }
                 fields.push(FieldInfo {
@@ -677,7 +697,7 @@ pub(crate) fn entry_detail(
                 }),
                 fields,
                 notes_len,
-                totp,
+                ks::totp::has_secret(&entry),
                 "text".to_owned(),
                 None,
             )
@@ -702,20 +722,25 @@ pub(crate) fn entry_detail(
     })
 }
 
-fn resolve(entry: &ks::Entry, field: &FieldRef) -> Result<String, ks::Error> {
-    let t = entry
-        .as_text()
-        .ok_or_else(|| ks::Error::InvalidInput("binary entries cannot be revealed".into()))?;
+fn resolve(entry: &ks::Entry, field: &FieldRef) -> Result<String, AppError> {
+    let t = entry.as_text().ok_or(AppError {
+        code: "usage".into(),
+        message: "binary entries cannot be revealed".into(),
+    })?;
     match field {
         FieldRef::Value => Ok(t.value().to_owned()),
         FieldRef::Field(k) => t
             .field(k)
             .map(str::to_owned)
-            .ok_or_else(|| ks::Error::NotFound(k.clone())),
+            .ok_or_else(|| ks::Error::NotFound(k.clone()).into()),
         FieldRef::Notes => t
             .field("notes")
             .map(str::to_owned)
-            .ok_or_else(|| ks::Error::NotFound("notes".to_owned())),
+            .ok_or_else(|| ks::Error::NotFound("notes".to_owned()).into()),
+        FieldRef::Totp if !ks::totp::has_secret(entry) => Err(AppError {
+            code: "no_totp".into(),
+            message: "this entry has no TOTP".into(),
+        }),
         FieldRef::Totp => Ok(ks::totp::code(entry, std::time::SystemTime::now())?.0),
     }
 }
@@ -992,7 +1017,15 @@ pub(crate) fn get_settings() -> crate::settings::Settings {
 
 #[tauri::command(async)]
 #[specta::specta]
-pub(crate) fn set_settings(s: crate::settings::Settings) -> R<()> {
+pub(crate) fn set_settings<RT: tauri::Runtime>(
+    app: tauri::AppHandle<RT>,
+    s: crate::settings::Settings,
+) -> R<()> {
+    // Switch the global shortcut first — a refused chord must not persist.
+    let cur = crate::settings::load().quick_shortcut;
+    if s.quick_shortcut != cur {
+        crate::shortcut::apply(&app, s.quick_shortcut.as_deref(), cur.as_deref())?;
+    }
     crate::settings::save(&s).map_err(|e| AppError {
         code: "io".into(),
         message: e.to_string(),
@@ -1342,6 +1375,13 @@ fn restore_services<RT: tauri::Runtime>(
         duration_or_never(st.max_session_hours, 3600),
         installed_at.unwrap_or_else(std::time::Instant::now),
     );
+}
+
+/// The quick window hides itself (Esc, after a copy).
+#[tauri::command(async)]
+#[specta::specta]
+pub(crate) fn hide_quick(app: tauri::AppHandle) {
+    crate::quick::hide(&app);
 }
 
 /// Whether "open at login" is enabled (system state wins).

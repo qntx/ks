@@ -72,6 +72,8 @@ export const commands = {
 	 */
 	doctorFix: () => typedError<DoctorReport, AppError>(__TAURI_INVOKE("doctor_fix")),
 	heartbeat: () => __TAURI_INVOKE<void>("heartbeat"),
+	/**  The quick window hides itself (Esc, after a copy). */
+	hideQuick: () => __TAURI_INVOKE<void>("hide_quick"),
 	listEntries: () => typedError<string[], AppError>(__TAURI_INVOKE("list_entries")),
 	entryDetail: (name: string) => typedError<EntryDetail_Serialize, AppError>(__TAURI_INVOKE("entry_detail", { name })),
 	revealField: (name: string, field: FieldRef) => typedError<SecretText, AppError>(__TAURI_INVOKE("reveal_field", { name, field })),
@@ -93,6 +95,7 @@ export const commands = {
 export const events = {
 	entriesChanged: makeEvent<EntriesChanged, EntriesChanged>("entries-changed"),
 	locked: makeEvent<Locked, Locked>("locked"),
+	quickShown: makeEvent<QuickShown, QuickShown>("quick-shown"),
 	syncState: makeEvent<SyncState, SyncState>("sync-state"),
 };
 
@@ -340,6 +343,9 @@ export type Locked = {
 	reason: Reason,
 };
 
+/**  Payload emitted to the `quick` window when it is shown. */
+export type QuickShown = null;
+
 /**  Why a lock happened (also the `Locked` event payload). */
 export type Reason = 
 /**  User locked. */
@@ -394,6 +400,8 @@ export type Settings_Deserialize = {
 	syncOnLock?: boolean,
 	/**  Debounced sync after writes. */
 	syncAfterWrite?: boolean,
+	/**  Global quick-access shortcut chord; `None` disables it. */
+	quickShortcut?: string | null,
 };
 
 /**  User-facing preferences; defaults match `ks unlock`. */
@@ -414,6 +422,8 @@ export type Settings_Serialize = {
 	syncOnLock: boolean,
 	/**  Debounced sync after writes. */
 	syncAfterWrite: boolean,
+	/**  Global quick-access shortcut chord; `None` disables it. */
+	quickShortcut: string | null,
 };
 
 /**  Structured passphrase strength for live feedback. */
@@ -501,6 +511,7 @@ export type TrayLabels = {
 	quit: string,
 	locked: string,
 	unlocked: string,
+	quick: string,
 };
 
 /**  Unlock result. */

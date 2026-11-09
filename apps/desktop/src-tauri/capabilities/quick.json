@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick",
+  "windows": ["quick"],
+  "permissions": [
+    "core:event:default",
+    "allow-app-state",
+    "allow-get-settings",
+    "allow-list-entries",
+    "allow-copy-field",
+    "allow-unlock",
+    "allow-unlock-device",
+    "allow-devices",
+    "allow-heartbeat",
+    "allow-hide-quick"
+  ]
+}

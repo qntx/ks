@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vault-status"
+description = "Enables the vault_status command without any pre-configured scope."
+commands.allow = ["vault_status"]
+
+[[permission]]
+identifier = "deny-vault-status"
+description = "Denies the vault_status command without any pre-configured scope."
+commands.deny = ["vault_status"]

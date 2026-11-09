@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-doctor-fix"
+description = "Enables the doctor_fix command without any pre-configured scope."
+commands.allow = ["doctor_fix"]
+
+[[permission]]
+identifier = "deny-doctor-fix"
+description = "Denies the doctor_fix command without any pre-configured scope."
+commands.deny = ["doctor_fix"]

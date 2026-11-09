@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-passphrase-strength"
+description = "Enables the passphrase_strength command without any pre-configured scope."
+commands.allow = ["passphrase_strength"]
+
+[[permission]]
+identifier = "deny-passphrase-strength"
+description = "Denies the passphrase_strength command without any pre-configured scope."
+commands.deny = ["passphrase_strength"]

@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS: Settings_Serialize = {
   syncOnUnlock: true,
   syncOnLock: true,
   syncAfterWrite: false,
+  quickShortcut: "CommandOrControl+Shift+Space",
 };
 
 let state: SessionState = {

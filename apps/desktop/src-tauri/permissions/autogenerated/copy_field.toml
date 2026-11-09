@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-copy-field"
+description = "Enables the copy_field command without any pre-configured scope."
+commands.allow = ["copy_field"]
+
+[[permission]]
+identifier = "deny-copy-field"
+description = "Denies the copy_field command without any pre-configured scope."
+commands.deny = ["copy_field"]

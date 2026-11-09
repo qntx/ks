@@ -177,6 +177,474 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the app_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-app-state",
+          "markdownDescription": "Enables the app_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-autostart",
+          "markdownDescription": "Enables the autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the change_passphrase command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-change-passphrase",
+          "markdownDescription": "Enables the change_passphrase command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the clone_vault command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-clone-vault",
+          "markdownDescription": "Enables the clone_vault command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the copy_field command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-copy-field",
+          "markdownDescription": "Enables the copy_field command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the create_vault command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-create-vault",
+          "markdownDescription": "Enables the create_vault command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the delete_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-delete-entry",
+          "markdownDescription": "Enables the delete_entry command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the devices command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-devices",
+          "markdownDescription": "Enables the devices command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the doctor command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-doctor",
+          "markdownDescription": "Enables the doctor command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the doctor_fix command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-doctor-fix",
+          "markdownDescription": "Enables the doctor_fix command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the edit_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-edit-entry",
+          "markdownDescription": "Enables the edit_entry command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the entry_detail command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-entry-detail",
+          "markdownDescription": "Enables the entry_detail command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the export_binary command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-export-binary",
+          "markdownDescription": "Enables the export_binary command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the generate_password command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-generate-password",
+          "markdownDescription": "Enables the generate_password command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-settings",
+          "markdownDescription": "Enables the get_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the git_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-git-status",
+          "markdownDescription": "Enables the git_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the heartbeat command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-heartbeat",
+          "markdownDescription": "Enables the heartbeat command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the hide_quick command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-hide-quick",
+          "markdownDescription": "Enables the hide_quick command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the import_binary command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-import-binary",
+          "markdownDescription": "Enables the import_binary command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the list_entries command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-entries",
+          "markdownDescription": "Enables the list_entries command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the lock command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-lock",
+          "markdownDescription": "Enables the lock command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the open_vault command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-open-vault",
+          "markdownDescription": "Enables the open_vault command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the passphrase_strength command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-passphrase-strength",
+          "markdownDescription": "Enables the passphrase_strength command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the recent_vaults command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-recent-vaults",
+          "markdownDescription": "Enables the recent_vaults command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the rename_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-rename-entry",
+          "markdownDescription": "Enables the rename_entry command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reveal_field command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reveal-field",
+          "markdownDescription": "Enables the reveal_field command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the rotate_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-rotate-key",
+          "markdownDescription": "Enables the rotate_key command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the rotation_pending command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-rotation-pending",
+          "markdownDescription": "Enables the rotation_pending command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the save_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-save-entry",
+          "markdownDescription": "Enables the save_entry command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-autostart",
+          "markdownDescription": "Enables the set_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_device command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-device",
+          "markdownDescription": "Enables the set_device command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-settings",
+          "markdownDescription": "Enables the set_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_tray_labels command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-tray-labels",
+          "markdownDescription": "Enables the set_tray_labels command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sync_now command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sync-now",
+          "markdownDescription": "Enables the sync_now command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the sync_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-sync-state",
+          "markdownDescription": "Enables the sync_state command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the totp_code command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-totp-code",
+          "markdownDescription": "Enables the totp_code command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the unlock command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unlock",
+          "markdownDescription": "Enables the unlock command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the unlock_device command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unlock-device",
+          "markdownDescription": "Enables the unlock_device command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the vault_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-vault-status",
+          "markdownDescription": "Enables the vault_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the app_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-app-state",
+          "markdownDescription": "Denies the app_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-autostart",
+          "markdownDescription": "Denies the autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the change_passphrase command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-change-passphrase",
+          "markdownDescription": "Denies the change_passphrase command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clone_vault command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-clone-vault",
+          "markdownDescription": "Denies the clone_vault command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the copy_field command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-copy-field",
+          "markdownDescription": "Denies the copy_field command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the create_vault command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-create-vault",
+          "markdownDescription": "Denies the create_vault command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the delete_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-delete-entry",
+          "markdownDescription": "Denies the delete_entry command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the devices command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-devices",
+          "markdownDescription": "Denies the devices command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the doctor command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-doctor",
+          "markdownDescription": "Denies the doctor command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the doctor_fix command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-doctor-fix",
+          "markdownDescription": "Denies the doctor_fix command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the edit_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-edit-entry",
+          "markdownDescription": "Denies the edit_entry command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the entry_detail command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-entry-detail",
+          "markdownDescription": "Denies the entry_detail command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the export_binary command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-export-binary",
+          "markdownDescription": "Denies the export_binary command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the generate_password command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-generate-password",
+          "markdownDescription": "Denies the generate_password command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-settings",
+          "markdownDescription": "Denies the get_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the git_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-git-status",
+          "markdownDescription": "Denies the git_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the heartbeat command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-heartbeat",
+          "markdownDescription": "Denies the heartbeat command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the hide_quick command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-hide-quick",
+          "markdownDescription": "Denies the hide_quick command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the import_binary command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-import-binary",
+          "markdownDescription": "Denies the import_binary command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_entries command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-entries",
+          "markdownDescription": "Denies the list_entries command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the lock command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-lock",
+          "markdownDescription": "Denies the lock command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the open_vault command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-open-vault",
+          "markdownDescription": "Denies the open_vault command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the passphrase_strength command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-passphrase-strength",
+          "markdownDescription": "Denies the passphrase_strength command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the recent_vaults command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-recent-vaults",
+          "markdownDescription": "Denies the recent_vaults command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the rename_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-rename-entry",
+          "markdownDescription": "Denies the rename_entry command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reveal_field command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reveal-field",
+          "markdownDescription": "Denies the reveal_field command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the rotate_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-rotate-key",
+          "markdownDescription": "Denies the rotate_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the rotation_pending command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-rotation-pending",
+          "markdownDescription": "Denies the rotation_pending command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the save_entry command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-save-entry",
+          "markdownDescription": "Denies the save_entry command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_autostart command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-autostart",
+          "markdownDescription": "Denies the set_autostart command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_device command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-device",
+          "markdownDescription": "Denies the set_device command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_settings command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-settings",
+          "markdownDescription": "Denies the set_settings command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_tray_labels command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-tray-labels",
+          "markdownDescription": "Denies the set_tray_labels command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sync_now command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sync-now",
+          "markdownDescription": "Denies the sync_now command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the sync_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-sync-state",
+          "markdownDescription": "Denies the sync_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the totp_code command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-totp-code",
+          "markdownDescription": "Denies the totp_code command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unlock command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unlock",
+          "markdownDescription": "Denies the unlock command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unlock_device command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unlock-device",
+          "markdownDescription": "Denies the unlock_device command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the vault_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-vault-status",
+          "markdownDescription": "Denies the vault_status command without any pre-configured scope."
+        },
+        {
           "description": "This permission set configures if your\napplication can enable or disable auto\nstarting the application on boot.\n\n#### Granted Permissions\n\nIt allows all to check, enable and\ndisable the automatic start on boot.\n\n\n#### This default permission set includes:\n\n- `allow-enable`\n- `allow-disable`\n- `allow-is-enabled`",
           "type": "string",
           "const": "autostart:default",
@@ -2323,6 +2791,72 @@
           "type": "string",
           "const": "dialog:deny-save",
           "markdownDescription": "Denies the save command without any pre-configured scope."
+        },
+        {
+          "description": "No features are enabled by default, as we believe\nthe shortcuts can be inherently dangerous and it is\napplication specific if specific shortcuts should be\nregistered or unregistered.\n",
+          "type": "string",
+          "const": "global-shortcut:default",
+          "markdownDescription": "No features are enabled by default, as we believe\nthe shortcuts can be inherently dangerous and it is\napplication specific if specific shortcuts should be\nregistered or unregistered.\n"
+        },
+        {
+          "description": "Enables the is_registered command without any pre-configured scope.",
+          "type": "string",
+          "const": "global-shortcut:allow-is-registered",
+          "markdownDescription": "Enables the is_registered command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the register command without any pre-configured scope.",
+          "type": "string",
+          "const": "global-shortcut:allow-register",
+          "markdownDescription": "Enables the register command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the register_all command without any pre-configured scope.",
+          "type": "string",
+          "const": "global-shortcut:allow-register-all",
+          "markdownDescription": "Enables the register_all command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the unregister command without any pre-configured scope.",
+          "type": "string",
+          "const": "global-shortcut:allow-unregister",
+          "markdownDescription": "Enables the unregister command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the unregister_all command without any pre-configured scope.",
+          "type": "string",
+          "const": "global-shortcut:allow-unregister-all",
+          "markdownDescription": "Enables the unregister_all command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the is_registered command without any pre-configured scope.",
+          "type": "string",
+          "const": "global-shortcut:deny-is-registered",
+          "markdownDescription": "Denies the is_registered command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the register command without any pre-configured scope.",
+          "type": "string",
+          "const": "global-shortcut:deny-register",
+          "markdownDescription": "Denies the register command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the register_all command without any pre-configured scope.",
+          "type": "string",
+          "const": "global-shortcut:deny-register-all",
+          "markdownDescription": "Denies the register_all command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unregister command without any pre-configured scope.",
+          "type": "string",
+          "const": "global-shortcut:deny-unregister",
+          "markdownDescription": "Denies the unregister command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unregister_all command without any pre-configured scope.",
+          "type": "string",
+          "const": "global-shortcut:deny-unregister-all",
+          "markdownDescription": "Denies the unregister_all command without any pre-configured scope."
         },
         {
           "description": "This permission set configures what kind of\noperations are available from the window state plugin.\n\n#### Granted Permissions\n\nAll operations are enabled by default.\n\n\n#### This default permission set includes:\n\n- `allow-filename`\n- `allow-restore-state`\n- `allow-save-window-state`",
