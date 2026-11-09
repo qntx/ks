@@ -174,15 +174,10 @@ pub fn endpoint(vault: &Vault) -> Result<Endpoint> {
     #[cfg(unix)]
     {
         let dir = endpoint_dir(&id)?;
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(&dir)
-            .map_err(|e| Error::Io {
-                path: dir.clone(),
-                source: e,
-            })?;
-        check_dir_perms(&dir)?;
+        // Clients must not create the dir: a missing one means no agent.
+        if dir.is_dir() {
+            check_dir_perms(&dir)?;
+        }
         let path = dir.join(format!("{id}.sock"));
         if path.as_os_str().len() > 100 {
             return Err(Error::Unavailable(
@@ -201,6 +196,34 @@ pub fn endpoint(vault: &Vault) -> Result<Endpoint> {
             path: None,
         })
     }
+}
+
+/// `endpoint` for the agent server: creates `run/` (`0700`) then checks
+/// it — only `ks unlock`/`ks __agent` may create device state.
+///
+/// # Errors
+///
+/// [`Error::Unavailable`] on an unsafe directory; [`Error::Io`] on
+/// filesystem failures.
+pub fn ensure_endpoint(vault: &Vault) -> Result<Endpoint> {
+    let ep = endpoint(vault)?;
+    #[cfg(unix)]
+    if let Some(path) = &ep.path
+        && let Some(dir) = path.parent()
+    {
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            builder.mode(0o700);
+        }
+        builder.create(dir).map_err(|e| Error::Io {
+            path: dir.to_path_buf(),
+            source: e,
+        })?;
+        check_dir_perms(dir)?;
+    }
+    Ok(ep)
 }
 
 #[cfg(unix)]

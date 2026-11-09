@@ -183,7 +183,7 @@ pub fn enable(session: &crate::Session) -> Result<()> {
             "age-plugin-se not found; install it with `brew install age-plugin-se`".into(),
         ));
     }
-    let dir = crate::local::state_dir(session.vault())?;
+    let dir = crate::local::ensure_state_dir(session.vault())?;
     let tmp = dir.join(".touchid.identity.tmp");
     let result = enable_inner(session, &dir, &tmp, &text);
     if result.is_err() {
@@ -275,6 +275,10 @@ pub fn disable(vault: &Vault) -> Result<bool> {
     let existed = a.exists() || b.exists();
     drop(std::fs::remove_file(&a));
     drop(std::fs::remove_file(&b));
+    // Leave no empty per-vault state dir behind.
+    if let Ok(dir) = crate::local::state_dir(vault) {
+        drop(std::fs::remove_dir(&dir));
+    }
     Ok(existed)
 }
 
@@ -347,14 +351,16 @@ mod tests {
     fn enable_without_plugin_is_unavailable() {
         let dir = tempfile::tempdir().unwrap();
         let session = Vault::create(&dir.path().join("v"), &SecretString::from(PASS)).unwrap();
+        #[cfg(target_os = "macos")]
+        if which::which("age-plugin-se").is_ok() {
+            // the plugin exists on this machine — keygen would open a
+            // system dialog and write real state, so skip rather than
+            // hang or leak into the user's data dir
+            return;
+        }
         let r = enable(&session);
         #[cfg(target_os = "macos")]
         {
-            if which::which("age-plugin-se").is_ok() {
-                // the plugin exists on this machine — keygen would open a
-                // system dialog, so skip rather than hang
-                return;
-            }
             let err = r.unwrap_err();
             assert!(
                 matches!(err, Error::Unavailable(_)),

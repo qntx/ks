@@ -31,7 +31,7 @@ pub(crate) fn run(cli: &Cli, _out: &Out, ttl: u64, max: u64) -> CliResult<i32> {
             .map_err(|e| err(&e))?,
     );
     crate::harden::agent();
-    let ep = ks::agent::endpoint(&v).map_err(|e| err(&e))?;
+    let ep = ks::agent::ensure_endpoint(&v).map_err(|e| err(&e))?;
 
     // Stale-socket rule: a connect+hello proves a live agent -> refuse to
     // start; anything else is a leftover file to reclaim.

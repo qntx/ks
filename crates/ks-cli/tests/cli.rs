@@ -723,3 +723,34 @@ fn unlock_soft_fails_on_loose_state_dir() {
     assert!(err.contains("agent"), "expected an agent warning: {err}");
     assert_eq!(without.status.code(), Some(77));
 }
+
+#[cfg(unix)]
+#[test]
+fn commands_leave_no_local_state_dir() {
+    let t = mk();
+    init(&t);
+    run(&t, &["set", "a"], b"v");
+    run(&t, &["show", "a"], b"");
+    run(&t, &["status", "--json"], b"");
+    run(&t, &["lock", "--json"], b"");
+    run(&t, &["doctor", "--json"], b"");
+    run(&t, &["touchid", "disable", "--json"], b"");
+    run(&t, &["keychain", "disable", "--json"], b"");
+    let base = {
+        let home = std::env::home_dir().unwrap();
+        if cfg!(target_os = "macos") {
+            home.join("Library/Application Support/ks")
+        } else {
+            home.join(".local/share/ks")
+        }
+    };
+    let id = ks::local::id(&ks::Vault::open(&t.vault).unwrap());
+    let dir = base.join(&id);
+    let sock = base.join("run").join(format!("{id}.sock"));
+    assert!(
+        !dir.exists(),
+        "per-vault state dir leaked: {}",
+        dir.display()
+    );
+    assert!(!sock.exists(), "agent socket leaked: {}", sock.display());
+}
