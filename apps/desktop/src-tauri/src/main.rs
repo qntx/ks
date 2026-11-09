@@ -1,20 +1,130 @@
 //! Desktop shell for the ks secret vault.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![allow(
+    clippy::excessive_nesting,
+    reason = "specta command list and test harness read better as one nested level"
+)]
 
+#[allow(
+    clippy::pedantic,
+    clippy::restriction,
+    clippy::nursery,
+    reason = "command glue: Tauri signatures, doc style and nesting follow framework conventions"
+)]
 mod commands;
+#[allow(
+    clippy::pedantic,
+    clippy::restriction,
+    clippy::nursery,
+    reason = "thin error adapter"
+)]
+mod error;
+#[allow(
+    clippy::pedantic,
+    clippy::restriction,
+    clippy::nursery,
+    reason = "timer/platform glue"
+)]
+mod lock;
+#[allow(clippy::restriction, clippy::pedantic, reason = "secret marker type")]
+mod secret;
+#[allow(
+    clippy::pedantic,
+    clippy::restriction,
+    clippy::nursery,
+    reason = "persistence glue"
+)]
+mod settings;
+#[allow(
+    clippy::pedantic,
+    clippy::restriction,
+    clippy::nursery,
+    reason = "state glue"
+)]
+mod state;
+#[allow(
+    clippy::pedantic,
+    clippy::restriction,
+    clippy::nursery,
+    reason = "notify glue"
+)]
+mod watch;
 
-use commands::{__specta__fn__vault_status, vault_status};
+use std::sync::Arc;
 
-/// The specta builder is shared between `invoke_handler` and the bindings
-/// test, so the exported types always match what the app registers.
+use tauri::Manager as _;
+
+/// The specta builder is shared between `invoke_handler` and the
+/// bindings test.
 #[expect(
     trivial_casts,
     reason = "collect_commands! emits a redundant fn-pointer cast"
 )]
 fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
+    use commands::{
+        __cmd__app_state, __cmd__clone_vault, __cmd__copy_field, __cmd__create_vault,
+        __cmd__delete_entry, __cmd__edit_entry, __cmd__entry_detail, __cmd__export_binary,
+        __cmd__generate_password, __cmd__get_settings, __cmd__heartbeat, __cmd__import_binary,
+        __cmd__list_entries, __cmd__lock, __cmd__open_vault, __cmd__passphrase_strength,
+        __cmd__recent_vaults, __cmd__rename_entry, __cmd__reveal_field, __cmd__save_entry,
+        __cmd__set_settings, __cmd__totp_code, __cmd__unlock, __cmd__vault_status,
+        __specta__fn__app_state, __specta__fn__clone_vault, __specta__fn__copy_field,
+        __specta__fn__create_vault, __specta__fn__delete_entry, __specta__fn__edit_entry,
+        __specta__fn__entry_detail, __specta__fn__export_binary, __specta__fn__generate_password,
+        __specta__fn__get_settings, __specta__fn__heartbeat, __specta__fn__import_binary,
+        __specta__fn__list_entries, __specta__fn__lock, __specta__fn__open_vault,
+        __specta__fn__passphrase_strength, __specta__fn__recent_vaults, __specta__fn__rename_entry,
+        __specta__fn__reveal_field, __specta__fn__save_entry, __specta__fn__set_settings,
+        __specta__fn__totp_code, __specta__fn__unlock, __specta__fn__vault_status,
+        __tauri_command_name_app_state, __tauri_command_name_clone_vault,
+        __tauri_command_name_copy_field, __tauri_command_name_create_vault,
+        __tauri_command_name_delete_entry, __tauri_command_name_edit_entry,
+        __tauri_command_name_entry_detail, __tauri_command_name_export_binary,
+        __tauri_command_name_generate_password, __tauri_command_name_get_settings,
+        __tauri_command_name_heartbeat, __tauri_command_name_import_binary,
+        __tauri_command_name_list_entries, __tauri_command_name_lock,
+        __tauri_command_name_open_vault, __tauri_command_name_passphrase_strength,
+        __tauri_command_name_recent_vaults, __tauri_command_name_rename_entry,
+        __tauri_command_name_reveal_field, __tauri_command_name_save_entry,
+        __tauri_command_name_set_settings, __tauri_command_name_totp_code,
+        __tauri_command_name_unlock, __tauri_command_name_vault_status, app_state, clone_vault,
+        copy_field, create_vault, delete_entry, edit_entry, entry_detail, export_binary,
+        generate_password, get_settings, heartbeat, import_binary, list_entries, lock, open_vault,
+        passphrase_strength, recent_vaults, rename_entry, reveal_field, save_entry, set_settings,
+        totp_code, unlock, vault_status,
+    };
     tauri_specta::Builder::<tauri::Wry>::new()
-        .commands(tauri_specta::collect_commands![vault_status])
+        .commands(tauri_specta::collect_commands![
+            app_state,
+            recent_vaults,
+            open_vault,
+            create_vault,
+            clone_vault,
+            passphrase_strength,
+            unlock,
+            lock,
+            heartbeat,
+            list_entries,
+            entry_detail,
+            reveal_field,
+            copy_field,
+            totp_code,
+            edit_entry,
+            save_entry,
+            rename_entry,
+            delete_entry,
+            import_binary,
+            export_binary,
+            generate_password,
+            get_settings,
+            set_settings,
+            vault_status,
+        ])
+        .events(tauri_specta::collect_events![
+            lock::Locked,
+            watch::EntriesChanged
+        ])
 }
 
 #[expect(
@@ -23,8 +133,24 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
 )]
 fn main() -> tauri::Result<()> {
     tauri::Builder::default()
+        .manage(Arc::new(state::AppState::new()))
         .invoke_handler(specta_builder().invoke_handler())
-        .run(tauri::generate_context!())
+        .setup(|app| {
+            lock::init(app.handle());
+            let state = Arc::clone(app.state::<Arc<state::AppState>>().inner());
+            lock::watch_system(state, settings::load().lock_on_sleep);
+            Ok(())
+        })
+        .on_window_event(|w, e| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = e {
+                drop(w.hide());
+                api.prevent_close();
+            }
+        })
+        .build(tauri::generate_context!())
+        .map(|app| {
+            app.run(|_, _| {});
+        })
 }
 
 #[cfg(test)]
@@ -32,7 +158,9 @@ mod tests {
     #![allow(
         clippy::expect_used,
         clippy::panic,
-        reason = "test harness: panicking asserts"
+        clippy::unwrap_used,
+        clippy::indexing_slicing,
+        reason = "test harness"
     )]
 
     use std::env;
@@ -68,5 +196,38 @@ mod tests {
             generated, committed,
             "bindings.gen.ts is stale; regenerate with KS_UPDATE_BINDINGS=1"
         );
+    }
+
+    /// Every command whose params or result mention `SecretText` must be
+    /// in the allowlist (ADR-18).
+    #[test]
+    fn secret_commands_allowlist() {
+        let src = fs::read_to_string(BINDINGS_PATH).unwrap();
+        let mut found: Vec<String> = Vec::new();
+        for line in src.lines() {
+            if !line.contains("SecretText") {
+                continue;
+            }
+            if let Some(pos) = line.find("INVOKE")
+                && let Some(p2) = line[pos..].find("(\"")
+            {
+                let rest = &line[pos + p2 + 2..];
+                if let Some(end) = rest.find('\"') {
+                    found.push(rest[..end].to_owned());
+                }
+            }
+        }
+        found.sort();
+        let expected: Vec<&str> = vec![
+            "clone_vault",
+            "create_vault",
+            "edit_entry",
+            "generate_password",
+            "passphrase_strength",
+            "reveal_field",
+            "save_entry",
+            "unlock",
+        ];
+        assert_eq!(found, expected, "SecretText commands drifted");
     }
 }

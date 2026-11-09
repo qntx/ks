@@ -15,14 +15,29 @@ authors.workspace      = true
 tauri-build.workspace = true
 
 [dependencies]
-ks           = { workspace = true }
-serde        = { workspace = true }
-specta       = { workspace = true }
-tauri        = { workspace = true }
-tauri-specta = { workspace = true }
+age                   = { workspace = true }
+block2                = { workspace = true }
+directories           = { workspace = true }
+ks                    = { workspace = true }
+ks-clipboard          = { workspace = true }
+notify                = { workspace = true }
+notify-debouncer-mini = { workspace = true }
+objc2                 = { workspace = true }
+objc2-app-kit         = { workspace = true }
+objc2-foundation      = { workspace = true }
+rand                  = { workspace = true }
+serde                 = { workspace = true }
+serde_json            = { workspace = true }
+sha2                  = { workspace = true }
+specta                = { workspace = true }
+tauri                 = { workspace = true }
+tauri-specta          = { workspace = true }
+totp-rs               = { workspace = true }
+zeroize               = { workspace = true }
 
 [dev-dependencies]
 specta-typescript.workspace = true
+
 
 [lints]
 workspace = true
