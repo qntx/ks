@@ -13,6 +13,6 @@ jobs:
     permissions:
       contents: read
     with:
-      packages: "ks ks-cli"
+      packages: "ks ks-clipboard ks-cli"
     secrets:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

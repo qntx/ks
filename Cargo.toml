@@ -1,6 +1,6 @@
 [workspace]
 exclude         = ["fuzz"]
-members         = ["crates/ks", "crates/ks-cli"]
+members         = ["crates/ks", "crates/ks-cli", "crates/ks-clipboard"]
 default-members = ["crates/ks-cli"]
 resolver        = "3"
 
@@ -17,7 +17,8 @@ keywords     = ["age", "secrets", "password-manager", "vault"]
 categories   = ["cryptography"]
 
 [workspace.dependencies]
-ks = { version = "0.8", path = "crates/ks", features = ["agent", "keychain"] }
+ks           = { version = "0.8", path = "crates/ks", features = ["agent", "keychain"] }
+ks-clipboard = { version = "0.8", path = "crates/ks-clipboard" }
 
 age                          = { version = "0.12.1", features = ["plugin"] }
 age-core                     = "0.12.0"
@@ -37,15 +38,17 @@ totp-rs                      = { version = "6.0.0", features = ["otpauth"] }
 interprocess                 = "2.4.0"
 serde                        = { version = "1", features = ["derive"] }
 
-clap        = { version = "4.6.7", features = ["derive", "wrap_help"] }
-cliclack    = "0.5.6"
-arboard     = "3.7.0"
-base64      = "0.22.1"
-libc        = "0.2.191"
-widestring  = "1.2.1"
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Console"] }
-rustix      = "1.1.6"
-assert_cmd  = "2.2.2"
+clap             = { version = "4.6.7", features = ["derive", "wrap_help"] }
+cliclack         = "0.5.6"
+arboard          = "3.7.0"
+objc2-app-kit    = "0.3.2"
+objc2-foundation = "0.3.2"
+base64           = "0.22.1"
+libc             = "0.2.191"
+widestring       = "1.2.1"
+windows-sys      = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Console"] }
+rustix           = "1.1.6"
+assert_cmd       = "2.2.2"
 
 proptest   = "1.12.0"
 serde_json = "1"

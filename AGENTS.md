@@ -13,6 +13,7 @@
 - `ks` is rewritten from scratch for 0.8.0; the 0.7 code and formats are gone
   without migration. `design/` is local-only and never committed.
 - The `ks` library is `#![forbid(unsafe_code)]`. `ks-cli` may use `unsafe` only
+  in `harden.rs`; `ks-clipboard` only inside its platform module (`macos.rs`)
   in `harden.rs` and in the agent peer-credential check, each with a `SAFETY`
   comment. `ks-cli` only uses the library's public API.
 - Secret material lives in `Zeroizing`/`age::secrecy` types and is redacted

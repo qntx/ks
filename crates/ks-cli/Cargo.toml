@@ -18,11 +18,11 @@ doc  = false
 
 [dependencies]
 ks           = { workspace = true }
+ks-clipboard = { workspace = true }
 age          = { workspace = true }
 clap         = { workspace = true }
 cliclack     = { workspace = true }
 interprocess = { workspace = true }
-arboard      = { workspace = true }
 base64       = { workspace = true }
 serde_json   = { workspace = true }
 tempfile     = { workspace = true }
