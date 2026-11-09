@@ -24,7 +24,7 @@ Environment: `KS_VAULT`, `KS_PASSPHRASE`, `KS_PASSPHRASE_FILE`,
 | --- | --- | --- |
 | `init` | `ks init` | `--git` init a repo; `--clone <url>` clone instead; missing parent directories are created |
 | `ls` | `ks ls [prefix]` | — |
-| `show` | `ks show <name>` | `-f <field>` print one field; `-c` copy to clipboard |
+| `show` | `ks show <name>` | `-f <field>` print one field; `-c` copy to clipboard (macOS: concealed/transient, host-only; Windows: no history/cloud) |
 | `set` | `ks set <name>` | `-m` multiline from stdin; `-b` raw bytes from stdin; `--force` overwrite |
 | `edit` | `ks edit <name>` | — (needs a terminal; binary entries → usage) |
 | `gen` | `ks gen [name]` | `-s <set>` (alphanum\|hex\|printable\|slug, default alphanum); `-c` copy; `--force` overwrite |

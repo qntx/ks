@@ -1,34 +1,33 @@
-//! Clipboard via a detached child: `ks __clipboard <secs>` reads the value
-//! from stdin (never argv/env), sets the clipboard, and clears it after the
-//! timeout only if the value is unchanged.
+//! Detached clipboard helper: `ks __clipboard <secs>` reads the value
+//! from stdin, sets it (with platform privacy markers), reports `ok`,
+//! and clears it after `secs` seconds if nothing else took the
+//! clipboard. The parent waits for that `ok` before reporting success.
 
 use std::io::{Read as _, Write as _};
 use std::process::{Command, Stdio};
 
-use ks::ErrorCode;
 use zeroize::Zeroizing;
 
-use crate::output::CliResult;
+use ks::ErrorCode;
 
-/// Seconds to keep the clipboard (`KS_CLIP_TIME`, default 45).
-#[must_use]
-pub(crate) fn clip_time() -> u64 {
-    std::env::var("KS_CLIP_TIME")
+const DEFAULT_TIME: u64 = 45;
+const ENV_TIME: &str = "KS_CLIP_TIME";
+
+/// Seconds before the helper clears the clipboard.
+fn clip_time() -> u64 {
+    std::env::var(ENV_TIME)
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(45)
+        .unwrap_or(DEFAULT_TIME)
 }
 
-/// Spawns the detached `ks __clipboard` helper and feeds it `value`.
-///
-/// # Errors
-///
-/// `unavailable` when the helper cannot be spawned or fed.
-pub(crate) fn copy(value: &[u8]) -> CliResult<()> {
+/// Copies `value` to the clipboard via a detached helper so the plain
+/// `ks` process can exit while the clear timer still runs.
+pub(crate) fn copy(value: &[u8]) -> Result<(), (ErrorCode, String)> {
     let exe = std::env::current_exe().map_err(|e| {
         (
             ErrorCode::Unavailable,
-            format!("cannot locate ks binary: {e}"),
+            format!("cannot locate the ks binary: {e}"),
         )
     })?;
     let mut cmd = Command::new(exe);
@@ -47,8 +46,6 @@ pub(crate) fn copy(value: &[u8]) -> CliResult<()> {
     if let Some(mut stdin) = child.stdin.take() {
         drop(stdin.write_all(value));
     }
-    // The helper prints `ok` once the clipboard actually holds the value;
-    // anything else (spawn-level clap errors included) means failure.
     let waited = wait_ok(child.stdout.take());
     if !waited {
         return Err((
@@ -76,42 +73,30 @@ fn wait_ok(stdout: Option<impl std::io::Read + Send + 'static>) -> bool {
         .unwrap_or(false)
 }
 
-/// Sets the clipboard in this process, waits `secs`, clears if unchanged.
-/// Used by the `__clipboard` daemon subcommand.
+/// `__clipboard` helper entry point: exit codes only, the parent sees
+/// `ok` on stdout once the value is actually on the clipboard. The
+/// process lives until the timeout so the clear can run and (on X11/
+/// Wayland) the selection keeps being served.
 #[allow(
     clippy::disallowed_methods,
-    reason = "the daemon intentionally blocks for the TTL; there is no event loop to yield to"
+    reason = "the helper intentionally blocks until the clear deadline; there is no runtime"
 )]
 pub(crate) fn daemon(secs: u64) -> i32 {
     let mut value = Zeroizing::new(Vec::new());
     if std::io::stdin().read_to_end(&mut value).is_err() {
         return 1;
     }
-    let Ok(mut cb) = arboard::Clipboard::new() else {
-        return 1;
-    };
     let Ok(utf8) = String::from_utf8(value.to_vec()) else {
         return 1;
     };
     let text = Zeroizing::new(utf8);
-    if set(&mut cb, &text).is_err() {
+    let Ok(copied) = ks_clipboard::copy(&text) else {
         return 1;
-    }
+    };
     drop(std::io::stdout().write_all(b"ok\n"));
-    // Keeping `cb` alive keeps serving the selection on X11/Wayland too.
     std::thread::sleep(std::time::Duration::from_secs(secs));
-    // Clear only if the clipboard still holds our value.
-    if cb.get_text().ok().as_deref() == Some(text.as_str()) {
-        cb.set_text(String::new()).ok();
-    }
+    ks_clipboard::clear_if_unchanged(&copied).ok();
     0
-}
-
-/// Sets the clipboard without blocking. On Linux arboard serves the
-/// selection from a background thread for as long as `cb` lives, so the
-/// helper reports `ok` immediately and keeps `cb` until the timeout.
-fn set(cb: &mut arboard::Clipboard, text: &str) -> Result<(), arboard::Error> {
-    cb.set_text(text)
 }
 
 #[cfg(unix)]
@@ -123,10 +108,5 @@ fn detach(cmd: &mut Command) {
 #[cfg(windows)]
 fn detach(cmd: &mut Command) {
     use std::os::windows::process::CommandExt as _;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    cmd.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
+    cmd.creation_flags(0x0000_0200);
 }
-
-#[cfg(not(any(unix, windows)))]
-fn detach(_cmd: &mut Command) {}
