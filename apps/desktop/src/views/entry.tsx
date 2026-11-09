@@ -81,7 +81,9 @@ function Totp(props: { name: string; m: Messages }): React.ReactNode {
     <div className="flex items-center gap-3 rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800">
       <span
         className="inline-block h-4 w-4 rounded-full"
-        style={{ background: `conic-gradient(#2563eb ${pct}deg, #d4d4d8 ${pct}deg)` }}
+        style={{
+          background: `conic-gradient(var(--color-ink) ${pct}deg, var(--color-line) ${pct}deg)`,
+        }}
         aria-hidden
       />
       <span className="flex-1 font-mono text-lg tracking-widest">{code.code}</span>
