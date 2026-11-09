@@ -31,3 +31,14 @@ target
 
 # macOS
 .DS_Store
+
+# bun / vite-plus
+node_modules/
+apps/desktop/dist/
+
+# Tauri codegen (schemas stay tracked for the capabilities $schema refs)
+apps/desktop/src-tauri/gen/*
+!apps/desktop/src-tauri/gen/schemas/
+
+# bun install logs
+bun.lockb

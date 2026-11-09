@@ -1,0 +1,49 @@
+{
+  "name": "@qntx/ks-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "author": "QuantX <x@qntx.org>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qntx/ks.git"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "lint": "vp check && taplo fmt --check && bun scripts/check-version.ts",
+    "typecheck": "vp run -r typecheck && tsc --noEmit",
+    "build": "vp run -r build",
+    "test": "vp run -r test && vp test",
+    "dev": "bun run --cwd apps/desktop tauri dev",
+    "bundle": "bun run --cwd apps/desktop tauri build",
+    "release": "bumpp",
+    "prepare": "vp config"
+  },
+  "devDependencies": {
+    "@qntx/oxfmt": "1.1.1",
+    "@qntx/oxlint": "1.1.1",
+    "@qntx/tsconfig": "1.0.1",
+    "@taplo/cli": "0.7.0",
+    "@types/node": "26.6.5",
+    "bumpp": "12.3.0",
+    "typescript": "7.0.2",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0",
+    "vite-plus": "1.4.0"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.4.0"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "bun",
+      "version": "1.4.0",
+      "onFail": "ignore"
+    }
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

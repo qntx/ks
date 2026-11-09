@@ -1,0 +1,28 @@
+[package]
+name        = "ks-desktop"
+description = "Desktop shell for the ks secret vault"
+publish     = false
+
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+homepage.workspace     = true
+authors.workspace      = true
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+ks           = { workspace = true }
+serde        = { workspace = true }
+specta       = { workspace = true }
+tauri        = { workspace = true }
+tauri-specta = { workspace = true }
+
+[dev-dependencies]
+specta-typescript.workspace = true
+
+[lints]
+workspace = true
