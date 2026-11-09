@@ -20,6 +20,9 @@ export const DEFAULT_SETTINGS: Settings_Serialize = {
   clipboardSeconds: 45,
   lockOnSleep: true,
   language: "system",
+  syncOnUnlock: true,
+  syncOnLock: true,
+  syncAfterWrite: false,
 };
 
 function createBindingsMockImpl() {
@@ -80,6 +83,14 @@ function createBindingsMockImpl() {
     ),
     unlockDevice: vi.fn(async () => ok({ unlocked: false, warnings: [], stale: false })),
     devices: vi.fn(async () => ok(store.devices)),
+    gitStatus: vi.fn(async () => ok(null)),
+    syncNow: vi.fn(async (_keep: unknown) =>
+      ok({ status: "synced", committed: false, pulled: false, pushed: false, warnings: [] }),
+    ),
+    syncState: vi.fn(async () => {
+      await Promise.resolve();
+      return { status: "idle" as const };
+    }),
     setDevice: vi.fn(async (kind: "touch_id" | "keychain", enabled: boolean) => {
       store.devices[kind === "touch_id" ? "touchId" : "keychain"].enabled = enabled;
       return ok([]);
@@ -190,6 +201,9 @@ function createBindingsMockImpl() {
           lockedCbs.delete(cb);
         };
       }),
+    },
+    syncState: {
+      listen: vi.fn(() => () => undefined),
     },
     entriesChanged: {
       listen: vi.fn((cb: ChangedCb) => {

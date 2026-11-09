@@ -31,6 +31,12 @@ export const commands = {
 	 *  needs only an open vault.
 	 */
 	setDevice: (kind: DeviceKind, enabled: boolean) => typedError<string[], AppError>(__TAURI_INVOKE("set_device", { kind, enabled })),
+	/**  Status of the open vault's repo; `None` when it is not a repo. */
+	gitStatus: () => typedError<GitStatus_Serialize | null, AppError>(__TAURI_INVOKE("git_status")),
+	/**  Runs a sync now on a blocking thread; `keep` resolves a conflict. */
+	syncNow: (keep: Keep | null) => typedError<SyncOutcome, AppError>(__TAURI_INVOKE("sync_now", { keep })),
+	/**  Current sync state for the pill. */
+	syncState: () => __TAURI_INVOKE<SyncState>("sync_state"),
 	lock: () => typedError<null, AppError>(__TAURI_INVOKE("lock")),
 	heartbeat: () => __TAURI_INVOKE<void>("heartbeat"),
 	listEntries: () => typedError<string[], AppError>(__TAURI_INVOKE("list_entries")),
@@ -54,6 +60,7 @@ export const commands = {
 export const events = {
 	entriesChanged: makeEvent<EntriesChanged, EntriesChanged>("entries-changed"),
 	locked: makeEvent<Locked, Locked>("locked"),
+	syncState: makeEvent<SyncState, SyncState>("sync-state"),
 };
 
 /* Types */
@@ -103,6 +110,13 @@ export type AppView_Serialize = {
 	/**  Current settings. */
 	settings: Settings_Serialize,
 };
+
+/**  Conflict class (`"content"` | `"delete"`). */
+export type ConflictKind = 
+/**  Same entry edited on both sides — retryable with `keep`. */
+"content" | 
+/**  One side deleted what the other edited — manual steps only. */
+"delete";
 
 /**  Copy result: when the clipboard clears. */
 export type Copied = {
@@ -233,6 +247,44 @@ export type FieldRef =
 /**  The current one-time code; never the seed. */
 "totp";
 
+/**  Repo state for the sidebar pill; `None`-ish mirrors of the library. */
+export type GitStatus = GitStatus_Serialize | GitStatus_Deserialize;
+
+/**  Repo state for the sidebar pill; `None`-ish mirrors of the library. */
+export type GitStatus_Deserialize = {
+	/**  Current branch (detached HEAD → `null`). */
+	branch?: string | null,
+	/**  Configured upstream, if any. */
+	upstream?: string | null,
+	/**  Commits ahead of the upstream. */
+	ahead: number,
+	/**  Commits behind the upstream. */
+	behind: number,
+	/**  Uncommitted changes in the syncable paths. */
+	changes: number,
+};
+
+/**  Repo state for the sidebar pill; `None`-ish mirrors of the library. */
+export type GitStatus_Serialize = {
+	/**  Current branch (detached HEAD → `null`). */
+	branch: string | null,
+	/**  Configured upstream, if any. */
+	upstream: string | null,
+	/**  Commits ahead of the upstream. */
+	ahead: number,
+	/**  Commits behind the upstream. */
+	behind: number,
+	/**  Uncommitted changes in the syncable paths. */
+	changes: number,
+};
+
+/**  Which side wins a content conflict (`"local"` or `"remote"`). */
+export type Keep = 
+/**  Keep local entries. */
+"local" | 
+/**  Keep remote entries. */
+"remote";
+
 /**  Emitted to the frontend whenever the vault locks. */
 export type Locked = {
 	/**  Why. */
@@ -280,6 +332,12 @@ export type Settings_Deserialize = {
 	lockOnSleep?: boolean,
 	/**  UI language: "system", "en" or "zh". */
 	language?: string,
+	/**  Sync right after the vault unlocks. */
+	syncOnUnlock?: boolean,
+	/**  Sync right after the vault locks. */
+	syncOnLock?: boolean,
+	/**  Debounced sync after writes. */
+	syncAfterWrite?: boolean,
 };
 
 /**  User-facing preferences; defaults match `ks unlock`. */
@@ -294,6 +352,12 @@ export type Settings_Serialize = {
 	lockOnSleep: boolean,
 	/**  UI language: "system", "en" or "zh". */
 	language: string,
+	/**  Sync right after the vault unlocks. */
+	syncOnUnlock: boolean,
+	/**  Sync right after the vault locks. */
+	syncOnLock: boolean,
+	/**  Debounced sync after writes. */
+	syncAfterWrite: boolean,
 };
 
 /**  Structured passphrase strength for live feedback. */
@@ -322,6 +386,46 @@ export type Strength_Serialize = {
 	/**  zxcvbn suggestions. */
 	suggestions: string[],
 };
+
+/**  Outcome of one sync run; a conflict is a result, not an error. */
+export type SyncOutcome = 
+/**  Pull/commit/push completed. */
+{ status: "synced"; 
+/**  Uncommitted changes were committed first. */
+committed: boolean; 
+/**  A pull ran. */
+pulled: boolean; 
+/**  A push ran. */
+pushed: boolean; 
+/**  Non-fatal observations. */
+warnings: string[] } | 
+/**  Merge conflicts the UI offers to resolve. */
+{ status: "conflict"; 
+/**  Conflicting entry names. */
+entries: string[]; 
+/**  `content` (retryable) or `delete` (manual only). */
+kind: ConflictKind };
+
+/**  Live sync state for the pill, emitted as the `sync-state` event. */
+export type SyncState = 
+/**  Nothing happening. */
+{ status: "idle" } | 
+/**  A run is in flight. */
+{ status: "running" } | 
+/**  Last run succeeded; `at_secs` is the unix timestamp. */
+{ status: "synced"; 
+/**  Unix seconds when it finished. */
+at_secs: number } | 
+/**  Last run hit conflicts. */
+{ status: "conflict"; 
+/**  Conflicting entry names. */
+entries: string[]; 
+/**  `content` or `delete`. */
+kind: ConflictKind } | 
+/**  Last run failed (network, auth, …). */
+{ status: "failed"; 
+/**  Human-readable error. */
+message: string };
 
 /**  Current TOTP code + validity. */
 export type TotpCode = {

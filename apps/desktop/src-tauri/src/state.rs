@@ -1,8 +1,8 @@
 //! Application state: the open vault, the unlocked `Session`, the file
 //! watcher and lock timers. Locking drops the Session (key zeroized).
 
-use std::sync::Mutex;
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::watch::Watcher;
@@ -42,12 +42,7 @@ impl Open {
     }
 
     /// (Re)starts the auto-lock watchdog for this session.
-    pub(crate) fn start_watchdog(
-        &mut self,
-        state: std::sync::Arc<AppState>,
-        idle: Duration,
-        max: Duration,
-    ) {
+    pub(crate) fn start_watchdog(&mut self, state: Arc<AppState>, idle: Duration, max: Duration) {
         self.stop_watchdog();
         self.watchdog = Some(crate::lock::start(state, idle, max));
     }
@@ -62,6 +57,8 @@ impl Drop for Open {
 
 /// Shared app state behind one mutex; commands borrow it briefly.
 pub(crate) struct AppState {
+    /// Single-flight sync slot — never held across git I/O.
+    pub(crate) sync: Mutex<crate::sync::SyncSlot>,
     /// Inner state.
     pub inner: Mutex<Inner>,
 }
@@ -82,6 +79,12 @@ impl AppState {
                 open: None,
                 last_lock_reason: None,
             }),
+            sync: Mutex::new(crate::sync::SyncSlot {
+                running: false,
+                state: crate::sync::SyncState::Idle,
+                write_due: None,
+                debounce_pending: false,
+            }),
         }
     }
 
@@ -98,23 +101,29 @@ impl AppState {
     }
 
     /// Locks: drops the session and returns the reason to emit.
-    pub(crate) fn lock(&self, reason: crate::lock::Reason) -> bool {
-        let mut i = match self.inner.lock() {
-            Ok(i) => i,
-            Err(_) => return false,
+    pub(crate) fn lock(self: &Arc<Self>, reason: crate::lock::Reason) -> bool {
+        let locked = {
+            let mut i = match self.inner.lock() {
+                Ok(i) => i,
+                Err(_) => return false,
+            };
+            let Some(o) = i.open.as_mut() else {
+                return false;
+            };
+            if o.session.take().is_none() {
+                return false;
+            }
+            o.unlocked_at = None;
+            o.stop_watchdog();
+            o.stop_agent();
+            i.last_lock_reason = Some(reason);
+            true
         };
-        let Some(o) = i.open.as_mut() else {
-            return false;
-        };
-        if o.session.take().is_none() {
-            return false;
-        }
-        o.unlocked_at = None;
-        o.stop_watchdog();
-        o.stop_agent();
-        i.last_lock_reason = Some(reason);
         crate::lock::on_locked(reason);
-        true
+        if reason != crate::lock::Reason::Quit {
+            crate::sync::after_lock(self);
+        }
+        locked
     }
 
     /// Runs `f` with the unlocked session (and bumps the activity

@@ -54,7 +54,7 @@ pub(crate) struct Locked {
     pub reason: Reason,
 }
 
-static APP: Mutex<Option<AppHandle>> = Mutex::new(None);
+pub(crate) static APP: Mutex<Option<AppHandle>> = Mutex::new(None);
 /// Registers the AppHandle used for events.
 pub(crate) fn init(app: &AppHandle) {
     *APP.lock()
@@ -79,7 +79,7 @@ pub(crate) fn on_locked(reason: Reason) {
 }
 
 /// Locks via state; emits the event once. Returns false when already locked.
-pub(crate) fn lock_now(state: &AppState, reason: Reason) -> bool {
+pub(crate) fn lock_now(state: &std::sync::Arc<AppState>, reason: Reason) -> bool {
     state.lock(reason)
 }
 

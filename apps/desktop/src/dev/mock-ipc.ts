@@ -12,6 +12,9 @@ const settings = {
   clipboardSeconds: 45,
   lockOnSleep: true,
   language: "system",
+  syncOnUnlock: true,
+  syncOnLock: true,
+  syncAfterWrite: false,
 };
 
 const texts = new Map<string, string>([
@@ -178,6 +181,12 @@ const dispatch = (cmd: string, payload: unknown): unknown => {
       }
       unlocked = true;
       return { warnings: [] };
+    case "git_status":
+      return null;
+    case "sync_state":
+      return { status: "idle" };
+    case "sync_now":
+      return { status: "synced", committed: false, pulled: false, pushed: false, warnings: [] };
     case "devices":
       return {
         touchId: { supported: true, enabled: touchIdEnabled, reason: null },

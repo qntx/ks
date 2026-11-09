@@ -188,6 +188,7 @@ fn begin_session<RT: tauri::Runtime>(
         }
         Err(e) => warnings.push(format!("terminal session unavailable: {e}")),
     }
+    crate::sync::after_unlock(state);
     Ok(warnings)
 }
 
@@ -789,13 +790,17 @@ pub(crate) fn save_entry(
             overwrite,
         )
     })?;
-    let i = state
-        .inner
-        .lock()
-        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-    Ok(i.open
-        .as_ref()
-        .map_or_else(Vec::new, |o| autocommit(&o.vault, &format!("set {name}"))))
+    let warnings = {
+        let i = state
+            .inner
+            .lock()
+            .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+        i.open
+            .as_ref()
+            .map_or_else(Vec::new, |o| autocommit(&o.vault, &format!("set {name}")))
+    };
+    crate::sync::after_write(state.inner());
+    Ok(warnings)
 }
 
 #[tauri::command]
@@ -808,13 +813,17 @@ pub(crate) fn rename_entry(
 ) -> R<Vec<String>> {
     state
         .with_session(|s| s.rename(&ks::Name::parse(&from)?, &ks::Name::parse(&to)?, overwrite))?;
-    let i = state
-        .inner
-        .lock()
-        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-    Ok(i.open.as_ref().map_or_else(Vec::new, |o| {
-        autocommit(&o.vault, &format!("mv {from} {to}"))
-    }))
+    let warnings = {
+        let i = state
+            .inner
+            .lock()
+            .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+        i.open.as_ref().map_or_else(Vec::new, |o| {
+            autocommit(&o.vault, &format!("mv {from} {to}"))
+        })
+    };
+    crate::sync::after_write(state.inner());
+    Ok(warnings)
 }
 
 #[tauri::command]
@@ -824,13 +833,17 @@ pub(crate) fn delete_entry(
     name: String,
 ) -> R<Vec<String>> {
     state.with_session(|s| s.remove(&ks::Name::parse(&name)?))?;
-    let i = state
-        .inner
-        .lock()
-        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-    Ok(i.open
-        .as_ref()
-        .map_or_else(Vec::new, |o| autocommit(&o.vault, &format!("rm {name}"))))
+    let warnings = {
+        let i = state
+            .inner
+            .lock()
+            .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+        i.open
+            .as_ref()
+            .map_or_else(Vec::new, |o| autocommit(&o.vault, &format!("rm {name}")))
+    };
+    crate::sync::after_write(state.inner());
+    Ok(warnings)
 }
 
 #[tauri::command]
@@ -866,13 +879,17 @@ pub(crate) fn import_binary(
             overwrite,
         )
     })?;
-    let i = state
-        .inner
-        .lock()
-        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-    Ok(i.open.as_ref().map_or_else(Vec::new, |o| {
-        autocommit(&o.vault, &format!("import {name}"))
-    }))
+    let warnings = {
+        let i = state
+            .inner
+            .lock()
+            .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+        i.open.as_ref().map_or_else(Vec::new, |o| {
+            autocommit(&o.vault, &format!("import {name}"))
+        })
+    };
+    crate::sync::after_write(state.inner());
+    Ok(warnings)
 }
 
 #[tauri::command]
