@@ -31,6 +31,23 @@ pub struct SyncReport {
     pub warnings: Vec<String>,
 }
 
+/// One-shot view of the sync-relevant repo state, from a single
+/// `git status --porcelain=v2 --branch` scoped to [`STAGE_PATHS`].
+/// `ahead`/`behind` reflect the last fetch — `status` never goes online.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct GitStatus {
+    /// Current branch name; `None` on a detached HEAD.
+    pub branch: Option<String>,
+    /// Configured upstream; `None` when the branch has none.
+    pub upstream: Option<String>,
+    /// Commits ahead of the upstream.
+    pub ahead: u32,
+    /// Commits behind the upstream.
+    pub behind: u32,
+    /// Uncommitted entry/metadata changes inside [`STAGE_PATHS`].
+    pub changes: u32,
+}
+
 /// Paths `ks sync` is allowed to stage: every entry file plus the two
 /// canonical git metadata files. A tampered `.gitignore` cannot widen
 /// this set, and `-f` in `add` defeats a `.gitignore` that was tampered
@@ -96,6 +113,34 @@ impl Git {
         }
         let out = self.git(&["status", "--porcelain"])?;
         Ok(out.stdout.is_empty())
+    }
+
+    /// Branch, upstream, ahead/behind and uncommitted-change counts in
+    /// one call. Defensive: unrecognized lines are ignored, never fatal.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Unavailable`] when `root` is not a repo or git fails.
+    pub fn status(&self) -> Result<GitStatus> {
+        let out = self.git(&[&["status", "--porcelain=v2", "--branch"], STAGE_PATHS].concat())?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut status = GitStatus::default();
+        for line in text.lines() {
+            if let Some(head) = line.strip_prefix("# branch.head ") {
+                status.branch = (head != "(detached)").then(|| head.to_owned());
+            } else if let Some(upstream) = line.strip_prefix("# branch.upstream ") {
+                status.upstream = Some(upstream.to_owned());
+            } else if let Some(ab) = line.strip_prefix("# branch.ab ") {
+                (status.ahead, status.behind) = parse_ahead_behind(ab);
+            } else if line.starts_with("1 ")
+                || line.starts_with("2 ")
+                || line.starts_with("u ")
+                || line.starts_with("? ")
+            {
+                status.changes += 1;
+            }
+        }
+        Ok(status)
     }
 
     /// `git init` + `git add -A` + one initial commit. The repo always
@@ -440,6 +485,19 @@ fn concat_args(a: &[&str], b: &[&str], c: &[String]) -> Vec<String> {
 /// Parses `git status --porcelain=v1 -z` for unmerged entries:
 /// `(entry names with .age stripped, kind)`. Unmerged XY codes are DD AU UD
 /// UA DU AA UU; any `D` in XY marks a delete conflict.
+/// Parses a `branch.ab` field (`+A -B`) into `(ahead, behind)`;
+/// malformed input stays 0/0.
+fn parse_ahead_behind(ab: &str) -> (u32, u32) {
+    let mut it = ab.split_whitespace();
+    let (Some(a), Some(b)) = (it.next(), it.next()) else {
+        return (0, 0);
+    };
+    (
+        a.trim_start_matches('+').parse().unwrap_or(0),
+        b.trim_start_matches('-').parse().unwrap_or(0),
+    )
+}
+
 pub(crate) fn unmerged_paths(porcelain: &[u8]) -> (Vec<String>, ConflictKind) {
     let mut entries = Vec::new();
     let mut kind = ConflictKind::Content;
@@ -516,5 +574,92 @@ mod tests {
         let (entries3, kind3) = unmerged_paths(b"R  old.age\0new.age\0UU both.age\0");
         assert_eq!(entries3, ["both"]);
         assert_eq!(kind3, ConflictKind::Content);
+    }
+    /// Runs `git -C dir <args>` and asserts success.
+    fn git(dir: &Path, args: &[&str]) {
+        let st = Command::new("git")
+            .args(["-C"])
+            .arg(dir)
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(st.success(), "git {args:?} failed");
+    }
+
+    /// A repo with a repo-local identity, one commit, a bare remote and
+    /// `origin` wired + fetched upstream.
+    fn repo_with_remote(root: &Path, remote: &Path) -> Git {
+        git(root, &["init", "-q"]);
+        git(root, &["config", "user.name", "ks-test"]);
+        git(root, &["config", "user.email", "t@t"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.join("a.age"), b"x").unwrap();
+        git(root, &["add", "-Af", "--", "*.age"]);
+        git(root, &["commit", "-qm", "init"]);
+        git(remote, &["init", "-q", "--bare"]);
+        git(root, &["remote", "add", "origin", remote.to_str().unwrap()]);
+        git(root, &["push", "-q", "-u", "origin", "HEAD"]);
+        git(root, &["fetch", "-q"]);
+        Git::new(root, false)
+    }
+
+    /// `status()`: branch, upstream, ahead/behind and staged-path changes.
+    #[test]
+    fn git_status_reports() {
+        let dir = tempfile::tempdir().unwrap();
+        let remote = tempfile::tempdir().unwrap();
+        let root = dir.path().join("v");
+        std::fs::create_dir(&root).unwrap();
+        let bare = remote.path().join("r");
+        std::fs::create_dir(&bare).unwrap();
+        let g = repo_with_remote(&root, &bare);
+
+        // clean with an upstream
+        let st = g.status().unwrap();
+        assert_eq!(st.branch.as_deref(), Some("master"));
+        assert_eq!(st.upstream.as_deref(), Some("origin/master"));
+        assert_eq!((st.ahead, st.behind, st.changes), (0, 0, 0));
+
+        // a modified .age counts; a non-.age file does not
+        std::fs::write(root.join("a.age"), b"y").unwrap();
+        std::fs::write(root.join("notes.txt"), b"n").unwrap();
+        std::fs::write(root.join("new.age"), b"z").unwrap();
+        let dirty = g.status().unwrap();
+        assert_eq!(dirty.changes, 2);
+
+        // ahead after a local commit
+        git(&root, &["add", "-Af", "--", "*.age"]);
+        git(&root, &["commit", "-qm", "c2"]);
+        assert_eq!(g.status().unwrap().ahead, 1);
+
+        // behind after another clone pushes and this one fetches
+        let other = dir.path().join("o");
+        git(dir.path(), &["clone", "-q", bare.to_str().unwrap(), "o"]);
+        git(&other, &["config", "user.name", "ks-test"]);
+        git(&other, &["config", "user.email", "t@t"]);
+        git(&other, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(other.join("b.age"), b"b").unwrap();
+        git(&other, &["add", "-Af", "--", "*.age"]);
+        git(&other, &["commit", "-qm", "remote"]);
+        git(&other, &["push", "-q"]);
+        git(&root, &["fetch", "-q"]);
+        let after = g.status().unwrap();
+        assert_eq!((after.ahead, after.behind), (1, 1));
+    }
+
+    /// `status()` on a repo without an upstream reports None.
+    #[test]
+    fn git_status_no_upstream() {
+        let root = tempfile::tempdir().unwrap();
+        git(root.path(), &["init", "-q"]);
+        git(root.path(), &["config", "user.name", "ks-test"]);
+        git(root.path(), &["config", "user.email", "t@t"]);
+        git(root.path(), &["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.path().join("a.age"), b"x").unwrap();
+        git(root.path(), &["add", "-Af", "--", "*.age"]);
+        git(root.path(), &["commit", "-qm", "init"]);
+        let st = Git::new(root.path(), false).status().unwrap();
+        assert!(st.branch.is_some());
+        assert_eq!(st.upstream, None);
     }
 }
