@@ -855,6 +855,7 @@ fn desk_core_unlock_device_without_sources() {
 
 /// Keychain enable/disable round trip through `set_device`, gated like the
 /// library keychain tests (mock store installed beforehand).
+#[cfg(any(target_os = "macos", windows))]
 #[test]
 fn desk_core_set_device_keychain_round_trip() {
     let store = keyring_core::mock::Store::new().unwrap();
