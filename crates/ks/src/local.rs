@@ -33,15 +33,31 @@ pub(crate) fn data_dir() -> Result<PathBuf> {
 
 /// `<data_local_dir>/<id>` — the per-vault local state directory.
 ///
-/// Created with mode `0700` on unix; an existing directory must be owned
-/// privately by the current user (the same rule the agent endpoint
-/// directory follows). Refuses a tampered directory rather than healing it.
+/// Returns the path only and never creates it: read-side callers
+/// (probes, `is_enabled`, `disable`) must not leave empty dirs behind.
+/// An existing directory must be owned privately by the current user;
+/// a missing one is simply absent state.
 ///
 /// # Errors
 ///
-/// [`Error::Unavailable`] on missing state dir or an unsafe directory;
-/// [`Error::Io`] on filesystem failures.
+/// [`Error::Unavailable`] on an unsafe directory; [`Error::Io`] on
+/// filesystem failures.
 pub fn state_dir(vault: &Vault) -> Result<PathBuf> {
+    let dir = data_dir()?.join(id(vault));
+    if dir.is_dir() {
+        check_dir_perms(&dir)?;
+    }
+    Ok(dir)
+}
+
+/// `state_dir` plus creation with mode `0700` on unix — only for code
+/// that actually writes device state (`touchid enable`).
+///
+/// # Errors
+///
+/// [`Error::Unavailable`] on an unsafe directory; [`Error::Io`] on
+/// filesystem failures.
+pub fn ensure_state_dir(vault: &Vault) -> Result<PathBuf> {
     let dir = data_dir()?.join(id(vault));
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);

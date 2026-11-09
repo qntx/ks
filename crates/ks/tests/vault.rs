@@ -525,3 +525,16 @@ fn change_passphrase_then_writes_work() {
         .unwrap();
     session.set(&name("k"), &text("v"), false).unwrap();
 }
+
+#[test]
+fn unlock_leaves_no_local_state_dir() {
+    let (_d, r) = root();
+    let session = Vault::create(&r, &passphrase()).unwrap();
+    drop(session);
+    // A plain unlock with the passphrase runs every device probe; none
+    // may leave local state behind.
+    let _s = unlock(&r);
+    let v = Vault::open(&r).unwrap();
+    let dir = ks::local::state_dir(&v).unwrap();
+    assert!(!dir.exists(), "state dir was created: {}", dir.display());
+}
