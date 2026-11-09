@@ -230,6 +230,13 @@ mod tests {
 
         #[test]
         fn valid_names_round_trip(s in "[a-z]([a-z0-9._-]{0,18}[a-z0-9_-])?(/[a-z]([a-z0-9._-]{0,18}[a-z0-9_-])?){0,3}") {
+            // The regex cannot express the two remaining rules; skip those
+            // inputs instead of asserting on them.
+            prop_assume!(!ends_with_age(&s));
+            prop_assume!(s.split('/').all(|seg| {
+                let stem = seg.split('.').next().unwrap_or(seg);
+                !RESERVED.contains(&stem)
+            }));
             let n = Name::parse(&s).unwrap();
             prop_assert_eq!(n.as_str(), s);
         }
