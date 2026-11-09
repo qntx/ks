@@ -6,7 +6,14 @@ import { lock, openVault, saveSettings, useSession } from "../../app/session";
 import { errorMessage, useMessages } from "../../i18n";
 import { ChoiceMenu, ListGroup, ListRow, Sheet, Switch, toast } from "../../ui";
 import { DeviceUnlockGroup } from "../devices";
-import { DoctorPage, MaintenanceGroup } from "../maintenance";
+import {
+  DoctorPage,
+  MaintenanceGroup,
+  PassphrasePage,
+  RecoveryPage,
+  RotatePage,
+} from "../maintenance";
+import type { MaintenancePage } from "../maintenance";
 import { SyncGroup } from "../sync";
 
 function options(
@@ -19,8 +26,8 @@ function options(
     .map((n) => ({ value: String(n), label: label(n) }));
 }
 
-/** In-sheet pages; future passphrase/rotation/recovery pages join this union. */
-type SettingsPage = "main" | "doctor";
+/** In-sheet pages: the maintenance group navigates to sub-pages. */
+type SettingsPage = "main" | MaintenancePage;
 
 export function SettingsDialog({
   open,
@@ -62,7 +69,17 @@ export function SettingsDialog({
         setPage("main");
         onOpenChange(o);
       }}
-      title={page === "doctor" ? m.settings.checkVault : m.settings.title}
+      title={
+        page === "doctor"
+          ? m.settings.checkVault
+          : page === "passphrase"
+            ? m.maintenance.changePassphrase
+            : page === "rotate"
+              ? m.maintenance.rotateKey
+              : page === "recovery"
+                ? m.maintenance.recovery
+                : m.settings.title
+      }
       back={
         page === "main"
           ? undefined
@@ -82,6 +99,20 @@ export function SettingsDialog({
     >
       {page === "doctor" ? (
         <DoctorPage />
+      ) : page === "passphrase" ? (
+        <PassphrasePage
+          onDone={() => {
+            setPage("main");
+          }}
+        />
+      ) : page === "rotate" ? (
+        <RotatePage
+          onDone={() => {
+            setPage("main");
+          }}
+        />
+      ) : page === "recovery" ? (
+        <RecoveryPage />
       ) : (
         <>
           <ListGroup title={m.settings.security}>
@@ -134,8 +165,8 @@ export function SettingsDialog({
           <DeviceUnlockGroup />
           <SyncGroup patch={patch} />
           <MaintenanceGroup
-            onOpenDoctor={() => {
-              setPage("doctor");
+            onOpenPage={(p) => {
+              setPage(p);
             }}
           />
           <ListGroup title={m.settings.general}>

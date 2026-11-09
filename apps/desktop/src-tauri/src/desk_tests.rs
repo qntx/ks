@@ -1130,3 +1130,146 @@ fn desk_doctor_finds_and_fixes() {
         ks::GITIGNORE.as_bytes()
     );
 }
+
+const NEW_PASS: &str = "troubadour galloping mentor flagstone";
+
+fn unlocked(f: &Fixture) -> bool {
+    f.state
+        .inner
+        .lock()
+        .unwrap()
+        .open
+        .as_ref()
+        .is_some_and(|o| o.session.is_some())
+}
+
+/// `change_passphrase` swaps the app session so later writes do not
+/// fail `KeyChanged`; a wrong current passphrase changes nothing.
+#[test]
+fn desk_change_passphrase() {
+    let f = mk_git();
+    unlock(&f);
+
+    let wrong = commands::change_passphrase_blocking(
+        f.app.handle(),
+        &f.state,
+        &SecretString::from("a wrong passphrase"),
+        &SecretString::from(NEW_PASS),
+    );
+    assert!(wrong.is_err());
+    assert!(unlocked(&f));
+    set(&f, "a", "v", false);
+
+    let weak = commands::change_passphrase_blocking(
+        f.app.handle(),
+        &f.state,
+        &SecretString::from(PASS),
+        &SecretString::from("abc"),
+    );
+    assert!(weak.is_err());
+    assert!(
+        f.state
+            .inner
+            .lock()
+            .unwrap()
+            .open
+            .as_ref()
+            .is_some_and(|o| o.watcher.is_some())
+    );
+
+    let r = commands::change_passphrase_blocking(
+        f.app.handle(),
+        &f.state,
+        &SecretString::from(PASS),
+        &SecretString::from(NEW_PASS),
+    );
+    assert!(r.is_ok());
+    commands::save_entry(
+        f.app.state::<Arc<AppState>>(),
+        "b".to_owned(),
+        SecretText::new("v"),
+        false,
+    )
+    .unwrap();
+    let v = ks::Vault::open(&f.vault).unwrap();
+    assert!(
+        v.unlock_passphrase(&|| Ok(SecretString::from(NEW_PASS)))
+            .is_ok()
+    );
+    let v2 = ks::Vault::open(&f.vault).unwrap();
+    assert!(
+        v2.unlock_passphrase(&|| Ok(SecretString::from(PASS)))
+            .is_err()
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(unlocked(&f));
+}
+
+/// `rotate_key` rewrites every entry under the new key, installs the new
+/// session, and restores services when a failed run left the identity
+/// file untouched. A dirty tree or wrong passphrase changes nothing.
+#[test]
+fn desk_rotate_key() {
+    let f = mk_git();
+    unlock(&f);
+    set(&f, "a", "v", false);
+
+    let wrong = commands::rotate_key_blocking(
+        f.app.handle(),
+        &f.state,
+        &SecretString::from("a wrong passphrase"),
+        Some(SecretString::from(NEW_PASS)),
+    );
+    assert!(wrong.is_err());
+    assert!(unlocked(&f));
+    commands::save_entry(
+        f.app.state::<Arc<AppState>>(),
+        "b".to_owned(),
+        SecretText::new("v"),
+        false,
+    )
+    .unwrap();
+
+    std::fs::write(f.vault.join("pending.age"), b"junk").unwrap();
+    let dirty = commands::rotate_key_blocking(
+        f.app.handle(),
+        &f.state,
+        &SecretString::from(PASS),
+        Some(SecretString::from(NEW_PASS)),
+    );
+    assert!(matches!(dirty, Err(ref e) if e.code == "usage"));
+    assert!(unlocked(&f));
+    std::fs::remove_file(f.vault.join("pending.age")).unwrap();
+
+    let report = commands::rotate_key_blocking(
+        f.app.handle(),
+        &f.state,
+        &SecretString::from(PASS),
+        Some(SecretString::from(NEW_PASS)),
+    );
+    let report = match report {
+        Ok(r) => r,
+        Err(e) => panic!("rotate failed: {e:?}"),
+    };
+    assert!(!report.resumed);
+    assert!(report.entries >= 2);
+    commands::entry_detail(f.app.state::<Arc<AppState>>(), "a".to_owned()).unwrap();
+    let v = ks::Vault::open(&f.vault).unwrap();
+    assert!(
+        v.unlock_passphrase(&|| Ok(SecretString::from(NEW_PASS)))
+            .is_ok()
+    );
+    let v2 = ks::Vault::open(&f.vault).unwrap();
+    assert!(
+        v2.unlock_passphrase(&|| Ok(SecretString::from(PASS)))
+            .is_err()
+    );
+    assert!(unlocked(&f));
+    commands::save_entry(
+        f.app.state::<Arc<AppState>>(),
+        "c".to_owned(),
+        SecretText::new("v"),
+        false,
+    )
+    .unwrap();
+}

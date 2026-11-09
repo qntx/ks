@@ -3,8 +3,6 @@
 use serde::Serialize;
 use specta::Type;
 
-use sha2::Digest as _;
-
 use age::secrecy::SecretString;
 
 use crate::error::AppError;
@@ -115,20 +113,11 @@ fn begin_session<RT: tauri::Runtime>(
             .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
         let o = i.open.as_mut().ok_or(ks::Error::Locked)?;
         let root = o.vault.root().to_path_buf();
-        let identity_hash = std::fs::read(root.join(".identity.age"))
-            .ok()
-            .map(|b| sha2::Sha256::digest(&b).to_vec())
-            .unwrap_or_default();
         let at = std::time::Instant::now();
         o.session = Some(session);
         o.unlocked_at = Some(at);
         o.last_activity = at;
-        o.watcher = crate::watch::Watcher::start(
-            app.clone(),
-            std::sync::Arc::clone(state),
-            root.clone(),
-            identity_hash,
-        );
+        start_watcher(app, state, o);
         #[cfg(target_os = "macos")]
         drop(app.run_on_main_thread(crate::lock::platform::begin_activity));
         let st = crate::settings::load();
@@ -139,12 +128,49 @@ fn begin_session<RT: tauri::Runtime>(
         (root, at, idle, max)
     };
 
-    // Host the agent endpoint so the CLI/agent work without a passphrase
-    // (ADR-16) — outside the state lock: `ks::agent::lock` can block ~2 s
-    // while a superseded agent exits, and `Server::start` binds a socket.
-    // A running `ks unlock` agent is asked to exit first; the app then
-    // takes over. Failure does not block the session.
-    let started = ks::Vault::open(&root)
+    if let Some(w) = host_agent(state, &root, agent_identity, idle, max, installed_at) {
+        warnings.push(w);
+    }
+    crate::sync::after_unlock(state);
+    Ok(warnings)
+}
+
+/// Starts the identity watcher on the installed `Open`, hashing the
+/// current `.identity.age` — one shared site for begin_session,
+/// change_passphrase and the rotate restore path.
+fn start_watcher<RT: tauri::Runtime>(
+    app: &tauri::AppHandle<RT>,
+    state: &std::sync::Arc<AppState>,
+    o: &mut crate::state::Open,
+) {
+    let root = o.vault.root().to_path_buf();
+    let identity_hash = std::fs::read(root.join(".identity.age"))
+        .ok()
+        .map(|b| <sha2::Sha256 as sha2::Digest>::digest(&b).to_vec())
+        .unwrap_or_default();
+    o.watcher = crate::watch::Watcher::start(
+        app.clone(),
+        std::sync::Arc::clone(state),
+        root,
+        identity_hash,
+    );
+}
+
+/// Hosts the agent endpoint so the CLI/agent work without a passphrase
+/// (ADR-16) — outside the state lock: `ks::agent::lock` can block ~2 s
+/// while a superseded agent exits, and `Server::start` binds a socket.
+/// A running `ks unlock` agent is asked to exit first; the app then
+/// takes over. Returns a warning on failure; never blocks the session.
+/// Shared by `begin_session` and the rotate-restore path.
+fn host_agent(
+    state: &std::sync::Arc<AppState>,
+    root: &std::path::Path,
+    agent_identity: Option<SecretString>,
+    idle: std::time::Duration,
+    max: std::time::Duration,
+    installed_at: std::time::Instant,
+) -> Option<String> {
+    let started = ks::Vault::open(root)
         .map_err(|e| e.to_string())
         .and_then(|v| {
             drop(ks::agent::lock(&v));
@@ -165,10 +191,10 @@ fn begin_session<RT: tauri::Runtime>(
         });
     match started {
         Ok(server) => {
-            let mut i = state
-                .inner
-                .lock()
-                .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+            let mut i = match state.inner.lock() {
+                Ok(i) => i,
+                Err(_) => return Some("state lock poisoned".to_owned()),
+            };
             let same_session = i
                 .open
                 .as_ref()
@@ -185,11 +211,10 @@ fn begin_session<RT: tauri::Runtime>(
                 drop(i);
                 let _ = server.stop();
             }
+            None
         }
-        Err(e) => warnings.push(format!("terminal session unavailable: {e}")),
+        Err(e) => Some(format!("terminal session unavailable: {e}")),
     }
-    crate::sync::after_unlock(state);
-    Ok(warnings)
 }
 
 /// Agent waiter thread: `Server::wait` blocks until the endpoint dies,
@@ -1094,4 +1119,218 @@ pub(crate) fn doctor_fix_blocking(state: &AppState) -> R<DoctorReport> {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let report = state.with_session(ks::doctor::check)?;
     Ok(doctor_report(ks::doctor::fix(report)))
+}
+
+/// Changes the vault passphrase: verifies `current` on a fresh local-key
+/// session (the app session may be agent- or device-backed), rewrites the
+/// identity file, autocommits, and swaps the app session — K is unchanged,
+/// so the agent, device unlock and `unlocked_at` are untouched.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn change_passphrase<RT: tauri::Runtime>(
+    app: tauri::AppHandle<RT>,
+    state: tauri::State<'_, std::sync::Arc<AppState>>,
+    current: SecretText,
+    new_passphrase: SecretText,
+) -> R<Vec<String>> {
+    let arc = std::sync::Arc::clone(state.inner());
+    let cur = SecretString::from(current.expose().to_owned());
+    let nw = SecretString::from(new_passphrase.expose().to_owned());
+    tauri::async_runtime::spawn_blocking(move || change_passphrase_blocking(&app, &arc, &cur, &nw))
+        .await
+        .map_err(|_| ks::Error::Internal("passphrase task panicked"))?
+}
+
+pub(crate) fn change_passphrase_blocking<RT: tauri::Runtime>(
+    app: &tauri::AppHandle<RT>,
+    state: &std::sync::Arc<AppState>,
+    current: &SecretString,
+    new: &SecretString,
+) -> R<Vec<String>> {
+    // Fail weak passphrases before touching the watcher or the vault.
+    let mut warnings = ks::check_new_passphrase(new)?;
+    let _git = state
+        .git
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let root = {
+        let i = state
+            .inner
+            .lock()
+            .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+        i.open
+            .as_ref()
+            .map(|o| o.vault.root().to_path_buf())
+            .ok_or(ks::Error::Locked)?
+    };
+    let cur = current.clone();
+    let fresh = ks::Vault::open(&root)?.unlock_passphrase(&move || Ok(cur.clone()))?;
+    warnings.extend(fresh.warnings().iter().cloned());
+    // The watcher compares identity hashes — stop it before the rewrite.
+    {
+        let mut i = state
+            .inner
+            .lock()
+            .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+        if let Some(o) = i.open.as_mut() {
+            drop(o.watcher.take());
+        }
+    }
+    // A failure after the watcher stopped leaves the vault unwatched;
+    // restart it on the unchanged identity before returning the error.
+    if let Err(e) = fresh.change_passphrase(new) {
+        if let Ok(mut i) = state.inner.lock()
+            && let Some(o) = i.open.as_mut()
+        {
+            start_watcher(app, state, o);
+        }
+        return Err(e.into());
+    }
+    autocommit(&root, "ks: passwd");
+    // Replace the app session and restart the watcher on the new identity;
+    // without this every later write fails `KeyChanged`.
+    let mut i = state
+        .inner
+        .lock()
+        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+    let o = i.open.as_mut().ok_or(ks::Error::Locked)?;
+    o.session = Some(fresh);
+    start_watcher(app, state, o);
+    Ok(warnings)
+}
+
+/// What a finished (or resumed) rotation reports to the UI.
+#[derive(serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RotateReport {
+    pub(crate) entries: u32,
+    pub(crate) resumed: bool,
+    pub(crate) warnings: Vec<String>,
+}
+
+/// Rotates the vault key: stops the watcher and the hosted agent first —
+/// `Vault::rekey` calls `ks::agent::lock`, which would otherwise lock the
+/// app as "locked from terminal". On success the new session is installed
+/// through `begin_session`; on failure the old services are restored, or
+/// the app locks `key_changed` when the identity file changed mid-write.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn rotate_key<RT: tauri::Runtime>(
+    app: tauri::AppHandle<RT>,
+    state: tauri::State<'_, std::sync::Arc<AppState>>,
+    passphrase: SecretText,
+    new_passphrase: Option<SecretText>,
+) -> R<RotateReport> {
+    let arc = std::sync::Arc::clone(state.inner());
+    let pass = SecretString::from(passphrase.expose().to_owned());
+    let nw = new_passphrase.map(|t| SecretString::from(t.expose().to_owned()));
+    tauri::async_runtime::spawn_blocking(move || rotate_key_blocking(&app, &arc, &pass, nw))
+        .await
+        .map_err(|_| ks::Error::Internal("rotate task panicked"))?
+}
+
+pub(crate) fn rotate_key_blocking<RT: tauri::Runtime>(
+    app: &tauri::AppHandle<RT>,
+    state: &std::sync::Arc<AppState>,
+    passphrase: &SecretString,
+    new_passphrase: Option<SecretString>,
+) -> R<RotateReport> {
+    let _git = state
+        .git
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let root = {
+        let mut i = state
+            .inner
+            .lock()
+            .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+        let o = i.open.as_mut().ok_or(ks::Error::Locked)?;
+        o.stop_agent();
+        drop(o.watcher.take());
+        o.vault.root().to_path_buf()
+    };
+    let before = std::fs::read(root.join(".identity.age")).ok();
+    let install = if new_passphrase.is_none() {
+        passphrase.clone()
+    } else {
+        new_passphrase.clone().unwrap_or_else(|| passphrase.clone())
+    };
+    let vault = ks::Vault::open(&root)?;
+    match vault.rekey(passphrase, &move || {
+        new_passphrase.clone().ok_or(ks::Error::InvalidInput(
+            "a new passphrase is required to start a rotation".into(),
+        ))
+    }) {
+        Ok(report) => {
+            autocommit(&root, "ks: rekey");
+            let mut warnings = report.warnings;
+            // The key rotated but the new session cannot be installed —
+            // the stored identity hash no longer matches, so lock as a
+            // key change rather than leave a half-dead session.
+            let install_result = vault
+                .unlock_passphrase(&move || Ok(install.clone()))
+                .map_err(Into::into)
+                .and_then(|session| {
+                    begin_session(app, state, session).map(|w| {
+                        warnings.extend(w);
+                    })
+                });
+            if let Err(e) = install_result {
+                let _ = state.lock(crate::lock::Reason::KeyChanged);
+                return Err(e);
+            }
+            Ok(RotateReport {
+                entries: u32::try_from(report.entries).unwrap_or(u32::MAX),
+                resumed: report.resumed,
+                warnings,
+            })
+        }
+        Err(e) => {
+            let after = std::fs::read(root.join(".identity.age")).ok();
+            if after == before {
+                restore_services(app, state);
+            } else {
+                let _ = state.lock(crate::lock::Reason::KeyChanged);
+            }
+            Err(e.into())
+        }
+    }
+}
+
+/// Restarts watcher + agent for the still-installed session after a
+/// failed rotation whose identity file is unchanged.
+fn restore_services<RT: tauri::Runtime>(
+    app: &tauri::AppHandle<RT>,
+    state: &std::sync::Arc<AppState>,
+) {
+    let (root, agent_identity, installed_at) = {
+        let mut i = match state.inner.lock() {
+            Ok(i) => i,
+            Err(_) => return,
+        };
+        let Some(o) = i.open.as_mut() else { return };
+        let root = o.vault.root().to_path_buf();
+        start_watcher(app, state, o);
+        (
+            root,
+            o.session.as_ref().and_then(|s| s.agent_identity()),
+            o.unlocked_at,
+        )
+    };
+    let st = crate::settings::load();
+    host_agent(
+        state,
+        &root,
+        agent_identity,
+        duration_or_never(st.auto_lock_minutes, 60),
+        duration_or_never(st.max_session_hours, 3600),
+        installed_at.unwrap_or_else(std::time::Instant::now),
+    );
+}
+
+/// True while an interrupted key rotation is pending (`key_count > 1`).
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn rotation_pending(state: tauri::State<'_, std::sync::Arc<AppState>>) -> R<bool> {
+    Ok(state.with_session(|s| Ok(s.key_count() > 1))?)
 }

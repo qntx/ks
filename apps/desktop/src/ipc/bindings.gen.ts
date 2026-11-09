@@ -39,6 +39,23 @@ export const commands = {
 	syncState: () => __TAURI_INVOKE<SyncState>("sync_state"),
 	lock: () => typedError<null, AppError>(__TAURI_INVOKE("lock")),
 	/**
+	 *  Changes the vault passphrase: verifies `current` on a fresh local-key
+	 *  session (the app session may be agent- or device-backed), rewrites the
+	 *  identity file, autocommits, and swaps the app session — K is unchanged,
+	 *  so the agent, device unlock and `unlocked_at` are untouched.
+	 */
+	changePassphrase: (current: SecretText, newPassphrase: SecretText) => typedError<string[], AppError>(__TAURI_INVOKE("change_passphrase", { current, newPassphrase })),
+	/**
+	 *  Rotates the vault key: stops the watcher and the hosted agent first —
+	 *  `Vault::rekey` calls `ks::agent::lock`, which would otherwise lock the
+	 *  app as "locked from terminal". On success the new session is installed
+	 *  through `begin_session`; on failure the old services are restored, or
+	 *  the app locks `key_changed` when the identity file changed mid-write.
+	 */
+	rotateKey: (passphrase: SecretText, newPassphrase: SecretText | null) => typedError<RotateReport, AppError>(__TAURI_INVOKE("rotate_key", { passphrase, newPassphrase })),
+	/**  True while an interrupted key rotation is pending (`key_count > 1`). */
+	rotationPending: () => typedError<boolean, AppError>(__TAURI_INVOKE("rotation_pending")),
+	/**
 	 *  Checks the vault for structural problems (needs an unlocked session).
 	 *  Off the main thread — it decrypts every entry.
 	 */
@@ -335,6 +352,13 @@ export type Reason =
 "key_changed" | 
 /**  App quitting. */
 "quit";
+
+/**  What a finished (or resumed) rotation reports to the UI. */
+export type RotateReport = {
+	entries: number,
+	resumed: boolean,
+	warnings: string[],
+};
 
 /**
  *  A secret string. Serialized as a plain string for IPC (the `WebView`

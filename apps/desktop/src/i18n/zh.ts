@@ -6,6 +6,7 @@ export const zh = {
     browse: "浏览",
     cancel: "取消",
     close: "关闭",
+    done: "完成",
     copy: "拷贝",
     delete: "删除",
     edit: "编辑",
@@ -81,6 +82,36 @@ export const zh = {
       symlink: "符号链接",
       non_ks_file: "其他文件",
     },
+  },
+  maintenance: {
+    changePassphrase: "修改主密码",
+    rotateKey: "轮换密钥",
+    recovery: "恢复说明",
+    currentPassphrase: "当前主密码",
+    newPassphrase: "新主密码",
+    repeatPassphrase: "重复新主密码",
+    mismatch: "两次输入的密码不一致",
+    passphraseNote: "修改主密码不能撤销已泄露的密钥，需要撤销时请轮换密钥。",
+    passphraseChanged: "主密码已修改",
+    rotateIntro:
+      "所有条目将用新密钥重新加密。其他设备需要先同步，再用新主密码解锁。Touch ID 和钥匙串解锁会被移除，需要重新开启——请撤销丢失设备的 git 凭据。",
+    rotateDirtyNote: "保险库有未提交的改动，请先同步或处理完成后再轮换。",
+    syncNow: "立即同步",
+    reencrypting: "正在重新加密条目…",
+    rotateDone: (n: number): string => `密钥已轮换——已重新加密 ${n} 个条目。`,
+    rotateNextSteps: "在你的其他设备上：同步此保险库，用新主密码解锁，并重新开启设备解锁。",
+    finishRotation: "完成轮换",
+    passphrase: "主密码",
+    finishRotationDesc:
+      "上一次轮换被中断，保险库当时是用新主密码解锁的。输入它一次即可继续重新加密所有条目。",
+  },
+  recovery: {
+    intro: "ks 存储的一切都可以只用官方 age 工具解密——不需要 ks 程序。",
+    headerNote:
+      "条目明文的第一行是 `ks1 <kind> <name>`——把文件绑定到路径的头部；后面是内容。`rage` 也可以用（`rage -d -i`）。",
+    orphanTitle: "轮换后丢失的条目",
+    orphanIntro:
+      "某台设备在你的 rekey 之后、同步之前写入的条目是用旧密钥加密的，无法再解密。从 git 历史中恢复：",
   },
   vault: {
     git: "Git",

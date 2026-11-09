@@ -4,6 +4,7 @@ export const en = {
     browse: "Browse",
     cancel: "Cancel",
     close: "Close",
+    done: "Done",
     copy: "Copy",
     delete: "Delete",
     edit: "Edit",
@@ -80,6 +81,38 @@ export const en = {
       symlink: "Symlinks",
       non_ks_file: "Other files",
     },
+  },
+  maintenance: {
+    changePassphrase: "Change passphrase",
+    rotateKey: "Rotate key",
+    recovery: "Recovery instructions",
+    currentPassphrase: "Current passphrase",
+    newPassphrase: "New passphrase",
+    repeatPassphrase: "Repeat new passphrase",
+    mismatch: "Passphrases do not match",
+    passphraseNote:
+      "Changing the passphrase does not revoke a leaked key — rotate the key for that.",
+    passphraseChanged: "Passphrase changed",
+    rotateIntro:
+      "Every entry is re-encrypted with a new key. Other devices must sync, then unlock with the new passphrase. Touch ID and keychain unlock are removed and need re-enabling — revoke the git credentials of any lost device.",
+    rotateDirtyNote: "The vault has uncommitted changes. Sync or finish them before rotating.",
+    syncNow: "Sync now",
+    reencrypting: "Re-encrypting entries…",
+    rotateDone: (n: number): string => `Rotated the key — ${n} entries re-encrypted.`,
+    rotateNextSteps:
+      "On your other devices: sync this vault, then unlock with the new passphrase and re-enable device unlock.",
+    finishRotation: "Finish rotation",
+    passphrase: "Passphrase",
+    finishRotationDesc:
+      "A previous rotation was interrupted and the vault was unlocked with the new passphrase. Enter it once to finish re-encrypting every entry.",
+  },
+  recovery: {
+    intro: "Everything ks stores decrypts with the official age CLI alone — no ks binary required.",
+    headerNote:
+      "The first plaintext line of an entry is `ks1 <kind> <name>` — a header binding the file to its path; the payload follows it. `rage` works too (`rage -d -i`).",
+    orphanTitle: "Orphan entries after a rotation",
+    orphanIntro:
+      "An entry written on another device after your rekey but before its sync was encrypted to the old key and no longer decrypts. Restore it from git history:",
   },
   vault: {
     git: "Git",

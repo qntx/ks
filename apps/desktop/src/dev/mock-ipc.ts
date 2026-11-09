@@ -213,7 +213,13 @@ const dispatch = (cmd: string, payload: unknown): unknown => {
       unlocked = true;
       return { warnings: [] };
     case "git_status":
-      return { branch: "main", upstream: "origin/main", ahead: 1, behind: 0, changes: 2 };
+      return {
+        branch: "main",
+        upstream: "origin/main",
+        ahead: 1,
+        behind: 0,
+        changes: params.get("clean") === null ? 2 : 0,
+      };
     case "sync_state":
       return lastSyncState;
     case "doctor":
@@ -223,6 +229,12 @@ const dispatch = (cmd: string, payload: unknown): unknown => {
       return { problems: params.get("doctor") === null ? [] : DOCTOR_PROBLEMS };
     case "doctor_fix":
       return { problems: DOCTOR_PROBLEMS.filter((p) => !p.fixable) };
+    case "change_passphrase":
+      return [];
+    case "rotate_key":
+      return { entries: 3, resumed: params.get("rotation") !== null, warnings: [] };
+    case "rotation_pending":
+      return params.get("rotation") !== null;
     case "sync_now":
       if (!syncUsed && conflictKind !== null) {
         syncUsed = true;

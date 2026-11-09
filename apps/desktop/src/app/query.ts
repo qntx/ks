@@ -21,5 +21,6 @@ export const queryKeys = {
   devices: ["devices"],
   gitStatus: ["git-status"],
   doctor: ["doctor"],
+  rotationPending: ["rotation-pending"],
   totp: (name: string) => ["totp", name],
 } as const;
