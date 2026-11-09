@@ -1323,3 +1323,45 @@ fn desk_tray_refresh_reads_state() {
     crate::tray::refresh(f.app.handle());
     assert!(unlocked(&f));
 }
+
+/// Every `#[tauri::command]` must be `#[tauri::command(async)]` or be
+/// directly followed by an `async fn` — otherwise it runs on the main
+/// thread and a blocked call freezes the window and the tray.
+#[test]
+fn desk_commands_never_run_on_main_thread() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files: Vec<PathBuf> = Vec::new();
+    for dir in [&root, &root.join("platform")] {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let p = entry.unwrap().path();
+            if p.extension().is_some_and(|e| e == "rs") {
+                files.push(p);
+            }
+        }
+    }
+    for p in &files {
+        let src = std::fs::read_to_string(p).unwrap();
+        let lines: Vec<&str> = src.lines().collect();
+        for (n, line) in lines.iter().enumerate() {
+            let t = line.trim();
+            if t != "#[tauri::command]" && t != "#[tauri::command(async)]" {
+                continue;
+            }
+            // Find the fn after the attribute block.
+            let mut j = n + 1;
+            while j < lines.len()
+                && (lines[j].trim().starts_with("#[") || lines[j].trim().is_empty())
+            {
+                j += 1;
+            }
+            let sig = lines.get(j).map(|l| l.trim()).unwrap_or_default();
+            let ok = t == "#[tauri::command(async)]" || sig.contains("async fn");
+            assert!(
+                ok,
+                "{}:{}: `#[tauri::command]` on a sync fn runs on the main thread ({sig})",
+                p.display(),
+                n + 1
+            );
+        }
+    }
+}
