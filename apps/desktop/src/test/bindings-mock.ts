@@ -1,6 +1,6 @@
 import { vi } from "vite-plus/test";
 
-import type { AppError, AppView_Serialize, Settings_Serialize } from "../ipc/bindings.gen";
+import type { Devices, AppError, AppView_Serialize, Settings_Serialize } from "../ipc/bindings.gen";
 
 const ok = async <T>(data: T): Promise<{ status: "ok"; data: T }> => {
   await Promise.resolve();
@@ -25,6 +25,10 @@ export const DEFAULT_SETTINGS: Settings_Serialize = {
 function createBindingsMockImpl() {
   const store = {
     names: ["work/github", "work/aws/root", "personal/bank", "personal/passport.pdf", "solo"],
+    devices: {
+      touchId: { supported: false, enabled: false, reason: null },
+      keychain: { supported: true, enabled: false, reason: null },
+    } as Devices,
     texts: new Map<string, string>([
       [
         "work/github",
@@ -69,11 +73,17 @@ function createBindingsMockImpl() {
       problem: null,
       suggestions: [],
     })),
-    unlock: vi.fn(async (pass: string) =>
+    unlock: vi.fn(async (pass: string, _retireStale: boolean) =>
       pass === "correct horse battery staple"
         ? ok({ warnings: [] })
         : err("wrong_passphrase", "Wrong passphrase"),
     ),
+    unlockDevice: vi.fn(async () => ok({ unlocked: false, warnings: [], stale: false })),
+    devices: vi.fn(async () => ok(store.devices)),
+    setDevice: vi.fn(async (kind: "touch_id" | "keychain", enabled: boolean) => {
+      store.devices[kind === "touch_id" ? "touchId" : "keychain"].enabled = enabled;
+      return ok([]);
+    }),
     lock: vi.fn(async () => {
       emitLocked("manual");
       return ok(null);

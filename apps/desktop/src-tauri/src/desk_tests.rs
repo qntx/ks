@@ -597,7 +597,8 @@ fn unlock_via_command(f: &Fixture) -> Vec<String> {
     commands::unlock(
         f.app.handle().clone(),
         f.app.state::<Arc<AppState>>(),
-        Some(SecretText::new(PASS)),
+        SecretText::new(PASS),
+        true,
     )
     .unwrap()
     .warnings
@@ -799,4 +800,83 @@ fn desk_core_agent_lock_between_install_and_start_leaves_no_agent() {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(matches!(ks::agent::status(&v), Ok(None)));
+}
+
+/// `devices()` reports the shape and leaves every source disabled on a
+/// fresh vault (supported flags are machine-dependent).
+#[test]
+fn desk_core_devices_reports_shape() {
+    let f = mk();
+    let d = commands::devices(f.app.state::<Arc<AppState>>()).unwrap();
+    assert!(!d.touch_id.enabled);
+    assert!(!d.keychain.enabled);
+    assert_eq!(
+        d.keychain.supported,
+        cfg!(any(target_os = "macos", windows))
+    );
+}
+
+/// Both passphrase paths unlock: the probe-free one and the retire-stale
+/// full chain.
+#[test]
+fn desk_core_unlock_retire_stale_paths() {
+    let f = mk();
+    assert!(!commands::app_state(f.app.state::<Arc<AppState>>()).unlocked);
+    commands::unlock(
+        f.app.handle().clone(),
+        f.app.state::<Arc<AppState>>(),
+        SecretText::new(PASS),
+        false,
+    )
+    .unwrap();
+    assert!(commands::app_state(f.app.state::<Arc<AppState>>()).unlocked);
+    commands::lock(f.app.state::<Arc<AppState>>()).unwrap();
+    commands::unlock(
+        f.app.handle().clone(),
+        f.app.state::<Arc<AppState>>(),
+        SecretText::new(PASS),
+        true,
+    )
+    .unwrap();
+    assert!(commands::app_state(f.app.state::<Arc<AppState>>()).unlocked);
+}
+
+/// `unlock_device` on a vault with no sources: never prompts, reports
+/// unavailable without stale.
+#[test]
+fn desk_core_unlock_device_without_sources() {
+    let f = mk();
+    let r =
+        commands::unlock_device(f.app.handle().clone(), f.app.state::<Arc<AppState>>()).unwrap();
+    assert!(!r.unlocked);
+    assert!(!r.stale);
+    assert!(!commands::app_state(f.app.state::<Arc<AppState>>()).unlocked);
+}
+
+/// Keychain enable/disable round trip through `set_device`, gated like the
+/// library keychain tests (mock store installed beforehand).
+#[test]
+fn desk_core_set_device_keychain_round_trip() {
+    let store = keyring_core::mock::Store::new().unwrap();
+    let as_store: Arc<keyring_core::CredentialStore> = store;
+    keyring_core::set_default_store(as_store);
+    let f = mk();
+    unlock_via_command(&f);
+    commands::set_device(
+        f.app.state::<Arc<AppState>>(),
+        commands::DeviceKind::Keychain,
+        true,
+    )
+    .unwrap();
+    let d = commands::devices(f.app.state::<Arc<AppState>>()).unwrap();
+    assert!(d.keychain.enabled);
+    commands::set_device(
+        f.app.state::<Arc<AppState>>(),
+        commands::DeviceKind::Keychain,
+        false,
+    )
+    .unwrap();
+    let d = commands::devices(f.app.state::<Arc<AppState>>()).unwrap();
+    assert!(!d.keychain.enabled);
+    commands::lock(f.app.state::<Arc<AppState>>()).unwrap();
 }
