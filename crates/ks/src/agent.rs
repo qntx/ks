@@ -421,17 +421,32 @@ fn parse_status(ok: &serde_json::Value) -> AgentStatus {
     }
 }
 
-/// Asks a running agent to exit. `true` when one was running.
+/// Asks a running agent to exit and waits until it has — on return the
+/// endpoint no longer answers, so the caller can bind it itself right
+/// away. `true` when one was running.
 ///
 /// # Errors
 ///
-/// Transport/protocol failures.
+/// [`Error::Unavailable`] when the agent does not exit within 2 s;
+/// transport/protocol failures on the `lock` request.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "bounded blocking poll on a blocking call path"
+)]
 pub fn lock(vault: &Vault) -> Result<bool> {
     let Some(mut stream) = connect_raw(vault)? else {
         return Ok(false);
     };
     drop(rpc(&mut stream, &serde_json::json!({ "op": "lock" })));
-    Ok(true)
+    // The request is fire-and-forget; the server's own exit takes a
+    // moment. A mid-teardown handshake error still counts as running.
+    for _ in 0..80 {
+        if matches!(connect_raw(vault), Ok(None)) {
+            return Ok(true);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    Err(Error::Unavailable("the session agent did not exit".into()))
 }
 
 /// How a served connection ended.
@@ -585,7 +600,7 @@ impl Handler {
 }
 
 #[cfg(feature = "agent-server")]
-pub use crate::agent_server::{Host, Server, ServerConfig, StopHandle, StopReason};
+pub use crate::agent_server::{Host, Server, ServerConfig, ServerHandle, StopReason};
 
 #[cfg(test)]
 mod tests {

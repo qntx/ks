@@ -41,9 +41,11 @@ impl Host {
 /// Limits and identity of a [`Server`].
 #[derive(Debug, Clone, Copy)]
 pub struct ServerConfig {
-    /// Idle timeout reset only by unwrap/wrap traffic.
+    /// Idle timeout reset by unwrap/wrap traffic or
+    /// [`ServerHandle::touch`]; `Duration::MAX` disables it.
     pub ttl: Duration,
-    /// Hard lifetime cap counted from `start`.
+    /// Hard lifetime cap counted from `start`; `Duration::MAX` disables
+    /// it.
     pub max: Duration,
     /// Who is serving (sent in `hello`).
     pub host: Host,
@@ -58,23 +60,29 @@ pub enum StopReason {
     MaxLifetime,
     /// A client sent `lock`.
     LockRequested,
-    /// [`Server::stop`] or [`StopHandle::stop`] was called.
+    /// [`Server::stop`] or [`ServerHandle::stop`] was called.
     Stopped,
 }
 
-/// A cloneable handle that stops the server without consuming it — a
-/// GUI keeps one while a worker thread calls [`Server::wait`].
+/// A cloneable handle to the running server.
+///
+/// A GUI keeps one while a worker thread calls [`Server::wait`]. Besides
+/// stopping, it shares the agent's activity clock:
+/// [`ServerHandle::touch`] resets the idle timer the same way
+/// unwrap/wrap traffic does, and [`ServerHandle::idle`] reports the
+/// elapsed time.
 #[derive(Clone)]
 #[allow(
     missing_debug_implementations,
     reason = "holds Arc<dyn Fn> which has no Debug; the handle is opaque"
 )]
-pub struct StopHandle {
+pub struct ServerHandle {
     stop: Arc<AtomicBool>,
     wake: Arc<dyn Fn() + Send + Sync>,
+    last: Arc<AtomicU64>,
 }
 
-impl StopHandle {
+impl ServerHandle {
     /// Stops the accept loop; [`Server::wait`] returns
     /// [`StopReason::Stopped`]. Idempotent.
     pub fn stop(&self) {
@@ -82,12 +90,24 @@ impl StopHandle {
             (self.wake)();
         }
     }
+
+    /// Marks agent activity now — resets the idle timeout like
+    /// unwrap/wrap traffic does.
+    pub fn touch(&self) {
+        self.last.store(now_secs(), Ordering::Relaxed);
+    }
+
+    /// Time since the last agent activity (traffic or `touch`).
+    #[must_use]
+    pub fn idle(&self) -> Duration {
+        Duration::from_secs(now_secs().saturating_sub(self.last.load(Ordering::Relaxed)))
+    }
 }
 
 type Reason = Arc<Mutex<Option<StopReason>>>;
 
 /// A running agent server. [`Server::wait`] blocks until expiry, a
-/// `lock` request or `stop`; [`Server::stopper`] yields a handle to
+/// `lock` request or `stop`; [`Server::handle`] yields a handle to
 /// stop it from another thread.
 #[allow(
     missing_debug_implementations,
@@ -199,19 +219,20 @@ impl Server {
             .unwrap_or(StopReason::Stopped)
     }
 
-    /// Stops the server and cleans up; idempotent via [`StopHandle`].
+    /// Stops the server and cleans up; idempotent via [`ServerHandle`].
     #[must_use = "stopping consumes the server and cleans up the endpoint"]
     pub fn stop(self) -> StopReason {
-        self.stopper().stop();
+        self.handle().stop();
         self.wait()
     }
 
-    /// A handle for stopping the server from another thread.
+    /// A handle for stopping or marking activity from another thread.
     #[must_use]
-    pub fn stopper(&self) -> StopHandle {
-        StopHandle {
+    pub fn handle(&self) -> ServerHandle {
+        ServerHandle {
             stop: Arc::clone(&self.stop),
             wake: Arc::clone(&self.wake),
+            last: Arc::clone(&self.last),
         }
     }
 
@@ -229,7 +250,7 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         if self.join.is_some() {
-            self.stopper().stop();
+            self.handle().stop();
             if let Some(join) = self.join.take() {
                 drop(join.join());
             }
@@ -406,7 +427,8 @@ fn owner_only_dacl() -> Result<interprocess::os::windows::security_descriptor::S
     clippy::unwrap_used,
     clippy::panic,
     clippy::missing_assert_message,
-    reason = "tests: panicking asserts"
+    clippy::disallowed_methods,
+    reason = "tests: panicking asserts and short sleeps for watchdog timing"
 )]
 mod tests {
     use std::time::Duration;
@@ -465,6 +487,47 @@ mod tests {
         let server =
             Server::start(&v, identity(), cfg(1, 300, Host::Cli)).expect("server should start");
         assert_eq!(server.wait(), StopReason::Idle);
+    }
+
+    #[test]
+    fn handle_touch_resets_idle() {
+        let (_t, v) = vault();
+        let server =
+            Server::start(&v, identity(), cfg(60, 300, Host::Cli)).expect("server should start");
+        let h = server.handle();
+        // Fresh server: ~0s idle.
+        assert!(h.idle() <= Duration::from_secs(1));
+        h.last.store(now_secs() - 30, Ordering::Relaxed);
+        assert!(h.idle() >= Duration::from_secs(30));
+        h.touch();
+        assert!(h.idle() <= Duration::from_secs(1));
+        // A client-visible heartbeat keeps ttl_left near the ceiling.
+        h.last.store(now_secs() - 5, Ordering::Relaxed);
+        let st = server.status();
+        assert!(st.ttl_left <= 60 && st.ttl_left >= 54);
+        assert_eq!(server.stop(), StopReason::Stopped);
+    }
+
+    #[test]
+    fn unlimited_limits_never_expire() {
+        let (_t, v) = vault();
+        let server = Server::start(
+            &v,
+            identity(),
+            ServerConfig {
+                ttl: Duration::MAX,
+                max: Duration::MAX,
+                host: Host::Cli,
+            },
+        )
+        .expect("server should start");
+        let st = server.status();
+        // No overflow: the left values stay huge, not wrapped to 0.
+        assert!(st.ttl_left > u64::MAX / 2);
+        assert!(st.life_left > u64::MAX / 2);
+        // Give the watchdog a beat; it must not fire on its own.
+        std::thread::sleep(Duration::from_millis(600));
+        assert_eq!(server.stop(), StopReason::Stopped);
     }
 
     #[test]

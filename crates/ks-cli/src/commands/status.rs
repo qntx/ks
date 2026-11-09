@@ -4,6 +4,18 @@ use std::process::Command;
 
 use super::{Cli, CliResult, Out, vault};
 
+/// ≥10 years left reads as "no limit" in human output; JSON keeps the
+/// raw number.
+const TEN_YEARS_SECS: u64 = 10 * 365 * 24 * 3600;
+
+fn limit_left(secs: u64) -> String {
+    if secs >= TEN_YEARS_SECS {
+        "no limit".to_owned()
+    } else {
+        format!("{secs}s")
+    }
+}
+
 /// Reports the vault path, agent liveness and git repo/dirty state.
 pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {
     let v = vault(cli)?;
@@ -38,8 +50,10 @@ pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {
         || "agent: not running".to_owned(),
         |a| {
             format!(
-                "agent: ttl {}s, life {}s, host {}",
-                a.ttl_left, a.life_left, a.host
+                "agent: ttl {}, life {}, host {}",
+                limit_left(a.ttl_left),
+                limit_left(a.life_left),
+                a.host
             )
         },
     );
