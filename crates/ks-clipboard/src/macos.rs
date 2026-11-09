@@ -1,8 +1,8 @@
 //! macOS: direct `NSPasteboard` writes with privacy markers.
 //!
-//! `unsafe` is permitted in this module alone (crate-level deny); the
-//! generated objc2-app-kit 0.3 bindings make these calls safe, so none
-//! is used today.
+//! `unsafe` is permitted in this module alone (crate-level deny). The
+//! objc2-app-kit 0.3 bindings make the pasteboard calls safe; the only
+//! `unsafe` reads the `NSPasteboardTypeString` extern static.
 #![allow(unsafe_code, reason = "objc2 bindings are permitted here")]
 
 use objc2_app_kit::{NSPasteboard, NSPasteboardContentsOptions, NSPasteboardTypeString};
