@@ -5,6 +5,7 @@ import { lock, openVault, saveSettings, useSession } from "../../app/session";
 import { errorMessage, useMessages } from "../../i18n";
 import { ChoiceMenu, ListGroup, ListRow, Sheet, Switch, toast } from "../../ui";
 import { DeviceUnlockGroup } from "../devices";
+import { SyncGroup } from "../sync";
 
 function options(
   presets: number[],
@@ -98,6 +99,7 @@ export function SettingsDialog({
         </ListRow>
       </ListGroup>
       <DeviceUnlockGroup />
+      <SyncGroup patch={patch} />
       <ListGroup title={m.settings.general}>
         <ListRow label={m.settings.language}>
           <ChoiceMenu

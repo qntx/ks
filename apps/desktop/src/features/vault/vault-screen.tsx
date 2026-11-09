@@ -22,6 +22,7 @@ import {
 } from "../entry";
 import type { EditorTarget } from "../entry";
 import { SettingsDialog } from "../settings";
+import { ConflictDialog } from "../sync";
 import { ContentHeader } from "./content-header";
 import { ItemList } from "./item-list";
 import { Sidebar } from "./sidebar";
@@ -258,6 +259,7 @@ export function VaultScreen(): ReactElement {
           }}
         />
       )}
+      <ConflictDialog />
       <SettingsDialog
         open={dialog.kind === "settings"}
         onOpenChange={(open) => {

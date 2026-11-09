@@ -7,10 +7,11 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { Unlock } from "../features/access";
 import { Inspector } from "../features/entry";
 import { SettingsDialog } from "../features/settings";
+import { resetSync } from "../features/sync";
 import { VaultScreen } from "../features/vault";
 import { I18nProvider } from "../i18n";
 import { App } from "./app";
-import { queryClient } from "./query";
+import { queryClient, queryKeys } from "./query";
 import { boot, resetSession } from "./session";
 
 const ipc = await vi.hoisted(async () => {
@@ -91,6 +92,7 @@ describe("views", () => {
     cleanup();
     vi.clearAllMocks();
     resetSession();
+    resetSync();
     queryClient.clear();
     ipc.store.texts = new Map([
       [
@@ -102,6 +104,8 @@ describe("views", () => {
       ["solo", "v"],
     ]);
     ipc.store.names = [...ipc.store.texts.keys(), "personal/passport.pdf"];
+    ipc.store.gitStatus = undefined;
+    ipc.store.syncState = { status: "idle" };
   });
 
   it("wrong passphrase shows the localized error and clears the field", async () => {
@@ -134,6 +138,7 @@ describe("views", () => {
 
     cleanup();
     resetSession();
+    resetSync();
     queryClient.clear();
     ipc.store.devices = structuredClone(DEVICES_TOUCH);
     renderUnlock();
@@ -151,6 +156,7 @@ describe("views", () => {
 
     cleanup();
     resetSession();
+    resetSync();
     queryClient.clear();
     ipc.store.devices = structuredClone(DEVICES_TOUCH);
     renderUnlock();
@@ -354,5 +360,107 @@ describe("views", () => {
         true,
       );
     });
+  });
+
+  const GIT_STATUS = {
+    branch: "main",
+    upstream: "origin/main",
+    ahead: 1,
+    behind: 0,
+    changes: 2,
+  };
+
+  function renderSettings(): void {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider language="en">
+          <Tooltip.Provider>
+            <SettingsDialog open onOpenChange={() => {}} />
+          </Tooltip.Provider>
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  it("sync pill is hidden for a non-git vault", async () => {
+    renderUnlocked();
+    await bootTo("unlocked");
+    await screen.findByRole("listbox");
+    expect(screen.queryByText("main")).toBeNull();
+  });
+
+  it("sync pill shows branch, ahead/behind, changes; click runs syncNow", async () => {
+    ipc.store.gitStatus = GIT_STATUS;
+    renderUnlocked();
+    await bootTo("unlocked");
+    const pill = await screen.findByRole("button", { name: /main/ });
+    expect(screen.getByText(/↑1/)).toBeDefined();
+    expect(screen.queryByText(/↓0/)).toBeNull();
+    expect(screen.getByText(/2 changes/)).toBeDefined();
+    fireEvent.click(pill);
+    await waitFor(() => {
+      expect(ipc.commands.syncNow).toHaveBeenCalledWith(null);
+    });
+  });
+
+  it("sync pill shows running then failed state labels", async () => {
+    ipc.store.gitStatus = GIT_STATUS;
+    ipc.store.syncState = { status: "running" };
+    renderUnlocked();
+    await bootTo("unlocked");
+    await expect(screen.findByText("Syncing…")).resolves.toBeDefined();
+    ipc.emitSyncState({ status: "failed", message: "network unreachable" });
+    await expect(screen.findByText("Sync failed")).resolves.toBeDefined();
+  });
+
+  it("a content conflict opens the dialog; Keep this Mac retries with local", async () => {
+    ipc.store.gitStatus = GIT_STATUS;
+    ipc.commands.syncNow
+      .mockResolvedValueOnce(
+        ok({ status: "conflict", entries: ["mail/github", "bank"], kind: "content" }),
+      )
+      .mockResolvedValue(
+        ok({ status: "synced", committed: false, pulled: true, pushed: true, warnings: [] }),
+      );
+    renderUnlocked();
+    await bootTo("unlocked");
+    fireEvent.click(await screen.findByRole("button", { name: /main/ }));
+    await expect(screen.findByText("Sync conflict")).resolves.toBeDefined();
+    expect(screen.getByText("mail/github")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Keep this Mac" }));
+    await waitFor(() => {
+      expect(ipc.commands.syncNow).toHaveBeenCalledWith("local");
+    });
+  });
+
+  it("a delete conflict shows the manual steps and no keep buttons", async () => {
+    ipc.store.gitStatus = GIT_STATUS;
+    ipc.commands.syncNow.mockResolvedValue(
+      ok({ status: "conflict", entries: ["old"], kind: "delete" }),
+    );
+    renderUnlocked();
+    await bootTo("unlocked");
+    fireEvent.click(await screen.findByRole("button", { name: /main/ }));
+    await screen.findByText("Sync conflict");
+    expect(screen.getByText(/ks git pull --rebase/)).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Keep this Mac" })).toBeNull();
+  });
+
+  it("settings sync group toggles via saveSettings; hidden for non-git", async () => {
+    await bootTo("unlocked");
+    renderSettings();
+    await screen.findByText("Device unlock");
+    expect(screen.queryByText("Sync after unlocking")).toBeNull();
+    cleanup();
+    ipc.store.gitStatus = GIT_STATUS;
+    queryClient.removeQueries({ queryKey: queryKeys.gitStatus });
+    renderSettings();
+    const row = await screen.findByRole("switch", { name: "Sync after unlocking" });
+    fireEvent.click(row);
+    await waitFor(() => {
+      expect(ipc.commands.setSettings).toHaveBeenCalled();
+    });
+    const last = ipc.commands.setSettings.mock.calls.at(-1)![0] as Record<string, unknown>;
+    expect(last["syncOnUnlock"]).toBe(false);
   });
 });
