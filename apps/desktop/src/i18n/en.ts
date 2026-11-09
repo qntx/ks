@@ -106,6 +106,13 @@ export const en = {
     finishRotationDesc:
       "A previous rotation was interrupted and the vault was unlocked with the new passphrase. Enter it once to finish re-encrypting every entry.",
   },
+  tray: {
+    open: "Open ks",
+    lock: "Lock now",
+    quit: "Quit",
+    locked: "Locked",
+    unlocked: "Unlocked",
+  },
   recovery: {
     intro: "Everything ks stores decrypts with the official age CLI alone — no ks binary required.",
     headerNote:
@@ -217,6 +224,7 @@ export const en = {
     keychain: "Remember in Keychain",
     keychainDesc: "Unlock automatically after you sign in to this Mac",
     general: "General",
+    openAtLogin: "Open at login",
     language: "Language",
     languages: { system: "System", en: "English", zh: "中文" },
     vault: "Vault",

@@ -63,19 +63,18 @@ pub(crate) fn init(app: &AppHandle) {
 
 /// Emits `Locked` and ends App Nap suppression.
 pub(crate) fn on_locked(reason: Reason) {
-    if let Some(app) = &*APP
+    // Clone the handle out: the guard must not live across emit/refresh/
+    // run_on_main_thread — `APP` is a plain Mutex and `refresh` may
+    // re-enter it on other paths.
+    let app = APP
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-    {
-        drop(app.emit("locked", Locked { reason }));
-    }
+        .clone();
+    let Some(app) = app else { return };
+    drop(app.emit("locked", Locked { reason }));
+    crate::tray::refresh(&app);
     #[cfg(target_os = "macos")]
-    if let Some(app) = &*APP
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-    {
-        drop(app.run_on_main_thread(platform::end_activity));
-    }
+    drop(app.run_on_main_thread(platform::end_activity));
 }
 
 /// Locks via state; emits the event once. Returns false when already locked.

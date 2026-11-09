@@ -42,6 +42,7 @@ mod settings;
 )]
 mod state;
 mod sync;
+mod tray;
 #[allow(
     clippy::pedantic,
     clippy::restriction,
@@ -49,6 +50,7 @@ mod sync;
     reason = "notify glue"
 )]
 mod watch;
+mod window;
 
 use std::sync::Arc;
 
@@ -69,17 +71,18 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         __cmd__passphrase_strength, __cmd__recent_vaults, __cmd__rename_entry, __cmd__reveal_field,
         __cmd__save_entry, __cmd__set_device, __cmd__set_settings, __cmd__totp_code, __cmd__unlock,
         __cmd__unlock_device, __cmd__vault_status, __specta__fn__app_state,
-        __specta__fn__change_passphrase, __specta__fn__clone_vault, __specta__fn__copy_field,
-        __specta__fn__create_vault, __specta__fn__delete_entry, __specta__fn__devices,
-        __specta__fn__doctor, __specta__fn__doctor_fix, __specta__fn__edit_entry,
-        __specta__fn__entry_detail, __specta__fn__export_binary, __specta__fn__generate_password,
-        __specta__fn__get_settings, __specta__fn__heartbeat, __specta__fn__import_binary,
-        __specta__fn__list_entries, __specta__fn__lock, __specta__fn__open_vault,
-        __specta__fn__passphrase_strength, __specta__fn__recent_vaults, __specta__fn__rename_entry,
-        __specta__fn__reveal_field, __specta__fn__rotate_key, __specta__fn__rotation_pending,
-        __specta__fn__save_entry, __specta__fn__set_device, __specta__fn__set_settings,
+        __specta__fn__autostart, __specta__fn__change_passphrase, __specta__fn__clone_vault,
+        __specta__fn__copy_field, __specta__fn__create_vault, __specta__fn__delete_entry,
+        __specta__fn__devices, __specta__fn__doctor, __specta__fn__doctor_fix,
+        __specta__fn__edit_entry, __specta__fn__entry_detail, __specta__fn__export_binary,
+        __specta__fn__generate_password, __specta__fn__get_settings, __specta__fn__heartbeat,
+        __specta__fn__import_binary, __specta__fn__list_entries, __specta__fn__lock,
+        __specta__fn__open_vault, __specta__fn__passphrase_strength, __specta__fn__recent_vaults,
+        __specta__fn__rename_entry, __specta__fn__reveal_field, __specta__fn__rotate_key,
+        __specta__fn__rotation_pending, __specta__fn__save_entry, __specta__fn__set_autostart,
+        __specta__fn__set_device, __specta__fn__set_settings, __specta__fn__set_tray_labels,
         __specta__fn__totp_code, __specta__fn__unlock, __specta__fn__unlock_device,
-        __specta__fn__vault_status, __tauri_command_name_app_state,
+        __specta__fn__vault_status, __tauri_command_name_app_state, __tauri_command_name_autostart,
         __tauri_command_name_change_passphrase, __tauri_command_name_clone_vault,
         __tauri_command_name_copy_field, __tauri_command_name_create_vault,
         __tauri_command_name_delete_entry, __tauri_command_name_devices,
@@ -92,21 +95,25 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         __tauri_command_name_passphrase_strength, __tauri_command_name_recent_vaults,
         __tauri_command_name_rename_entry, __tauri_command_name_reveal_field,
         __tauri_command_name_rotate_key, __tauri_command_name_rotation_pending,
-        __tauri_command_name_save_entry, __tauri_command_name_set_device,
-        __tauri_command_name_set_settings, __tauri_command_name_totp_code,
+        __tauri_command_name_save_entry, __tauri_command_name_set_autostart,
+        __tauri_command_name_set_device, __tauri_command_name_set_settings,
+        __tauri_command_name_set_tray_labels, __tauri_command_name_totp_code,
         __tauri_command_name_unlock, __tauri_command_name_unlock_device,
-        __tauri_command_name_vault_status, app_state, change_passphrase, clone_vault, copy_field,
-        create_vault, delete_entry, devices, doctor, doctor_fix, edit_entry, entry_detail,
-        export_binary, generate_password, get_settings, heartbeat, import_binary, list_entries,
-        lock, open_vault, passphrase_strength, recent_vaults, rename_entry, reveal_field,
-        rotate_key, rotation_pending, save_entry, set_device, set_settings, totp_code, unlock,
-        unlock_device, vault_status,
+        __tauri_command_name_vault_status, app_state, autostart, change_passphrase, clone_vault,
+        copy_field, create_vault, delete_entry, devices, doctor, doctor_fix, edit_entry,
+        entry_detail, export_binary, generate_password, get_settings, heartbeat, import_binary,
+        list_entries, lock, open_vault, passphrase_strength, recent_vaults, rename_entry,
+        reveal_field, rotate_key, rotation_pending, save_entry, set_autostart, set_device,
+        set_settings, set_tray_labels, totp_code, unlock, unlock_device, vault_status,
     };
     tauri_specta::Builder::<tauri::Wry>::new()
         .commands(tauri_specta::collect_commands![
             app_state,
+            autostart::<tauri::Wry>,
+            set_autostart::<tauri::Wry>,
+            set_tray_labels::<tauri::Wry>,
             recent_vaults,
-            open_vault,
+            open_vault::<tauri::Wry>,
             create_vault::<tauri::Wry>,
             clone_vault::<tauri::Wry>,
             passphrase_strength,
@@ -147,52 +154,28 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ])
 }
 
-/// Minimal tray: Open ks / Lock / Quit (full menu lands in D5).
-fn tray(app: &tauri::App) -> tauri::Result<()> {
-    use tauri::menu::{Menu, MenuItem};
-    use tauri::tray::TrayIconBuilder;
-
-    let open = MenuItem::with_id(app, "open", "Open ks", true, None::<&str>)?;
-    let lock_i = MenuItem::with_id(app, "lock", "Lock", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &lock_i, &quit])?;
-    let Some(icon) = app.default_window_icon().cloned() else {
-        return Ok(());
-    };
-    TrayIconBuilder::new()
-        .icon(icon)
-        .menu(&menu)
-        .on_menu_event(|handle, event| match event.id.as_ref() {
-            "open" => {
-                #[cfg(target_os = "macos")]
-                drop(handle.set_activation_policy(tauri::ActivationPolicy::Regular));
-                if let Some(w) = handle.get_webview_window("main") {
-                    drop(w.show());
-                    drop(w.set_focus());
-                }
-            }
-            "lock" => {
-                if let Some(state) = handle.try_state::<Arc<state::AppState>>() {
-                    state.lock(lock::Reason::Manual);
-                }
-            }
-            "quit" => {
-                handle.exit(0);
-            }
-            _ => {}
-        })
-        .build(app)?;
-    Ok(())
-}
-
 #[expect(
     clippy::disallowed_methods,
     reason = "tauri::generate_context! calls std::process::exit on a malformed config"
 )]
 fn main() -> tauri::Result<()> {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .with_denylist(&["quick"])
+                .build(),
+        )
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--autostart"]),
+        ))
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(state::AppState::new()))
+        .manage(tray::Tray::default())
         .invoke_handler(specta_builder().invoke_handler())
         .setup(|app| {
             lock::init(app.handle());
@@ -205,23 +188,36 @@ fn main() -> tauri::Result<()> {
             {
                 if let Ok(v) = ks::Vault::open(&path) {
                     drop(commands::install_open(&state, v));
+                    tray::refresh(app.handle());
                     break;
                 }
             }
-            tray(app)?;
+            tray::build(app)?;
+            // `--autostart` leaves the window hidden (tray only).
+            if !std::env::args().any(|a| a == "--autostart") {
+                window::show_main(app.handle());
+            }
             Ok(())
         })
         .on_window_event(|w, e| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = e {
-                drop(w.hide());
+            if let tauri::WindowEvent::CloseRequested { api, .. } = e
+                && w.label() == "main"
+            {
+                window::hide_main(w.app_handle());
                 api.prevent_close();
             }
         })
         .build(tauri::generate_context!())
         .map(|app| {
             app.run(|handle, event| {
-                if let tauri::RunEvent::ExitRequested { api, .. } = event {
-                    on_exit_requested(handle, &api);
+                match event {
+                    tauri::RunEvent::ExitRequested { api, .. } => {
+                        on_exit_requested(handle, &api);
+                    }
+                    // macOS Dock/Finder relaunch — app bundles are already
+                    // single-instance through LaunchServices.
+                    tauri::RunEvent::Reopen { .. } => window::show_main(handle),
+                    _ => {}
                 }
             });
         })

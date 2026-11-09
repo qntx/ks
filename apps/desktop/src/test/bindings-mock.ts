@@ -44,6 +44,7 @@ function createBindingsMockImpl() {
     gitStatus: undefined as GitStatus_Serialize | undefined,
     doctorProblems: [] as DoctorProblem[],
     rotationPending: false,
+    autostart: false,
     syncState: { status: "idle" } as SyncState,
     texts: new Map<string, string>([
       [
@@ -118,6 +119,12 @@ function createBindingsMockImpl() {
       ok({ entries: 3, resumed: store.rotationPending, warnings: [] }),
     ),
     rotationPending: vi.fn(async () => ok(store.rotationPending)),
+    autostart: vi.fn(async () => ok(store.autostart)),
+    setAutostart: vi.fn(async (on: boolean) => {
+      store.autostart = on;
+      return ok(null);
+    }),
+    setTrayLabels: vi.fn(async (_l: unknown) => ok(null)),
     doctorFix: vi.fn(async () => ok({ problems: store.doctorProblems.filter((p) => !p.fixable) })),
     setDevice: vi.fn(async (kind: "touch_id" | "keychain", enabled: boolean) => {
       store.devices[kind === "touch_id" ? "touchId" : "keychain"].enabled = enabled;
