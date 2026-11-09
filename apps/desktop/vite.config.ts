@@ -16,6 +16,10 @@ export default defineConfig({
     hmr: host === undefined ? undefined : { protocol: "ws", host, port: 1421 },
     watch: { ignored: ["**/src-tauri/**"] },
   },
+  test: {
+    environment: "happy-dom",
+    globals: false,
+  },
   build: {
     // Tauri 2 webview floors: WKWebView on macOS, Chromium on Windows.
     target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari13",
