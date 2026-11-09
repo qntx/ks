@@ -12,11 +12,13 @@ use tauri::{AppHandle, Emitter as _};
 use crate::state::AppState;
 
 /// Why a lock happened (also the `Locked` event payload).
-#[derive(Debug, Clone, Copy, Serialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Reason {
     /// User locked.
     Manual,
+    /// Locked via the agent endpoint (terminal `ks lock`).
+    Terminal,
     /// Idle timeout.
     Idle,
     /// Max session lifetime.
@@ -83,13 +85,21 @@ pub(crate) fn lock_now(state: &AppState, reason: Reason) -> bool {
 
 pub(crate) struct Wake;
 
+/// Idle elapsed time seen by the lock timers: the shorter of the app's
+/// own activity clock and the agent's (terminal unwrap/wrap traffic
+/// resets it through `touch`).
+fn effective_elapsed(o: &crate::state::Open) -> Duration {
+    let own = o.last_activity.elapsed();
+    o.agent.as_ref().map_or(own, |a| own.min(a.idle()))
+}
+
 fn expired_reason(state: &std::sync::Arc<AppState>, idle: Duration) -> Reason {
     let i = state
         .inner
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     i.open.as_ref().map_or(Reason::Max, |o| {
-        if o.last_activity.elapsed() >= idle {
+        if effective_elapsed(o) >= idle {
             Reason::Idle
         } else {
             Reason::Max
@@ -106,7 +116,7 @@ fn time_left(state: &std::sync::Arc<AppState>, idle: Duration, max: Duration) ->
         o.session.as_ref()?;
         let u = o.unlocked_at?;
         Some(
-            idle.saturating_sub(o.last_activity.elapsed())
+            idle.saturating_sub(effective_elapsed(o))
                 .min(max.saturating_sub(u.elapsed())),
         )
     })

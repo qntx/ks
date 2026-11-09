@@ -70,6 +70,8 @@ export type AppView_Deserialize = {
 	vault?: VaultInfo | null,
 	/**  Whether a session is unlocked. */
 	unlocked: boolean,
+	/**  Why the vault last locked, so a reloaded webview can show it. */
+	lockReason?: Reason | null,
 	/**  Current settings. */
 	settings: Settings_Deserialize,
 };
@@ -80,6 +82,8 @@ export type AppView_Serialize = {
 	vault: VaultInfo | null,
 	/**  Whether a session is unlocked. */
 	unlocked: boolean,
+	/**  Why the vault last locked, so a reloaded webview can show it. */
+	lockReason: Reason | null,
 	/**  Current settings. */
 	settings: Settings_Serialize,
 };
@@ -161,6 +165,8 @@ export type Locked = {
 export type Reason = 
 /**  User locked. */
 "manual" | 
+/**  Locked via the agent endpoint (terminal `ks lock`). */
+"terminal" | 
 /**  Idle timeout. */
 "idle" | 
 /**  Max session lifetime. */

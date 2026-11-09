@@ -39,6 +39,7 @@ describe("session store", () => {
     ipc.commands.appState.mockResolvedValue({
       vault: null,
       unlocked: false,
+      lockReason: null,
       settings: ipc.store.settings,
     });
     const hook = usePhase();
@@ -52,6 +53,7 @@ describe("session store", () => {
     ipc.commands.appState.mockResolvedValue({
       vault: ipc.store.vault,
       unlocked: false,
+      lockReason: null,
       settings: ipc.store.settings,
     });
     const hook = usePhase();
@@ -62,6 +64,7 @@ describe("session store", () => {
     ipc.commands.appState.mockResolvedValue({
       vault: ipc.store.vault,
       unlocked: true,
+      lockReason: null,
       settings: ipc.store.settings,
     });
     await act(async () => {
@@ -70,10 +73,25 @@ describe("session store", () => {
     expect(hook.current).toBe("unlocked");
   });
 
+  it("boot carries the lock reason from app_state", async () => {
+    ipc.commands.appState.mockResolvedValue({
+      vault: ipc.store.vault,
+      unlocked: false,
+      lockReason: "idle",
+      settings: ipc.store.settings,
+    });
+    const hook = renderHook(() => useSession((s) => s.lockReason));
+    await act(async () => {
+      await boot();
+    });
+    expect(hook.result.current).toBe("idle");
+  });
+
   it("unlocks with the right passphrase and rejects a wrong one", async () => {
     ipc.commands.appState.mockResolvedValue({
       vault: ipc.store.vault,
       unlocked: false,
+      lockReason: null,
       settings: ipc.store.settings,
     });
     const hook = usePhase();
@@ -96,6 +114,7 @@ describe("session store", () => {
     ipc.commands.appState.mockResolvedValue({
       vault: ipc.store.vault,
       unlocked: true,
+      lockReason: null,
       settings: ipc.store.settings,
     });
     const hook = usePhase();
@@ -114,6 +133,7 @@ describe("session store", () => {
     ipc.commands.appState.mockResolvedValue({
       vault: null,
       unlocked: false,
+      lockReason: null,
       settings: ipc.store.settings,
     });
     const hook = usePhase();
@@ -134,6 +154,7 @@ describe("session store", () => {
     ipc.commands.appState.mockResolvedValue({
       vault: ipc.store.vault,
       unlocked: true,
+      lockReason: null,
       settings: ipc.store.settings,
     });
     const hook = usePhase();
@@ -150,6 +171,7 @@ describe("session store", () => {
     ipc.commands.appState.mockResolvedValue({
       vault: ipc.store.vault,
       unlocked: true,
+      lockReason: null,
       settings: ipc.store.settings,
     });
     await act(async () => {

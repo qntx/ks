@@ -147,6 +147,7 @@ const dispatch = (cmd: string, payload: unknown): unknown => {
       return {
         vault: hasVault ? { path: VAULT, isGit: true, warnings: [] } : null,
         unlocked,
+        lockReason: null,
         settings,
       };
     case "recent_vaults":

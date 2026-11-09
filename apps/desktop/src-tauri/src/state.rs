@@ -17,6 +17,9 @@ pub(crate) struct Open {
     pub watcher: Option<Watcher>,
     /// Auto-lock watchdog stop channel; `None` while locked.
     pub watchdog: Option<Sender<crate::lock::Wake>>,
+    /// Hosted agent endpoint while unlocked; terminal traffic counts as
+    /// activity through `ServerHandle::touch`.
+    pub agent: Option<ks::agent::ServerHandle>,
     /// Last unwrap/wrap or command activity.
     pub last_activity: Instant,
     /// When the session was unlocked.
@@ -28,6 +31,13 @@ impl Open {
     fn stop_watchdog(&mut self) {
         if let Some(tx) = self.watchdog.take() {
             drop(tx.send(crate::lock::Wake));
+        }
+    }
+
+    /// Stops the hosted agent, if running.
+    fn stop_agent(&mut self) {
+        if let Some(h) = self.agent.take() {
+            h.stop();
         }
     }
 
@@ -46,6 +56,7 @@ impl Open {
 impl Drop for Open {
     fn drop(&mut self) {
         self.stop_watchdog();
+        self.stop_agent();
     }
 }
 
@@ -59,13 +70,18 @@ pub(crate) struct AppState {
 pub(crate) struct Inner {
     /// The open vault, if any.
     pub open: Option<Open>,
+    /// Why the last lock happened (the event carries it too).
+    pub last_lock_reason: Option<crate::lock::Reason>,
 }
 
 impl AppState {
     /// Fresh state (no vault, locked).
     pub(crate) const fn new() -> Self {
         Self {
-            inner: Mutex::new(Inner { open: None }),
+            inner: Mutex::new(Inner {
+                open: None,
+                last_lock_reason: None,
+            }),
         }
     }
 
@@ -75,6 +91,9 @@ impl AppState {
             && let Some(o) = i.open.as_mut()
         {
             o.last_activity = Instant::now();
+            if let Some(a) = &o.agent {
+                a.touch();
+            }
         }
     }
 
@@ -92,6 +111,8 @@ impl AppState {
         }
         o.unlocked_at = None;
         o.stop_watchdog();
+        o.stop_agent();
+        i.last_lock_reason = Some(reason);
         crate::lock::on_locked(reason);
         true
     }
@@ -110,6 +131,9 @@ impl AppState {
         let s = o.session.as_ref().ok_or(ks::Error::Locked)?;
         let r = f(s)?;
         o.last_activity = Instant::now();
+        if let Some(a) = &o.agent {
+            a.touch();
+        }
         Ok(r)
     }
 }

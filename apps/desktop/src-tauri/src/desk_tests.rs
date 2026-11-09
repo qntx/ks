@@ -591,3 +591,212 @@ fn desk_core_watchdog_thread_exits_after_auto_lock() {
     // The receiver is gone: the watchdog returned instead of busy-spinning.
     assert!(tx.send(crate::lock::Wake).is_err());
 }
+
+/// Real unlock through the command so `begin_session` hosts the agent.
+fn unlock_via_command(f: &Fixture) -> Vec<String> {
+    commands::unlock(
+        f.app.handle().clone(),
+        f.app.state::<Arc<AppState>>(),
+        Some(SecretText::new(PASS)),
+    )
+    .unwrap()
+    .warnings
+}
+
+fn poll_locked(f: &Fixture, max_ms: u64) -> bool {
+    for _ in 0..(max_ms / 50) {
+        if !commands::app_state(f.app.state::<Arc<AppState>>()).unlocked {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    !commands::app_state(f.app.state::<Arc<AppState>>()).unlocked
+}
+
+fn last_reason(f: &Fixture) -> Option<crate::lock::Reason> {
+    f.state.inner.lock().unwrap().last_lock_reason
+}
+
+#[test]
+fn desk_core_agent_desktop_host_and_terminal_read() {
+    let f = mk();
+    let warnings = unlock_via_command(&f);
+    assert!(
+        !warnings
+            .iter()
+            .any(|w| w.contains("terminal session unavailable")),
+        "agent should host: {warnings:?}"
+    );
+    let v = ks::Vault::open(&f.vault).unwrap();
+    let st = ks::agent::status(&v).unwrap().expect("agent should run");
+    assert_eq!(st.host, "desktop");
+
+    set(&f, "work/gh", "s3cr3t-value\nuser: octo", false);
+    let s2 = v.unlock(None).unwrap();
+    let e = s2.get(&ks::Name::parse("work/gh").unwrap()).unwrap();
+    assert_eq!(e.as_text().unwrap().value(), "s3cr3t-value");
+
+    commands::lock(f.app.state::<Arc<AppState>>()).unwrap();
+    assert!(poll_locked(&f, 2000));
+}
+
+#[test]
+fn desk_core_agent_manual_lock_stops_endpoint() {
+    let f = mk();
+    let _ = unlock_via_command(&f);
+    let v = ks::Vault::open(&f.vault).unwrap();
+    assert!(ks::agent::status(&v).unwrap().is_some());
+    commands::lock(f.app.state::<Arc<AppState>>()).unwrap();
+    // During teardown the socket may still exist while handshakes fail;
+    // only Ok(None) proves the endpoint is gone.
+    let mut gone = false;
+    for _ in 0..80 {
+        if matches!(ks::agent::status(&v), Ok(None)) {
+            gone = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(gone, "agent endpoint should be gone after lock");
+}
+
+#[test]
+fn desk_core_agent_terminal_lock_locks_app() {
+    let f = mk();
+    let _ = unlock_via_command(&f);
+    let v = ks::Vault::open(&f.vault).unwrap();
+    assert!(ks::agent::lock(&v).unwrap());
+    assert!(
+        poll_locked(&f, 3000),
+        "terminal ks lock should lock the app"
+    );
+    assert_eq!(last_reason(&f).unwrap(), crate::lock::Reason::Terminal);
+}
+
+#[test]
+fn desk_core_agent_takeover_asks_cli_to_exit() {
+    let f = mk();
+    // A `ks unlock`-style CLI agent is already serving.
+    let v = ks::Vault::open(&f.vault).unwrap();
+    let s = v
+        .unlock_without_agent(Some(&|| Ok(SecretString::from(PASS))))
+        .unwrap();
+    let cli = ks::agent::Server::start(
+        &v,
+        s.agent_identity().unwrap(),
+        ks::agent::ServerConfig {
+            ttl: Duration::from_secs(300),
+            max: Duration::from_secs(3600),
+            host: ks::agent::Host::Cli,
+        },
+    )
+    .unwrap();
+    drop(s);
+    let cli_wait = std::thread::spawn(move || cli.wait());
+
+    let warnings = unlock_via_command(&f);
+    assert!(
+        !warnings
+            .iter()
+            .any(|w| w.contains("terminal session unavailable")),
+        "takeover should host: {warnings:?}"
+    );
+    let st = ks::agent::status(&v).unwrap().expect("agent should run");
+    assert_eq!(st.host, "desktop");
+    assert_eq!(
+        cli_wait.join().unwrap(),
+        ks::agent::StopReason::LockRequested
+    );
+
+    commands::lock(f.app.state::<Arc<AppState>>()).unwrap();
+}
+
+#[test]
+fn desk_core_agent_terminal_activity_counts_toward_idle() {
+    let f = mk();
+    let _ = unlock_via_command(&f);
+    set(&f, "k", "v", false);
+    // Shrink the app watchdog to a test-sized idle window.
+    {
+        let mut i = f.state.inner.lock().unwrap();
+        let o = i.open.as_mut().unwrap();
+        o.start_watchdog(
+            f.state.clone(),
+            Duration::from_secs(2),
+            Duration::from_secs(3600),
+        );
+    }
+    let v = ks::Vault::open(&f.vault).unwrap();
+    // ~3s of terminal traffic every 500ms, no app heartbeats: stays unlocked.
+    for _ in 0..6 {
+        let s2 = v.unlock(None).unwrap();
+        let _e = s2.get(&ks::Name::parse("k").unwrap()).unwrap();
+        drop(s2);
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(commands::app_state(f.app.state::<Arc<AppState>>()).unlocked);
+    }
+    // Traffic stops: the idle watchdog fires within a few seconds.
+    assert!(
+        poll_locked(&f, 6000),
+        "idle should lock after traffic stops"
+    );
+    assert_eq!(last_reason(&f).unwrap(), crate::lock::Reason::Idle);
+}
+
+#[test]
+fn desk_core_agent_lock_between_install_and_start_leaves_no_agent() {
+    let f = mk();
+    // A `ks unlock`-style CLI agent makes `begin_session`'s takeover wait,
+    // widening the install→agent-start window deterministically.
+    let v = ks::Vault::open(&f.vault).unwrap();
+    let s = v
+        .unlock_without_agent(Some(&|| Ok(SecretString::from(PASS))))
+        .unwrap();
+    let cli = ks::agent::Server::start(
+        &v,
+        s.agent_identity().unwrap(),
+        ks::agent::ServerConfig {
+            ttl: Duration::from_secs(300),
+            max: Duration::from_secs(3600),
+            host: ks::agent::Host::Cli,
+        },
+    )
+    .unwrap();
+    drop(s);
+    let cli_wait = std::thread::spawn(move || cli.wait());
+
+    // Lock the moment the session is installed, while agent setup runs.
+    let st2 = f.state.clone();
+    let locker = std::thread::spawn(move || {
+        for _ in 0..400 {
+            let installed = st2
+                .inner
+                .lock()
+                .unwrap()
+                .open
+                .as_ref()
+                .is_some_and(|o| o.session.is_some());
+            if installed {
+                let _ = st2.lock(crate::lock::Reason::Manual);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    });
+    let _ = unlock_via_command(&f);
+    locker.join().unwrap();
+    assert_eq!(
+        cli_wait.join().unwrap(),
+        ks::agent::StopReason::LockRequested
+    );
+    // Either the generation check stopped the just-started server or the
+    // lock did — the endpoint is gone and the app is locked.
+    assert!(poll_locked(&f, 2000));
+    for _ in 0..80 {
+        if matches!(ks::agent::status(&v), Ok(None)) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(matches!(ks::agent::status(&v), Ok(None)));
+}

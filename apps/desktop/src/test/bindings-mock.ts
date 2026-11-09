@@ -57,7 +57,7 @@ function createBindingsMockImpl() {
   const commands = {
     appState: vi.fn(async (): Promise<AppView_Serialize> => {
       await Promise.resolve();
-      return { vault: null, unlocked: false, settings: store.settings };
+      return { vault: null, unlocked: false, lockReason: null, settings: store.settings };
     }),
     recentVaults: vi.fn(() => ["/vaults/ks"]),
     openVault: vi.fn(async (path: string) => ok({ ...store.vault, path })),
