@@ -91,6 +91,7 @@ pub(crate) fn install_open(state: &std::sync::Arc<AppState>, vault: ks::Vault) -
         last_activity: std::time::Instant::now(),
         unlocked_at: None,
     });
+    drop(i);
     Ok(out)
 }
 
@@ -131,6 +132,7 @@ fn begin_session<RT: tauri::Runtime>(
     if let Some(w) = host_agent(state, &root, agent_identity, idle, max, installed_at) {
         warnings.push(w);
     }
+    crate::tray::refresh(app);
     crate::sync::after_unlock(state);
     Ok(warnings)
 }
@@ -243,13 +245,16 @@ fn duration_or_never(n: u32, unit_secs: u64) -> std::time::Duration {
 /// Opens an existing vault directory.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn open_vault(
+pub(crate) fn open_vault<RT: tauri::Runtime>(
+    app: tauri::AppHandle<RT>,
     state: tauri::State<'_, std::sync::Arc<AppState>>,
     path: String,
 ) -> R<VaultInfo> {
     let v = ks::Vault::open(std::path::Path::new(&path))?;
     crate::settings::remember_vault(v.root());
-    install_open(state.inner(), v)
+    let out = install_open(state.inner(), v)?;
+    crate::tray::refresh(&app);
+    Ok(out)
 }
 
 /// Creates a new vault and returns it already unlocked.
@@ -270,6 +275,7 @@ pub(crate) fn create_vault<RT: tauri::Runtime>(
     let v = ks::Vault::open(p)?;
     crate::settings::remember_vault(v.root());
     let mut out = install_open(state.inner(), v)?;
+    crate::tray::refresh(&app);
     out.warnings = begin_session(&app, state.inner(), session)?;
     Ok(out)
 }
@@ -301,6 +307,7 @@ pub(crate) async fn clone_vault<RT: tauri::Runtime>(
     let v = ks::Vault::open(session.vault().root())?;
     crate::settings::remember_vault(v.root());
     let mut out = install_open(state.inner(), v)?;
+    crate::tray::refresh(&app);
     out.warnings = begin_session(&app, state.inner(), session)?;
     Ok(out)
 }
@@ -1326,6 +1333,40 @@ fn restore_services<RT: tauri::Runtime>(
         duration_or_never(st.max_session_hours, 3600),
         installed_at.unwrap_or_else(std::time::Instant::now),
     );
+}
+
+/// Whether "open at login" is enabled (system state wins).
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn autostart<RT: tauri::Runtime>(app: tauri::AppHandle<RT>) -> R<bool> {
+    use tauri_plugin_autostart::ManagerExt as _;
+    app.autolaunch()
+        .is_enabled()
+        .map_err(|e| AppError::internal(e.to_string()))
+}
+
+/// Enables or disables "open at login".
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn set_autostart<RT: tauri::Runtime>(app: tauri::AppHandle<RT>, on: bool) -> R<()> {
+    use tauri_plugin_autostart::ManagerExt as _;
+    let r = if on {
+        app.autolaunch().enable()
+    } else {
+        app.autolaunch().disable()
+    };
+    r.map_err(|e| AppError::internal(e.to_string()))
+}
+
+/// Stores the localized tray menu labels and refreshes the menu.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn set_tray_labels<RT: tauri::Runtime>(
+    app: tauri::AppHandle<RT>,
+    labels: crate::tray::TrayLabels,
+) -> R<()> {
+    crate::tray::set_labels(&app, labels);
+    Ok(())
 }
 
 /// True while an interrupted key rotation is pending (`key_count > 1`).

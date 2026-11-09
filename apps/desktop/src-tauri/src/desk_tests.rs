@@ -61,6 +61,7 @@ fn mk() -> Fixture {
         state,
     };
     commands::open_vault(
+        f.app.handle().clone(),
         f.app.state::<Arc<AppState>>(),
         f.vault.display().to_string(),
     )
@@ -431,6 +432,7 @@ fn desk_core_watch_identity_change_locks_key_changed() {
 fn desk_core_onboard_create_open_invalid_and_settings() {
     let f = mk();
     let err = commands::open_vault(
+        f.app.handle().clone(),
         f.app.state::<Arc<AppState>>(),
         "/nonexistent/vault".to_owned(),
     )
@@ -1272,4 +1274,52 @@ fn desk_rotate_key() {
         false,
     )
     .unwrap();
+}
+
+/// Tray status text: locked, or "<unlocked> · <vault name>".
+#[test]
+fn desk_tray_status_text() {
+    let en = crate::tray::TrayLabels::default();
+    assert_eq!(crate::tray::status_text(false, "ks", &en), "Locked");
+    assert_eq!(crate::tray::status_text(true, "ks", &en), "Unlocked · ks");
+    let zh = crate::tray::TrayLabels {
+        open: "打开 ks".into(),
+        lock: "立即锁定".into(),
+        quit: "退出".into(),
+        locked: "已锁定".into(),
+        unlocked: "已解锁".into(),
+    };
+    assert_eq!(
+        crate::tray::status_text(true, "vault", &zh),
+        "已解锁 · vault"
+    );
+}
+
+/// `set_tray_labels` stores the labels for later refreshes.
+#[test]
+fn desk_set_tray_labels_stores() {
+    let labels = crate::tray::TrayLabels {
+        open: "o".into(),
+        lock: "l".into(),
+        quit: "q".into(),
+        locked: "lo".into(),
+        unlocked: "un".into(),
+    };
+    let f = mk();
+    commands::set_tray_labels(f.app.handle().clone(), labels.clone()).unwrap();
+    assert_eq!(crate::tray::status_text(true, "v", &labels), "un · v");
+}
+
+/// `tray::refresh` reads tray-managed state and the session without
+/// blocking — the `APP`-guard deadlock is impossible by construction:
+/// `refresh` takes `&AppHandle` and never locks `APP` itself. (`APP` is
+/// `AppHandle<Wry>`-typed, so the mock runtime cannot register a handle
+/// to replay the original deadlock — verified by the clone-out shape.)
+#[test]
+fn desk_tray_refresh_reads_state() {
+    let f = mk_git();
+    f.app.manage(crate::tray::Tray::default());
+    unlock(&f);
+    crate::tray::refresh(f.app.handle());
+    assert!(unlocked(&f));
 }

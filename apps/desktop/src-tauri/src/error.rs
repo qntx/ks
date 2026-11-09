@@ -15,6 +15,16 @@ pub(crate) struct AppError {
     pub message: String,
 }
 
+impl AppError {
+    ///  — unexpected backend failure (plugin calls, joins).
+    pub(crate) fn internal(message: impl Into<String>) -> Self {
+        Self {
+            code: "internal".into(),
+            message: message.into(),
+        }
+    }
+}
+
 impl From<ks::Error> for AppError {
     fn from(e: ks::Error) -> Self {
         Self {

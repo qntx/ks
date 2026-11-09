@@ -6,6 +6,12 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	appState: () => __TAURI_INVOKE<AppView_Serialize>("app_state"),
+	/**  Whether "open at login" is enabled (system state wins). */
+	autostart: () => typedError<boolean, AppError>(__TAURI_INVOKE("autostart")),
+	/**  Enables or disables "open at login". */
+	setAutostart: (on: boolean) => typedError<null, AppError>(__TAURI_INVOKE("set_autostart", { on })),
+	/**  Stores the localized tray menu labels and refreshes the menu. */
+	setTrayLabels: (labels: TrayLabels) => typedError<null, AppError>(__TAURI_INVOKE("set_tray_labels", { labels })),
 	recentVaults: () => __TAURI_INVOKE<string[]>("recent_vaults"),
 	/**  Opens an existing vault directory. */
 	openVault: (path: string) => typedError<VaultInfo, AppError>(__TAURI_INVOKE("open_vault", { path })),
@@ -483,6 +489,18 @@ export type TotpCode = {
 	code: string,
 	/**  Seconds until rollover. */
 	validFor: number,
+};
+
+/**
+ *  The visible tray labels. `unlocked` is a prefix such as "Unlocked";
+ *  Rust appends " · `<vault dir name>`".
+ */
+export type TrayLabels = {
+	open: string,
+	lock: string,
+	quit: string,
+	locked: string,
+	unlocked: string,
 };
 
 /**  Unlock result. */

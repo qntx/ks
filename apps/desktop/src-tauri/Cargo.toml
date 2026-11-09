@@ -15,21 +15,23 @@ authors.workspace      = true
 tauri-build.workspace = true
 
 [dependencies]
-age                   = { workspace = true }
-directories           = { workspace = true }
-ks                    = { workspace = true }
-ks-clipboard          = { workspace = true }
-notify                = { workspace = true }
-notify-debouncer-mini = { workspace = true }
-rand                  = { workspace = true }
-serde                 = { workspace = true }
-serde_json            = { workspace = true }
-sha2                  = { workspace = true }
-specta                = { workspace = true }
-tauri                 = { workspace = true }
-tauri-plugin-dialog   = { workspace = true }
-tauri-specta          = { workspace = true }
-zeroize               = { workspace = true }
+age                       = { workspace = true }
+directories               = { workspace = true }
+ks                        = { workspace = true }
+ks-clipboard              = { workspace = true }
+notify                    = { workspace = true }
+notify-debouncer-mini     = { workspace = true }
+rand                      = { workspace = true }
+serde                     = { workspace = true }
+serde_json                = { workspace = true }
+sha2                      = { workspace = true }
+specta                    = { workspace = true }
+tauri                     = { workspace = true }
+tauri-plugin-dialog       = { workspace = true }
+tauri-plugin-window-state = { workspace = true }
+tauri-plugin-autostart    = { workspace = true }
+tauri-specta              = { workspace = true }
+zeroize                   = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2           = { workspace = true }

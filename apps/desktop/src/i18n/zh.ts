@@ -105,6 +105,13 @@ export const zh = {
     finishRotationDesc:
       "上一次轮换被中断，保险库当时是用新主密码解锁的。输入它一次即可继续重新加密所有条目。",
   },
+  tray: {
+    open: "打开 ks",
+    lock: "立即锁定",
+    quit: "退出",
+    locked: "已锁定",
+    unlocked: "已解锁",
+  },
   recovery: {
     intro: "ks 存储的一切都可以只用官方 age 工具解密——不需要 ks 程序。",
     headerNote:
@@ -216,6 +223,7 @@ export const zh = {
     keychainDesc: "登录这台 Mac 后自动解锁",
     lockOnSleep: "Mac 睡眠时锁定",
     general: "通用",
+    openAtLogin: "登录时打开",
     language: "语言",
     languages: { system: "跟随系统", en: "English", zh: "中文" },
     vault: "保险库",

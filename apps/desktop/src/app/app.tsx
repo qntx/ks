@@ -9,6 +9,7 @@ import { I18nProvider } from "../i18n";
 import { BrandMark, Toaster } from "../ui";
 import { queryClient } from "./query";
 import { boot, useSession } from "./session";
+import { useTrayLabels } from "./tray";
 
 export function App(): ReactElement {
   const phase = useSession((s) => s.phase);
@@ -17,6 +18,7 @@ export function App(): ReactElement {
   useEffect(() => {
     void boot();
   }, []);
+  useTrayLabels();
 
   return (
     <QueryClientProvider client={queryClient}>

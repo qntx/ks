@@ -235,6 +235,11 @@ const dispatch = (cmd: string, payload: unknown): unknown => {
       return { entries: 3, resumed: params.get("rotation") !== null, warnings: [] };
     case "rotation_pending":
       return params.get("rotation") !== null;
+    case "autostart":
+      return false;
+    case "set_autostart":
+    case "set_tray_labels":
+      return null;
     case "sync_now":
       if (!syncUsed && conflictKind !== null) {
         syncUsed = true;

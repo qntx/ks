@@ -1,9 +1,13 @@
+import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { open as pickDir } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 import type { ReactElement } from "react";
 
+import { queryKeys } from "../../app/query";
 import { lock, openVault, saveSettings, useSession } from "../../app/session";
 import { errorMessage, useMessages } from "../../i18n";
+import { commands } from "../../ipc/bindings.gen";
+import { call } from "../../ipc/call";
 import { ChoiceMenu, ListGroup, ListRow, Sheet, Switch, toast } from "../../ui";
 import { DeviceUnlockGroup } from "../devices";
 import {
@@ -24,6 +28,37 @@ function options(
   return [...new Set([...presets, current])]
     .toSorted((a, b) => a - b)
     .map((n) => ({ value: String(n), label: label(n) }));
+}
+
+/** "Open at login" — state comes from the system via `autostart()`. */
+function AutostartRow(): ReactElement {
+  const m = useMessages();
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: queryKeys.autostart,
+    queryFn: async () => call(commands.autostart()),
+  });
+  const set = useMutation({
+    mutationFn: async (on: boolean) => call(commands.setAutostart(on)),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: queryKeys.autostart });
+    },
+    onError: (e) => {
+      toast(errorMessage(m, e), { tone: "error" });
+    },
+  });
+  return (
+    <ListRow label={m.settings.openAtLogin}>
+      <Switch
+        checked={q.data === true}
+        label={m.settings.openAtLogin}
+        disabled={set.isPending}
+        onCheckedChange={(v) => {
+          set.mutate(v);
+        }}
+      />
+    </ListRow>
+  );
 }
 
 /** In-sheet pages: the maintenance group navigates to sub-pages. */
@@ -170,6 +205,7 @@ export function SettingsDialog({
             }}
           />
           <ListGroup title={m.settings.general}>
+            <AutostartRow />
             <ListRow label={m.settings.language}>
               <ChoiceMenu
                 label={m.settings.language}

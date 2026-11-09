@@ -12,7 +12,7 @@ import { VaultScreen } from "../features/vault";
 import { I18nProvider } from "../i18n";
 import { App } from "./app";
 import { queryClient, queryKeys } from "./query";
-import { boot, resetSession } from "./session";
+import { boot, resetSession, saveSettings } from "./session";
 
 const ipc = await vi.hoisted(async () => {
   const m = await import("../test/bindings-mock");
@@ -650,5 +650,34 @@ describe("views", () => {
     expect(screen.getByText(/\/vaults\/ks\/github\/token.age/)).toBeDefined();
     expect(screen.getByText(/ks git log --oneline/)).toBeDefined();
     expect(screen.getByText(/age -d -i \/tmp\/old-identity.age/)).toBeDefined();
+  });
+
+  it("settings: the Open at login switch reflects and calls setAutostart", async () => {
+    ipc.store.autostart = true;
+    await bootTo("unlocked");
+    renderSettings();
+    const sw = await screen.findByRole("switch", { name: "Open at login" });
+    await waitFor(() => {
+      expect(sw.getAttribute("aria-checked")).toBe("true");
+    });
+    fireEvent.click(sw);
+    await waitFor(() => {
+      expect(ipc.commands.setAutostart).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it("sends localized tray labels when the language is zh", async () => {
+    await bootTo("unlocked");
+    renderApp();
+    await saveSettings({ language: "zh" });
+    await waitFor(() => {
+      expect(ipc.commands.setTrayLabels).toHaveBeenCalledWith({
+        open: "打开 ks",
+        lock: "立即锁定",
+        quit: "退出",
+        locked: "已锁定",
+        unlocked: "已解锁",
+      });
+    });
   });
 });
