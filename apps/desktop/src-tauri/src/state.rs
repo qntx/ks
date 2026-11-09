@@ -35,7 +35,7 @@ impl Open {
     }
 
     /// Stops the hosted agent, if running.
-    fn stop_agent(&mut self) {
+    pub(crate) fn stop_agent(&mut self) {
         if let Some(h) = self.agent.take() {
             h.stop();
         }

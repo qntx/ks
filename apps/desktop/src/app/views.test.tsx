@@ -556,4 +556,99 @@ describe("views", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await expect(screen.findByText("No problems found")).resolves.toBeDefined();
   });
+
+  function fillField(label: string, value: string): void {
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  }
+
+  it("passphrase page: mismatch blocks, success returns to main", async () => {
+    await bootTo("unlocked");
+    renderSettings();
+    fireEvent.click(await screen.findByText("Change passphrase"));
+    fillField("Current passphrase", "correct horse battery staple");
+    fillField("New passphrase", "abc");
+    fillField("Repeat new passphrase", "xyz");
+    const btn = screen.getByRole("button", { name: "Change passphrase" });
+    expect(btn).toHaveProperty("disabled", true);
+    await expect(screen.findByText("Passphrases do not match")).resolves.toBeDefined();
+    fillField("Repeat new passphrase", "abc");
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(ipc.commands.changePassphrase).toHaveBeenCalledWith(
+        "correct horse battery staple",
+        "abc",
+      );
+    });
+    await screen.findByText("Device unlock");
+  });
+
+  it("rotate page: success shows the done view", async () => {
+    ipc.store.gitStatus = {
+      branch: "main",
+      upstream: "origin/main",
+      ahead: 0,
+      behind: 0,
+      changes: 0,
+    };
+    await bootTo("unlocked");
+    renderSettings();
+    fireEvent.click(await screen.findByText("Rotate key"));
+    await screen.findByLabelText("Current passphrase");
+    fillField("Current passphrase", "correct horse battery staple");
+    fillField("New passphrase", "troubadour galloping mentor");
+    fillField("Repeat new passphrase", "troubadour galloping mentor");
+    fireEvent.click(screen.getByRole("button", { name: "Rotate key" }));
+    await waitFor(() => {
+      expect(ipc.commands.rotateKey).toHaveBeenCalledWith(
+        "correct horse battery staple",
+        "troubadour galloping mentor",
+      );
+    });
+    await expect(screen.findByText(/3 entries re-encrypted/)).resolves.toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await screen.findByText("Device unlock");
+  });
+
+  it("rotate page: a dirty tree disables the form and offers Sync now", async () => {
+    ipc.store.gitStatus = {
+      branch: "main",
+      upstream: "origin/main",
+      ahead: 0,
+      behind: 0,
+      changes: 2,
+    };
+    await bootTo("unlocked");
+    renderSettings();
+    fireEvent.click(await screen.findByText("Rotate key"));
+    await expect(screen.findByText(/uncommitted changes/)).resolves.toBeDefined();
+    expect(screen.getByRole("button", { name: "Rotate key" })).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+    await waitFor(() => {
+      expect(ipc.commands.syncNow).toHaveBeenCalled();
+    });
+  });
+
+  it("rotate page: pending rotation shows the finish variant", async () => {
+    ipc.store.rotationPending = true;
+    await bootTo("unlocked");
+    renderSettings();
+    fireEvent.click(await screen.findByText("Rotate key"));
+    await expect(screen.findByText(/rotation was interrupted/)).resolves.toBeDefined();
+    await screen.findByLabelText("Passphrase");
+    fillField("Passphrase", "the new passphrase");
+    fireEvent.click(screen.getByRole("button", { name: "Finish rotation" }));
+    await waitFor(() => {
+      expect(ipc.commands.rotateKey).toHaveBeenCalledWith("the new passphrase", null);
+    });
+  });
+
+  it("recovery page renders the commands", async () => {
+    await bootTo("unlocked");
+    renderSettings();
+    fireEvent.click(await screen.findByText("Recovery instructions"));
+    await expect(screen.findByText(/age -d \/vaults\/ks\/.identity.age/)).resolves.toBeDefined();
+    expect(screen.getByText(/\/vaults\/ks\/github\/token.age/)).toBeDefined();
+    expect(screen.getByText(/ks git log --oneline/)).toBeDefined();
+    expect(screen.getByText(/age -d -i \/tmp\/old-identity.age/)).toBeDefined();
+  });
 });

@@ -34,3 +34,13 @@ export function useDoctorFix(): UseMutationResult<DoctorReport, Error, void> {
     },
   });
 }
+
+/** Whether an interrupted key rotation is pending (key_count > 1). */
+export function useRotationPending(): UseQueryResult<boolean> {
+  return useQuery({
+    queryKey: queryKeys.rotationPending,
+    queryFn: async () => call(commands.rotationPending()),
+    gcTime: 0,
+    staleTime: 0,
+  });
+}
