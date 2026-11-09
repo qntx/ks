@@ -87,6 +87,7 @@ fn mk_git() -> Fixture {
         app,
         state,
     };
+    git_local_config(&f.vault);
     let (code, _w) = unlock(&f);
     assert!(code.is_none());
     f
@@ -461,35 +462,56 @@ fn desk_core_onboard_clone_local_repo() {
     let f = mk();
     unlock(&f);
     set(&f, "a", "v", false);
+    // source vault must be a git repo with a repo-local identity
+    let st = std::process::Command::new("git")
+        .args(["-C"])
+        .arg(&f.vault)
+        .args(["init"])
+        .status()
+        .unwrap();
+    assert!(st.success());
+    git_local_config(&f.vault);
+    let st = std::process::Command::new("git")
+        .args(["-C"])
+        .arg(&f.vault)
+        .args(["add", "-Af", "--", ".identity.age", "*.age"])
+        .status()
+        .unwrap();
+    assert!(st.success());
+    let st = std::process::Command::new("git")
+        .args(["-C"])
+        .arg(&f.vault)
+        .args(["commit", "-qm", "src"])
+        .status()
+        .unwrap();
+    assert!(st.success());
     let dir = tempfile::tempdir().unwrap();
-    let bare = dir.path().join("r.git");
-    let st = std::process::Command::new("git")
-        .args(["-C"])
-        .arg(&f.vault)
-        .args(["init", "--bare", bare.to_str().unwrap()])
-        .status()
-        .unwrap();
-    if !st.success() {
-        // no git repo in vault; init it first via create_vault(git) path is out of scope
-        return;
-    }
-    let st = std::process::Command::new("git")
-        .args(["-C"])
-        .arg(&f.vault)
-        .args(["push", bare.to_str().unwrap(), "HEAD:refs/heads/main"])
-        .status()
-        .unwrap();
-    if !st.success() {
-        return;
-    }
     let dst = dir.path().join("cloned");
     let v = tauri::async_runtime::block_on(commands::clone_vault(
         f.app.state::<Arc<AppState>>(),
-        bare.display().to_string(),
+        f.vault.display().to_string(),
         dst.display().to_string(),
         SecretText::new(PASS),
     ))
     .unwrap();
-    assert_eq!(v.path, dst.display().to_string());
+    assert_eq!(v.path, dst.canonicalize().unwrap().display().to_string());
     assert!(dst.join(".identity.age").exists());
+}
+
+/// Repo-local git identity so tests never read the developer's or
+/// runner's global git config (no signing hooks either).
+fn git_local_config(vault: &PathBuf) {
+    for args in [
+        vec!["config", "user.name", "ks-test"],
+        vec!["config", "user.email", "ks-test@local"],
+        vec!["config", "commit.gpgsign", "false"],
+    ] {
+        let st = std::process::Command::new("git")
+            .args(["-C"])
+            .arg(vault)
+            .args(&args)
+            .status()
+            .unwrap();
+        assert!(st.success());
+    }
 }
