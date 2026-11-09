@@ -1,0 +1,4 @@
+{
+  "extends": ["@qntx/tsconfig/configs/vite-react.json", "@qntx/tsconfig/configs/strictest.json"],
+  "include": ["src"]
+}

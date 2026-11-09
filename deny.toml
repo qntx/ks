@@ -11,7 +11,7 @@ feature-depth = 1
 # zbus 5's split crates were merged into zbus 6 upstream (unmaintained, not
 # vulnerable). They arrive transitively via secret-service ->
 # zbus-secret-service-keyring-store; the store must bump to zbus 6 upstream.
-ignore = [{ id = "RUSTSEC-2026-0374", reason = "unmaintained basic-toml via age -> i18n-embed-fl; used at compile time only" }, { id = "RUSTSEC-2026-0387", reason = "crypto-bigint timing variability via age -> p256; reachable only through the tagpq recipient, which ks never uses" }]
+ignore = [{ id = "RUSTSEC-2026-0374", reason = "unmaintained basic-toml via age -> i18n-embed-fl; used at compile time only" }, { id = "RUSTSEC-2026-0387", reason = "crypto-bigint timing variability via age -> p256; reachable only through the tagpq recipient, which ks never uses" }, { id = "RUSTSEC-2024-0436", reason = "unmaintained paste via specta/tauri-specta (ks-desktop); macro-only, no safe upgrade" }, { id = "RUSTSEC-2024-0370", reason = "unmaintained proc-macro-error via glib-macros -> gtk (Linux-only ks-desktop build path); no safe upgrade" }]
 
 [licenses]
 confidence-threshold = 0.8
