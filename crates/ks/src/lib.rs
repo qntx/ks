@@ -61,6 +61,6 @@ pub use error::{Error, ErrorCode, Result};
 pub use key::Key;
 pub use key::LocalKey;
 pub use name::Name;
-pub use passphrase::check_new_passphrase;
+pub use passphrase::{Strength, check_new_passphrase, strength};
 pub use rekey::RekeyReport;
 pub use vault::{GITATTRIBUTES, GITIGNORE, Session, Vault};

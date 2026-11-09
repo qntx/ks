@@ -1,13 +1,13 @@
 import { useSyncExternalStore } from "react";
 
-import type { VaultStatus } from "./bindings.gen";
+import type { VaultStatusOut } from "./bindings.gen";
 
 // Single store per design: a tiny state machine reduced by backend
 // responses, subscribed via useSyncExternalStore.
 
 type Snapshot =
   | { kind: "loading" }
-  | { kind: "status"; status: VaultStatus }
+  | { kind: "status"; status: VaultStatusOut }
   | { kind: "error"; message: string };
 
 let snapshot: Snapshot = { kind: "loading" };
@@ -33,7 +33,8 @@ export function useVaultState(): Snapshot {
 
 export async function refresh(commands: {
   vaultStatus: () => Promise<
-    { status: "ok"; data: VaultStatus } | { status: "error"; error: string }
+    | { status: "ok"; data: VaultStatusOut }
+    | { status: "error"; error: { code: string; message: string } }
   >;
 }): Promise<void> {
   try {
@@ -41,7 +42,7 @@ export async function refresh(commands: {
     if (result.status === "ok") {
       emit({ kind: "status", status: result.data });
     } else {
-      emit({ kind: "error", message: result.error });
+      emit({ kind: "error", message: result.error.message });
     }
   } catch (error) {
     emit({ kind: "error", message: error instanceof Error ? error.message : String(error) });

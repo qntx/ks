@@ -98,16 +98,22 @@ impl Git {
         Ok(out.stdout.is_empty())
     }
 
-    /// `git init` + `git add -A` + one initial commit.
+    /// `git init` + `git add -A` + one initial commit. The repo always
+    /// exists when this returns; a failed initial commit (e.g. no git
+    /// identity configured) becomes a returned warning, not an error.
     ///
     /// # Errors
     ///
-    /// [`Error::Unavailable`] when git is missing or a step fails.
-    pub fn init(&self, message: &str) -> Result<()> {
+    /// [`Error::Unavailable`] when git is missing or `git init`/`add`
+    /// fails.
+    pub fn init(&self, message: &str) -> Result<Vec<String>> {
         self.git(&["init"])?;
         self.git(&["add", "-A"])?;
-        self.git(&["commit", "-q", "-m", message])?;
-        Ok(())
+        match self.git(&["commit", "-q", "-m", message]) {
+            Ok(_) => Ok(Vec::new()),
+            Err(e) if self.is_repo() => Ok(vec![format!("initial commit skipped: {e}")]),
+            Err(e) => Err(e),
+        }
     }
 
     /// `git clone <url> <root>`; `root` must not exist or be empty.

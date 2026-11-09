@@ -20,11 +20,12 @@ categories   = ["cryptography"]
 ks           = { version = "0.8", path = "crates/ks", features = ["agent", "agent-server", "keychain"] }
 ks-clipboard = { version = "0.8", path = "crates/ks-clipboard" }
 
-tauri             = "2.12.5"
-tauri-build       = "2.7.4"
-tauri-specta      = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
-specta            = "=2.0.0-rc.26"
-specta-typescript = "=0.0.13"
+tauri               = { version = "2.12.5", features = ["tray-icon"] }
+tauri-build         = "2.7.4"
+tauri-plugin-dialog = "2.4.0"
+tauri-specta        = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
+specta              = "=2.0.0-rc.26"
+specta-typescript   = "=0.0.13"
 
 age                          = { version = "0.12.1", features = ["plugin"] }
 age-core                     = "0.12.0"
@@ -44,17 +45,21 @@ totp-rs                      = { version = "6.0.0", features = ["otpauth"] }
 interprocess                 = "2.4.0"
 serde                        = { version = "1", features = ["derive"] }
 
-clap             = { version = "4.6.7", features = ["derive", "wrap_help"] }
-cliclack         = "0.5.6"
-arboard          = "3.7.0"
-objc2-app-kit    = "0.3.2"
-objc2-foundation = "0.3.2"
-base64           = "0.22.1"
-libc             = "0.2.191"
-widestring       = "1.2.1"
-windows-sys      = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Console"] }
-rustix           = "1.1.6"
-assert_cmd       = "2.2.2"
+clap                  = { version = "4.6.7", features = ["derive", "wrap_help"] }
+cliclack              = "0.5.6"
+arboard               = "3.7.0"
+block2                = "0.6.1"
+notify                = "8.2.0"
+notify-debouncer-mini = "0.6.0"
+objc2                 = "0.6.0"
+objc2-app-kit         = "0.3.2"
+objc2-foundation      = "0.3.2"
+base64                = "0.22.1"
+libc                  = "0.2.191"
+widestring            = "1.2.1"
+windows-sys           = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Console"] }
+rustix                = "1.1.6"
+assert_cmd            = "2.2.2"
 
 proptest   = "1.12.0"
 serde_json = "1"
