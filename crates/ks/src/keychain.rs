@@ -71,6 +71,35 @@ fn platform_store() -> Result<Arc<keyring_core::CredentialStore>> {
 /// [`Error::Unavailable`] when the store itself cannot be reached.
 #[cfg(any(target_os = "macos", windows))]
 pub fn is_enabled(vault: &Vault) -> Result<bool> {
+    ensure_store()?;
+    let id = crate::local::id(vault);
+    // Non-native stores (mock, test fakes) can't be checked by attribute
+    // search — a mock keeps deleted credentials around with the secret
+    // cleared. A fake store never prompts, so read the secret instead.
+    if keyring_core::get_default_store()
+        .is_some_and(|s| !s.vendor().contains("macOS") && !s.vendor().contains("Windows"))
+    {
+        return read_exists(vault);
+    }
+    let spec = std::collections::HashMap::from([("service", SERVICE), ("user", id.as_str())]);
+    // `search` loads attributes only — `get_secret`/`get_attributes` read
+    // the secret bytes and would show the macOS keychain access prompt
+    // for a mere status query. Results are filtered exactly because a
+    // store may match specifiers loosely.
+    match keyring_core::Entry::search(&spec) {
+        Ok(entries) => Ok(entries.iter().any(|e| {
+            e.get_specifiers()
+                .is_some_and(|(svc, usr)| svc == SERVICE && usr == id)
+        })),
+        Err(keyring_core::Error::NotSupportedByStore(_)) => read_exists(vault),
+        Err(e) => Err(Error::Unavailable(format!("keychain search failed: {e}"))),
+    }
+}
+
+/// Reads the entry secret only to learn whether it exists — the last
+/// resort for stores without a prompt-free query.
+#[cfg(any(target_os = "macos", windows))]
+fn read_exists(vault: &Vault) -> Result<bool> {
     match entry(vault)?.get_secret() {
         Ok(_) => Ok(true),
         Err(keyring_core::Error::NoEntry) => Ok(false),
@@ -248,6 +277,24 @@ mod tests {
             let (_d1, s1) = vault();
             drop(enable(&s1).unwrap());
             assert!(is_enabled(s1.vault()).unwrap());
+
+            let (_d9, sv9) = vault();
+            // unlock_passphrase skips every device probe, and a wrong
+            // passphrase still fails.
+            let bad = sv9
+                .vault()
+                .unlock_passphrase(&|| Ok(SecretString::from("nope wrong".to_owned())));
+            assert!(bad.is_err());
+            drop(
+                sv9.vault()
+                    .unlock_passphrase(&|| Ok(SecretString::from(PASS.to_owned())))
+                    .unwrap(),
+            );
+            // unlock_devices on a vault with no sources: Unavailable, not stale.
+            match sv9.vault().unlock_devices().unwrap() {
+                crate::DeviceUnlock::Unavailable { warnings: _, stale } => assert!(!stale),
+                crate::DeviceUnlock::Unlocked(_) => panic!("no device source is enabled"),
+            }
             let s2 = s1.vault().unlock_without_agent(None).unwrap();
             s2.get(&crate::Name::parse("x").unwrap()).unwrap_err();
             assert!(disable(s1.vault()).unwrap());

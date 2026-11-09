@@ -8,6 +8,27 @@ use age::secrecy::SecretString;
 use crate::vault::{IDENTITY_FILE, MAX_SMALL_FILE};
 use crate::{Error, Key, LocalKey, Result, Session, Vault};
 
+/// Outcome of [`Vault::unlock_devices`]: a device-backed session, or
+/// nothing usable with the stale marker the UI needs.
+#[allow(
+    missing_debug_implementations,
+    reason = "Session has no Debug; the variants stay opaque"
+)]
+pub enum DeviceUnlock {
+    /// A device source produced the session.
+    Unlocked(Session),
+    /// No device source could unlock; `stale` is set when any source held
+    /// an outdated key (a passphrase unlock will remove it).
+    Unavailable {
+        /// Soft failures collected while probing (cancelled prompts,
+        /// plugin errors); surfaced for logging, never toasts.
+        warnings: Vec<String>,
+        /// Any source held an outdated key — a passphrase unlock will
+        /// remove it (DEVICE-STALE).
+        stale: bool,
+    },
+}
+
 /// What one device source produced for the unlock chain.
 #[allow(
     dead_code,
@@ -65,8 +86,8 @@ impl Vault {
         self.unlock_chain(passphrase, true)
     }
 
-    /// Unlocks with the passphrase source only — no agent (or, in M4, device
-    /// sources). Used by `unlock`, `passwd`, `rekey` and `--no-agent`.
+    /// Unlocks with the passphrase and device sources — no agent. Used by
+    /// `unlock`, `passwd`, `rekey` and `--no-agent`.
     ///
     /// # Errors
     ///
@@ -91,12 +112,7 @@ impl Vault {
         with_agent: bool,
     ) -> Result<Session> {
         // Read the identity file first so a broken vault never prompts.
-        let identity_path = self.root().join(IDENTITY_FILE);
-        let bytes = self.read_file(&identity_path, MAX_SMALL_FILE)?;
-        let identity_hash: [u8; 32] = {
-            use sha2::Digest as _;
-            sha2::Sha256::digest(&bytes).into()
-        };
+        let (bytes, identity_hash) = self.read_identity()?;
         let mut warnings = Vec::new();
         let mut stale = Vec::new();
 
@@ -114,15 +130,42 @@ impl Vault {
             }
         }
 
+        if let Some(s) = self.probe_devices(identity_hash, &mut warnings, &mut stale)? {
+            return Ok(s);
+        }
+
+        self.passphrase_tail(passphrase, &bytes, identity_hash, warnings, stale)
+    }
+
+    /// Reads `.identity.age` and its SHA-256 for check verification —
+    /// read first so a broken vault never prompts.
+    fn read_identity(&self) -> Result<(Vec<u8>, [u8; 32])> {
+        let identity_path = self.root().join(IDENTITY_FILE);
+        let bytes = self.read_file(&identity_path, MAX_SMALL_FILE)?;
+        let hash: [u8; 32] = {
+            use sha2::Digest as _;
+            sha2::Sha256::digest(&bytes).into()
+        };
+        Ok((bytes, hash))
+    }
+
+    /// Runs the device probes — Touch ID, then the OS keychain — through
+    /// `apply_probe` and returns the session a passing key produced.
+    fn probe_devices(
+        &self,
+        identity_hash: [u8; 32],
+        warnings: &mut Vec<String>,
+        stale: &mut Vec<Stale>,
+    ) -> Result<Option<Session>> {
         if let Some(s) = self.apply_probe(
             identity_hash,
             crate::touchid::probe(self),
             Stale::TouchId,
             "Touch ID holds an outdated vault key; it will be removed after a passphrase unlock",
-            &mut warnings,
-            &mut stale,
+            warnings,
+            stale,
         )? {
-            return Ok(s);
+            return Ok(Some(s));
         }
         #[cfg(feature = "keychain")]
         if let Some(s) = self.apply_probe(
@@ -130,17 +173,30 @@ impl Vault {
             crate::keychain::probe(self),
             Stale::Keychain,
             "the OS keychain holds an outdated vault key; it will be removed after a passphrase unlock",
-            &mut warnings,
-            &mut stale,
+            warnings,
+            stale,
         )? {
-            return Ok(s);
+            return Ok(Some(s));
         }
+        Ok(None)
+    }
 
+    /// Passphrase tail of the unlock chain: open `.identity.age`, rebuild
+    /// the check file when it fails verification, remove sources proven
+    /// stale by the probes, and produce the session.
+    fn passphrase_tail(
+        &self,
+        passphrase: Option<&dyn Fn() -> Result<SecretString>>,
+        bytes: &[u8],
+        identity_hash: [u8; 32],
+        mut warnings: Vec<String>,
+        stale: Vec<Stale>,
+    ) -> Result<Session> {
         let Some(get_passphrase) = passphrase else {
             return Err(Error::Locked);
         };
         let secret = get_passphrase()?;
-        let key = crate::passphrase::open_identity(&bytes, &secret)?;
+        let key = crate::passphrase::open_identity(bytes, &secret)?;
         if !self.verify_check(&key) {
             self.with_write_lock(|| self.write_check(&key))?;
             warnings.push("check file rebuilt".to_owned());
@@ -154,6 +210,46 @@ impl Vault {
             warnings,
             identity_hash,
         ))
+    }
+
+    /// Unlocks with the passphrase only — no agent and no device probes;
+    /// the check file is rebuilt as the chain does.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::WrongPassphrase`], [`Error::Corrupt`], [`Error::Io`].
+    pub fn unlock_passphrase(
+        &self,
+        passphrase: &dyn Fn() -> Result<SecretString>,
+    ) -> Result<Session> {
+        let (bytes, identity_hash) = self.read_identity()?;
+        self.passphrase_tail(
+            Some(passphrase),
+            &bytes,
+            identity_hash,
+            Vec::new(),
+            Vec::new(),
+        )
+    }
+
+    /// Tries the device sources only — Touch ID, then the OS keychain.
+    /// Never asks for a passphrase and never removes anything.
+    ///
+    /// # Errors
+    ///
+    /// Hard errors only: a corrupt identity file or I/O. Soft source
+    /// failures land in [`DeviceUnlock::Unavailable::warnings`].
+    pub fn unlock_devices(&self) -> Result<DeviceUnlock> {
+        let (_, identity_hash) = self.read_identity()?;
+        let mut warnings = Vec::new();
+        let mut stale = Vec::new();
+        if let Some(s) = self.probe_devices(identity_hash, &mut warnings, &mut stale)? {
+            return Ok(DeviceUnlock::Unlocked(s));
+        }
+        Ok(DeviceUnlock::Unavailable {
+            warnings,
+            stale: !stale.is_empty(),
+        })
     }
 
     /// Removes one stale device source after a passphrase unlock and

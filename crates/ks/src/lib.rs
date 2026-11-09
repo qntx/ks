@@ -63,4 +63,5 @@ pub use key::LocalKey;
 pub use name::Name;
 pub use passphrase::{Strength, check_new_passphrase, strength};
 pub use rekey::RekeyReport;
+pub use unlock::DeviceUnlock;
 pub use vault::{GITATTRIBUTES, GITIGNORE, Session, Vault};
