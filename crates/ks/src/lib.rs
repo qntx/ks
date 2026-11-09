@@ -19,6 +19,7 @@
 pub mod agent;
 #[cfg(feature = "agent-server")]
 mod agent_server;
+pub mod doctor;
 mod entry;
 mod error;
 pub mod git;

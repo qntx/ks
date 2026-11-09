@@ -44,6 +44,32 @@ let lastSyncState: unknown = { status: "idle" };
 let syncUsed = false;
 
 const params = new URLSearchParams(location.search);
+const DOCTOR_PROBLEMS = [
+  {
+    path: `${VAULT}/.identity.age`,
+    kind: "unfinished_rotation",
+    message: "unfinished key rotation; run `ks rekey` with the new passphrase to finish",
+    fixable: false,
+  },
+  {
+    path: `${VAULT}/.tmpabc`,
+    kind: "temp_file",
+    message: "leftover temp file",
+    fixable: true,
+  },
+  {
+    path: `${VAULT}/.gitignore`,
+    kind: "git_meta",
+    message: ".gitignore differs from the canonical content",
+    fixable: true,
+  },
+  {
+    path: `${VAULT}/work/github.age`,
+    kind: "undecryptable",
+    message: "decryption failed (possibly written before a key rotation)",
+    fixable: false,
+  },
+];
 const conflictParam = params.get("conflict");
 const conflictKind =
   conflictParam === "content" || conflictParam === "delete" ? conflictParam : null;
@@ -190,6 +216,13 @@ const dispatch = (cmd: string, payload: unknown): unknown => {
       return { branch: "main", upstream: "origin/main", ahead: 1, behind: 0, changes: 2 };
     case "sync_state":
       return lastSyncState;
+    case "doctor":
+      if (params.get("doctor") === "error") {
+        return errObj("unavailable", "cannot open the vault index");
+      }
+      return { problems: params.get("doctor") === null ? [] : DOCTOR_PROBLEMS };
+    case "doctor_fix":
+      return { problems: DOCTOR_PROBLEMS.filter((p) => !p.fixable) };
     case "sync_now":
       if (!syncUsed && conflictKind !== null) {
         syncUsed = true;

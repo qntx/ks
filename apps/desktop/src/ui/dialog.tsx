@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { X, ChevronLeft } from "lucide-react";
 import { Dialog } from "radix-ui";
 import { useState } from "react";
 import type { ReactElement, ReactNode } from "react";
@@ -20,6 +20,8 @@ export function Sheet({
   size = "md",
   action,
   footer,
+  onEscapeKeyDown,
+  back,
   children,
 }: {
   open: boolean;
@@ -29,6 +31,9 @@ export function Sheet({
   size?: "sm" | "md" | undefined;
   action?: ((formData: FormData) => void | Promise<void>) | undefined;
   footer?: ReactNode;
+  onEscapeKeyDown?: ((event: KeyboardEvent) => void) | undefined;
+  /** Header-level back affordance for in-sheet sub-pages. */
+  back?: { label: string; onClick: () => void } | undefined;
   children: ReactNode;
 }): ReactElement {
   const m = useMessages();
@@ -37,15 +42,27 @@ export function Sheet({
       <Dialog.Portal>
         <Dialog.Overlay className="bg-overlay data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out fixed inset-0 z-40" />
         <Dialog.Content
+          onEscapeKeyDown={onEscapeKeyDown}
           className={cn(
             "rounded-dialog bg-card fixed top-1/2 left-1/2 z-50 flex max-h-[86vh] w-[calc(100vw-2rem)] -translate-1/2 flex-col p-7 outline-none",
             "data-[state=open]:animate-dialog-in data-[state=closed]:animate-dialog-out",
             size === "sm" ? "max-w-105" : "max-w-140",
           )}
         >
-          <Dialog.Title className="text-ink text-3xl font-bold tracking-tight">
-            {title}
-          </Dialog.Title>
+          <div className="flex items-center gap-1.5">
+            {back !== undefined && (
+              <IconButton
+                icon={ChevronLeft}
+                label={back.label}
+                onClick={() => {
+                  back.onClick();
+                }}
+              />
+            )}
+            <Dialog.Title className="text-ink text-3xl font-bold tracking-tight">
+              {title}
+            </Dialog.Title>
+          </div>
           {description !== undefined && (
             <Dialog.Description className="text-muted mt-1 text-base">
               {description}

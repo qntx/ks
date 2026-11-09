@@ -106,6 +106,7 @@ describe("views", () => {
     ipc.store.names = [...ipc.store.texts.keys(), "personal/passport.pdf"];
     ipc.store.gitStatus = undefined;
     ipc.store.syncState = { status: "idle" };
+    ipc.store.doctorProblems = [];
   });
 
   it("wrong passphrase shows the localized error and clears the field", async () => {
@@ -462,5 +463,97 @@ describe("views", () => {
     });
     const last = ipc.commands.setSettings.mock.calls.at(-1)![0] as Record<string, unknown>;
     expect(last["syncOnUnlock"]).toBe(false);
+  });
+
+  const DOCTOR_ALL_FIXABLE = [
+    {
+      path: "/vaults/ks/.tmpabc",
+      kind: "temp_file" as const,
+      message: "leftover temp file",
+      fixable: true,
+    },
+    {
+      path: "/vaults/ks/.gitignore",
+      kind: "git_meta" as const,
+      message: ".gitignore differs from the canonical content",
+      fixable: true,
+    },
+  ];
+  const DOCTOR_UNFIXABLE = [
+    {
+      path: "/vaults/ks/.identity.age",
+      kind: "unfinished_rotation" as const,
+      message: "unfinished key rotation; run `ks rekey` with the new passphrase to finish",
+      fixable: false,
+    },
+  ];
+
+  it("doctor page shows clean state; back and Esc return to main", async () => {
+    await bootTo("unlocked");
+    renderSettings();
+    fireEvent.click(await screen.findByText("Check vault"));
+    await expect(screen.findByText("No problems found")).resolves.toBeDefined();
+    expect(ipc.commands.doctor).toHaveBeenCalled();
+    const back = screen.getByRole("button", { name: "Settings" });
+    fireEvent.click(back);
+    await screen.findByText("Device unlock");
+
+    fireEvent.click(screen.getByText("Check vault"));
+    await screen.findByText("No problems found");
+    fireEvent.keyDown(document, { key: "Escape" });
+    await screen.findByText("Device unlock");
+    expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
+  });
+
+  it("doctor page groups problems and Fix returns the remaining", async () => {
+    ipc.store.doctorProblems = [
+      ...DOCTOR_ALL_FIXABLE,
+      ...DOCTOR_UNFIXABLE,
+      {
+        path: "/vaults/ks/work/github.age",
+        kind: "undecryptable" as const,
+        message: "decryption failed (possibly written before a key rotation)",
+        fixable: false,
+      },
+    ];
+    await bootTo("unlocked");
+    renderSettings();
+    fireEvent.click(await screen.findByText("Check vault"));
+    await expect(screen.findByText("Leftover temp files")).resolves.toBeDefined();
+    expect(screen.getByText("Git metadata")).toBeDefined();
+    expect(screen.getByText("Unfinished key rotation")).toBeDefined();
+    expect(screen.getByText(".tmpabc")).toBeDefined();
+    expect(screen.getByText("work/github.age")).toBeDefined();
+    expect(screen.getByText(/decryption failed/)).toBeDefined();
+    expect(screen.queryByText("leftover temp file")).toBeNull();
+    expect(screen.getByText("Finish it from Rotate key")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Fix" }));
+    await waitFor(() => {
+      expect(ipc.commands.doctorFix).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Leftover temp files")).toBeNull();
+    });
+    expect(screen.getByText("Unfinished key rotation")).toBeDefined();
+  });
+
+  it("doctor page hides Fix when nothing is fixable", async () => {
+    ipc.store.doctorProblems = [...DOCTOR_UNFIXABLE];
+    await bootTo("unlocked");
+    renderSettings();
+    fireEvent.click(await screen.findByText("Check vault"));
+    await screen.findByText("Unfinished key rotation");
+    expect(screen.queryByRole("button", { name: "Fix" })).toBeNull();
+  });
+
+  it("doctor page shows the error and retries into clean", async () => {
+    ipc.commands.doctor.mockRejectedValueOnce(new Error("cannot read vault"));
+    await bootTo("unlocked");
+    renderSettings();
+    fireEvent.click(await screen.findByText("Check vault"));
+    await expect(screen.findByText(/cannot read vault/)).resolves.toBeDefined();
+    expect(screen.queryByText("No problems found")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await expect(screen.findByText("No problems found")).resolves.toBeDefined();
   });
 });
