@@ -7,6 +7,7 @@ import type { FieldRef, TotpCode } from "../bindings.gen";
 import type { Messages } from "../i18n";
 import { deleteEntry, renameEntry, toast, useStore } from "../store";
 import { Button, Dialog, Input } from "../ui";
+import * as c from "../ui/classes";
 
 function Field(props: {
   label: string;
@@ -40,9 +41,9 @@ function Field(props: {
   };
 
   return (
-    <div className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800">
+    <div className={c.fieldRow}>
       <span className="w-24 shrink-0 truncate text-xs text-zinc-500">{props.label}</span>
-      <span className="flex-1 truncate font-mono text-sm" aria-live="polite">
+      <span className="flex-1 truncate font-mono text-sm tabular-nums" aria-live="polite">
         {value ?? "•".repeat(Math.min(props.length, 24))}
       </span>
       <Button kind="ghost" onClick={() => void reveal()}>
@@ -126,9 +127,9 @@ export function EntryView(props: {
   };
 
   return (
-    <div className="space-y-3">
+    <div className={`${c.card} space-y-3`}>
       <div className="flex items-center gap-2">
-        <h2 className="flex-1 text-lg font-semibold">{d.name}</h2>
+        <h2 className={`flex-1 ${c.title}`}>{d.name}</h2>
         <Button kind="ghost" onClick={() => props.onEdit(d.name)}>
           {m.editEntry}
         </Button>
@@ -177,7 +178,7 @@ export function EntryView(props: {
       )}
       {d.hasTotp && <Totp name={d.name} m={m} />}
       {d.kind === "binary" && (
-        <div className="flex items-center gap-2 rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800">
+        <div className={c.fieldRow}>
           <span className="flex-1 text-sm text-zinc-500">{m.binarySize(d.binaryLength ?? 0)}</span>
           <Button kind="ghost" onClick={() => void exportBin()}>
             {m.exportBinary}

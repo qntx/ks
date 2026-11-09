@@ -4,21 +4,22 @@ import { clsx } from "clsx";
 import {
   Dialog as RxDialog,
   Switch as RxSwitch,
-  Tabs as RxTabs,
+  ToggleGroup as RxToggleGroup,
   Toast as RxToast,
   Tooltip as RxTooltip,
 } from "radix-ui";
 import React from "react";
 
+import * as c from "./classes";
+
 export function Button(props: {
-  kind?: "primary" | "ghost" | "danger";
+  kind?: "primary" | "secondary" | "ghost" | "danger";
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   type?: "button" | "submit";
   title?: string;
 }): React.JSX.Element {
-  const k = props.kind ?? "primary";
   return (
     <button
       type={props.type ?? "button"}
@@ -26,11 +27,8 @@ export function Button(props: {
       disabled={props.disabled}
       title={props.title}
       className={clsx(
-        "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-40",
-        k === "primary" && "bg-blue-600 text-white hover:bg-blue-700",
-        k === "ghost" &&
-          "border border-zinc-300 text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800",
-        k === "danger" && "bg-red-600 text-white hover:bg-red-700",
+        "focus-visible:ring-ink/40 outline-none focus-visible:ring-2",
+        c.button[props.kind ?? "primary"],
       )}
     >
       {props.children}
@@ -62,7 +60,7 @@ export const Input = React.forwardRef<
       autoComplete={props.autoComplete}
       spellCheck={props.spellCheck}
       aria-label={props.label}
-      className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900"
+      className={c.input}
     />
   );
   if (props.label === undefined) {
@@ -70,7 +68,7 @@ export const Input = React.forwardRef<
   }
   return (
     <label className="block text-left">
-      <span className="mb-1 block text-xs text-zinc-500">{props.label}</span>
+      <span className={`${c.caption} mb-1 block`}>{props.label}</span>
       {el}
     </label>
   );
@@ -85,9 +83,9 @@ export function Dialog(props: {
   return (
     <RxDialog.Root open={props.open} onOpenChange={props.onOpenChange}>
       <RxDialog.Portal>
-        <RxDialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
-        <RxDialog.Content className="fixed top-1/2 left-1/2 z-50 w-[26rem] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-zinc-200 bg-white p-5 shadow-xl outline-none dark:border-zinc-700 dark:bg-zinc-900">
-          <RxDialog.Title className="mb-3 text-sm font-semibold">{props.title}</RxDialog.Title>
+        <RxDialog.Overlay className={c.dialogOverlay} />
+        <RxDialog.Content className={c.dialogContent}>
+          <RxDialog.Title className={`${c.title} mb-3`}>{props.title}</RxDialog.Title>
           {props.children}
         </RxDialog.Content>
       </RxDialog.Portal>
@@ -107,9 +105,9 @@ export function Switch(props: {
         checked={props.checked}
         onCheckedChange={props.onCheckedChange}
         aria-label={props.label}
-        className="relative h-5 w-9 rounded-full bg-zinc-300 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 data-[state=checked]:bg-blue-600 dark:bg-zinc-700"
+        className={c.switchTrack}
       >
-        <RxSwitch.Thumb className="block h-4 w-4 translate-x-0.5 rounded-full bg-white transition data-[state=checked]:translate-x-4.5" />
+        <RxSwitch.Thumb className={c.switchThumb} />
       </RxSwitch.Root>
     </label>
   );
@@ -122,10 +120,7 @@ export function Tooltip(props: { label: string; children: React.ReactNode }): Re
         <span>{props.children}</span>
       </RxTooltip.Trigger>
       <RxTooltip.Portal>
-        <RxTooltip.Content
-          sideOffset={4}
-          className="z-50 rounded-md bg-zinc-800 px-2 py-1 text-xs text-white dark:bg-zinc-200 dark:text-zinc-900"
-        >
+        <RxTooltip.Content sideOffset={4} className={c.tooltip}>
           {props.label}
         </RxTooltip.Content>
       </RxTooltip.Portal>
@@ -133,32 +128,29 @@ export function Tooltip(props: { label: string; children: React.ReactNode }): Re
   );
 }
 
-export function Tabs(props: {
+export function Segmented(props: {
   items: Array<{ id: string; label: string }>;
   value: string;
   onValueChange: (v: string) => void;
-  children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <RxTabs.Root value={props.value} onValueChange={props.onValueChange}>
-      <RxTabs.List className="mb-4 flex gap-1 rounded-md bg-zinc-100 p-1 dark:bg-zinc-800">
-        {props.items.map((i) => (
-          <RxTabs.Trigger
-            key={i.id}
-            value={i.id}
-            className="flex-1 rounded px-2 py-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-500 data-[state=active]:bg-white data-[state=active]:shadow dark:data-[state=active]:bg-zinc-900"
-          >
-            {i.label}
-          </RxTabs.Trigger>
-        ))}
-      </RxTabs.List>
-      {props.children}
-    </RxTabs.Root>
+    <RxToggleGroup.Root
+      type="single"
+      value={props.value}
+      onValueChange={props.onValueChange}
+      className={c.segmented.root}
+    >
+      {props.items.map((i) => (
+        <RxToggleGroup.Item key={i.id} value={i.id} className={c.segmented.item}>
+          {i.label}
+        </RxToggleGroup.Item>
+      ))}
+    </RxToggleGroup.Root>
   );
 }
 
 export function Toasts(props: {
-  items: Array<{ id: number; text: string }>;
+  items: Array<{ id: number; text: string; ok?: boolean }>;
   onDismiss: (id: number) => void;
 }): React.JSX.Element {
   return (
@@ -171,9 +163,16 @@ export function Toasts(props: {
               props.onDismiss(t.id);
             }
           }}
-          className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
+          className={c.toast}
         >
-          <RxToast.Title>{t.text}</RxToast.Title>
+          <RxToast.Title className="flex items-center gap-2">
+            {t.ok === true && (
+              <span className="text-ok" aria-hidden>
+                ✓
+              </span>
+            )}
+            {t.text}
+          </RxToast.Title>
         </RxToast.Root>
       ))}
       <RxToast.Viewport className="fixed right-4 bottom-4 z-50 flex w-80 flex-col gap-2 outline-none" />

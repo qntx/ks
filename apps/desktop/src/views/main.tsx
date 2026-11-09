@@ -7,6 +7,7 @@ import { fuzzyFilter } from "../lib/fuzzy";
 import { throttle } from "../lib/throttle";
 import { doLock, heartbeat, select, useStore } from "../store";
 import { Button, Input } from "../ui";
+import * as c from "../ui/classes";
 import { Editor } from "./editor";
 import { EntryView } from "./entry";
 import { Settings } from "./settings";
@@ -60,9 +61,9 @@ export function Main(props: { m: Messages }): React.JSX.Element {
   }, [filtered, selected]);
 
   return (
-    <div className="flex h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <aside className="flex w-64 shrink-0 flex-col border-r border-zinc-200 dark:border-zinc-800">
-        <div className="flex items-center gap-2 border-b border-zinc-200 p-2 dark:border-zinc-800">
+    <div className="bg-paper text-ink flex h-screen gap-4 p-4">
+      <aside className={c.panel}>
+        <div className="flex items-center gap-2 p-2 pt-9">
           <div className="flex-1">
             <Input
               ref={search}
@@ -95,7 +96,7 @@ export function Main(props: { m: Messages }): React.JSX.Element {
             ))}
           </ul>
         </nav>
-        <div className="flex items-center gap-1 border-t border-zinc-200 p-2 dark:border-zinc-800">
+        <div className="flex items-center gap-1 p-2">
           <Button onClick={() => setEditor({})} title="⌘N">
             <Plus size={14} aria-hidden />
             {m.newEntry}
@@ -110,7 +111,7 @@ export function Main(props: { m: Messages }): React.JSX.Element {
           </Button>
         </div>
       </aside>
-      <section className="flex-1 overflow-y-auto p-6" aria-label="entry">
+      <section className="flex-1 overflow-y-auto pt-9 pr-2" aria-label="entry">
         {editor === null && (
           <EntryView
             m={m}

@@ -1,9 +1,11 @@
+import { KeyRound } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
 
 import type { Messages } from "../i18n";
 import { doUnlock, useStore } from "../store";
 import { Button, Input } from "../ui";
+import * as c from "../ui/classes";
 
 export function Unlock(props: { m: Messages }): React.JSX.Element {
   const { m } = props;
@@ -28,39 +30,40 @@ export function Unlock(props: { m: Messages }): React.JSX.Element {
       : (m.error[error.code] ?? `${m.error["other"] ?? ""}: ${error.message}`);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-white p-8 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <h1 className="text-xl font-semibold">{m.unlockTitle}</h1>
-      {lockReason !== undefined && (
-        <p className="text-sm text-zinc-500">
-          {m.lockedReason[lockReason] ?? m.lockedReason["manual"]}
-        </p>
-      )}
-      <form
-        className="w-64 space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-      >
-        <Input
-          label={m.passphrase}
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          value={pass}
-          onChange={setPass}
-          ref={input}
-        />
-        {errText !== undefined && <p className="text-sm text-red-600">{errText}</p>}
-        <Button type="submit" disabled={busy}>
-          {m.unlock}
-        </Button>
-      </form>
-      {warnings.map((w) => (
-        <p key={w} className="text-xs text-amber-600">
-          {w}
-        </p>
-      ))}
+    <main className="bg-paper text-ink flex min-h-screen flex-col items-center justify-center p-8">
+      <div className={`${c.card} flex w-[20rem] flex-col items-center gap-3 p-8`}>
+        <KeyRound size={36} strokeWidth={1.75} className="text-muted" aria-hidden />
+        <h1 className={c.displayTitle}>{m.unlockTitle}</h1>
+        {lockReason !== undefined && (
+          <p className={c.caption}>{m.lockedReason[lockReason] ?? m.lockedReason["manual"]}</p>
+        )}
+        <form
+          className="w-64 space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <Input
+            label={m.passphrase}
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={pass}
+            onChange={setPass}
+            ref={input}
+          />
+          {errText !== undefined && <p className="text-danger text-sm">{errText}</p>}
+          <Button type="submit" disabled={busy}>
+            {m.unlock}
+          </Button>
+        </form>
+        {warnings.map((w) => (
+          <p key={w} className={c.caption}>
+            {w}
+          </p>
+        ))}
+      </div>
     </main>
   );
 }

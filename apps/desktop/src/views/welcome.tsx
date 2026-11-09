@@ -1,4 +1,5 @@
 import { open as openDir } from "@tauri-apps/plugin-dialog";
+import { KeyRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import type React from "react";
 
@@ -6,7 +7,8 @@ import { commands } from "../bindings.gen";
 import type { Strength } from "../bindings.gen";
 import type { Messages } from "../i18n";
 import { cloneVaultAt, createVaultAt, openVaultAt, useStore } from "../store";
-import { Button, Dialog, Input, Switch, Tabs } from "../ui";
+import { Button, Dialog, Input, Segmented, Switch } from "../ui";
+import * as c from "../ui/classes";
 
 function StrengthBar(props: { pass: string; m: Messages }): React.ReactNode {
   const [strength, setStrength] = useState<Strength | undefined>();
@@ -81,12 +83,15 @@ export function Welcome(props: { m: Messages }): React.JSX.Element {
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-white p-8 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <h1 className="text-2xl font-semibold">{m.welcome}</h1>
-      <p className="text-sm text-zinc-500">{m.welcomeSub}</p>
-      <Button onClick={() => setOpen(true)}>{m.createVault}</Button>
+    <main className="bg-paper text-ink flex min-h-screen flex-col items-center justify-center p-8">
+      <div className={`${c.card} flex w-[22rem] flex-col items-center gap-3 p-8`}>
+        <KeyRound size={36} strokeWidth={1.75} className="text-muted" aria-hidden />
+        <h1 className={c.displayTitle}>{m.welcome}</h1>
+        <p className={c.caption}>{m.welcomeSub}</p>
+        <Button onClick={() => setOpen(true)}>{m.createVault}</Button>
+      </div>
       <Dialog open={open} onOpenChange={setOpen} title={m.createVault}>
-        <Tabs
+        <Segmented
           value={tab}
           onValueChange={setTab}
           items={[
@@ -94,54 +99,53 @@ export function Welcome(props: { m: Messages }): React.JSX.Element {
             { id: "open", label: m.open },
             { id: "clone", label: m.clone },
           ]}
-        >
-          <div className="space-y-3">
-            {tab === "clone" && <Input label={m.cloneUrl} value={url} onChange={setUrl} />}
-            <div className="flex items-end gap-2">
-              <div className="flex-1">
-                <Input label={m.vaultPath} value={path} onChange={setPath} />
-              </div>
-              <Button kind="ghost" onClick={() => void pickDir()}>
-                {m.browse}
-              </Button>
+        />
+        <div className="space-y-3">
+          {tab === "clone" && <Input label={m.cloneUrl} value={url} onChange={setUrl} />}
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <Input label={m.vaultPath} value={path} onChange={setPath} />
             </div>
-            {tab !== "open" && (
-              <>
-                <div>
-                  <Input
-                    label={m.passphrase}
-                    type="password"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={pass}
-                    onChange={setPass}
-                  />
-                  <StrengthBar pass={pass} m={m} />
-                </div>
+            <Button kind="ghost" onClick={() => void pickDir()}>
+              {m.browse}
+            </Button>
+          </div>
+          {tab !== "open" && (
+            <>
+              <div>
                 <Input
-                  label={m.passphraseAgain}
+                  label={m.passphrase}
                   type="password"
                   autoComplete="off"
                   spellCheck={false}
-                  value={pass2}
-                  onChange={setPass2}
+                  value={pass}
+                  onChange={setPass}
                 />
-              </>
-            )}
-            {tab === "create" && (
-              <Switch checked={git} onCheckedChange={setGit} label={m.gitToggle} />
-            )}
-            {err !== undefined && <p className="text-sm text-red-600">{err}</p>}
-            <div className="flex justify-end gap-2">
-              <Button kind="ghost" onClick={() => setOpen(false)}>
-                {m.cancel}
-              </Button>
-              <Button disabled={busy} onClick={() => void submit()}>
-                {tab === "create" ? m.create : tab === "open" ? m.open : m.clone}
-              </Button>
-            </div>
+                <StrengthBar pass={pass} m={m} />
+              </div>
+              <Input
+                label={m.passphraseAgain}
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={pass2}
+                onChange={setPass2}
+              />
+            </>
+          )}
+          {tab === "create" && (
+            <Switch checked={git} onCheckedChange={setGit} label={m.gitToggle} />
+          )}
+          {err !== undefined && <p className="text-sm text-red-600">{err}</p>}
+          <div className="flex justify-end gap-2">
+            <Button kind="ghost" onClick={() => setOpen(false)}>
+              {m.cancel}
+            </Button>
+            <Button disabled={busy} onClick={() => void submit()}>
+              {tab === "create" ? m.create : tab === "open" ? m.open : m.clone}
+            </Button>
           </div>
-        </Tabs>
+        </div>
       </Dialog>
     </main>
   );

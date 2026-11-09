@@ -21,6 +21,7 @@ export function App(): React.JSX.Element {
   const m = t();
   return (
     <>
+      <div data-tauri-drag-region className="drag-region" />
       {snap.phase === "loading" && (
         <main className="flex min-h-screen items-center justify-center bg-white text-zinc-500 dark:bg-zinc-950">
           {m.loading}

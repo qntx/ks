@@ -1,1 +1,109 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
 @import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --color-paper: #f9f9f9;
+  --color-surface: #ffffff;
+  --color-ink: #17203a;
+  --color-muted: #6e7382;
+  --color-line: #e3e5ea;
+  --color-subtle: #eef0f3;
+  --color-danger: #d63c34;
+  --color-ok: #16a34a;
+
+  --radius-pod: 24px;
+  --radius-row: 16px;
+
+  --shadow-1: 0 1px 2px rgb(23 32 58 / 0.06), 0 4px 16px rgb(23 32 58 / 0.06);
+  --shadow-2: 0 2px 4px rgb(23 32 58 / 0.08), 0 16px 40px rgb(23 32 58 / 0.12);
+
+  --ease-fluid: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: #0e1220;
+    --color-surface: #161b2c;
+    --color-ink: #eef0f5;
+    --color-muted: #8b90a0;
+    --color-line: #262c40;
+    --color-subtle: #1d2335;
+    --color-danger: #ef6a62;
+    --color-ok: #3fbf6f;
+    --shadow-1: 0 0 0 1px var(--color-line), 0 4px 16px rgb(0 0 0 / 0.35);
+    --shadow-2: 0 0 0 1px var(--color-line), 0 16px 40px rgb(0 0 0 / 0.5);
+  }
+}
+
+html,
+body,
+#app {
+  height: 100dvh;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light dark;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 8px)) scale(0.98);
+  }
+}
+
+.drag-region {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  z-index: 30;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .sidebar-row {
+    transition:
+      transform 180ms var(--ease-fluid),
+      background-color 180ms var(--ease-fluid);
+  }
+  .sidebar-row:hover {
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
