@@ -13,7 +13,7 @@
   ],
   "type": "module",
   "scripts": {
-    "lint": "vp check && taplo fmt --check && bun scripts/check-version.ts && bash scripts/check-tokens.sh",
+    "lint": "vp check && taplo fmt --check && bun scripts/check-version.ts && bun apps/desktop/scripts/check-styles.ts",
     "typecheck": "vp run -r typecheck && tsc --noEmit",
     "build": "vp run -r build",
     "test": "vp run -r test && vp test",

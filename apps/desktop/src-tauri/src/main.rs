@@ -220,7 +220,7 @@ mod tests {
 
     use super::specta_builder;
 
-    const BINDINGS_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/bindings.gen.ts");
+    const BINDINGS_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/ipc/bindings.gen.ts");
 
     fn render_bindings() -> String {
         let tmp = env::temp_dir().join(format!("ks-desktop-bindings-{}.ts", process::id()));
