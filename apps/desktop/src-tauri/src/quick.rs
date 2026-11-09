@@ -150,8 +150,8 @@ pub(crate) fn hide<RT: tauri::Runtime>(app: &tauri::AppHandle<RT>) {
     }
 }
 
-/// Set while a quick-window device unlock is in flight: the Touch ID
-/// prompt steals key status, and the resign-key handler must not hide
+/// Set while a quick-window device unlock is in flight: the system prompt
+/// steals focus, and the resign-key or blur handler must not hide
 /// the panel mid-unlock.
 static PIN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 

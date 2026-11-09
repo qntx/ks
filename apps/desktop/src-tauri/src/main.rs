@@ -209,8 +209,9 @@ fn main() -> tauri::Result<()> {
         })
         .on_window_event(|w, e| {
             #[cfg(not(target_os = "macos"))]
-            if let tauri::WindowEvent::Focused(false) = e
+            if matches!(e, tauri::WindowEvent::Focused(false))
                 && w.label() == "quick"
+                && !quick::pinned()
             {
                 quick::hide(w.app_handle());
             }
