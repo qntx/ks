@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- library: `Vault::unlock_passphrase` (passphrase only) and
+  `Vault::unlock_devices` (Touch ID and keychain only)
+
 ### Changed
 
 - `ks lock` returns only after the session agent has exited, and
@@ -15,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `ks unlock` no longer races the agent it replaces for the endpoint
+- `ks status` no longer shows the macOS keychain access prompt just to
+  report whether the keychain is enabled
 - copied secrets are marked concealed/transient and kept off Universal
   Clipboard on macOS, and out of clipboard history and cloud sync on
   Windows

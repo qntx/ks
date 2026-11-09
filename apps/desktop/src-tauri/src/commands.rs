@@ -318,7 +318,8 @@ pub(crate) struct UnlockResult {
 pub(crate) fn unlock<RT: tauri::Runtime>(
     app: tauri::AppHandle<RT>,
     state: tauri::State<'_, std::sync::Arc<AppState>>,
-    passphrase: Option<SecretText>,
+    passphrase: SecretText,
+    retire_stale: bool,
 ) -> R<UnlockResult> {
     let session = {
         let mut i = state
@@ -326,12 +327,210 @@ pub(crate) fn unlock<RT: tauri::Runtime>(
             .lock()
             .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
         let o = i.open.as_mut().ok_or(ks::Error::Locked)?;
-        let text = passphrase.as_ref().map(|p| p.expose().to_owned());
-        let cb = move || Ok(SecretString::from(text.clone().unwrap_or_default()));
-        o.vault.unlock_without_agent(Some(&cb))?
+        let text = passphrase.expose().to_owned();
+        let cb = move || Ok(SecretString::from(text.clone()));
+        if retire_stale {
+            // Full chain: the passphrase also proves the identity is
+            // genuine, so stale device sources are removed (DEVICE-STALE).
+            o.vault.unlock_without_agent(Some(&cb))?
+        } else {
+            o.vault.unlock_passphrase(&cb)?
+        }
     };
     let warnings = begin_session(&app, state.inner(), session)?;
     Ok(UnlockResult { warnings })
+}
+
+/// Outcome of the device-unlock attempt for the unlock screen.
+#[derive(Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DeviceUnlockResult {
+    /// A device session was established.
+    pub unlocked: bool,
+    /// Session plus device warnings; surfaced as toasts, not errors.
+    pub warnings: Vec<String>,
+    /// A device source held an outdated key — the passphrase will remove
+    /// it on the next successful unlock.
+    pub stale: bool,
+}
+
+/// Availability of one device source for the settings group.
+#[derive(Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DeviceState {
+    /// The platform offers the source at all.
+    pub supported: bool,
+    /// The vault currently has the source enabled.
+    pub enabled: bool,
+    /// Why the source is unusable, when it is.
+    pub reason: Option<String>,
+}
+
+/// All device sources the settings group and unlock screen render.
+#[derive(Debug, Serialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Devices {
+    /// Touch ID via `age-plugin-se`.
+    pub touch_id: DeviceState,
+    /// OS keychain entry.
+    pub keychain: DeviceState,
+}
+
+/// The device source to toggle, serialized as `"touch_id" | "keychain"`.
+#[derive(Debug, Serialize, serde::Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DeviceKind {
+    /// Touch ID via `age-plugin-se`.
+    TouchId,
+    /// OS keychain entry.
+    Keychain,
+}
+
+/// Tries the device sources only (ADR-16 companion: Touch ID prompt or a
+/// silent keychain read). Never asks for a passphrase.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn unlock_device<RT: tauri::Runtime>(
+    app: tauri::AppHandle<RT>,
+    state: tauri::State<'_, std::sync::Arc<AppState>>,
+) -> R<DeviceUnlockResult> {
+    let out = {
+        let i = state
+            .inner
+            .lock()
+            .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+        let o = i.open.as_ref().ok_or(ks::Error::Locked)?;
+        o.vault.unlock_devices()?
+    };
+    match out {
+        ks::DeviceUnlock::Unlocked(session) => {
+            let warnings = begin_session(&app, state.inner(), session)?;
+            Ok(DeviceUnlockResult {
+                unlocked: true,
+                warnings,
+                stale: false,
+            })
+        }
+        ks::DeviceUnlock::Unavailable { warnings, stale } => Ok(DeviceUnlockResult {
+            unlocked: false,
+            warnings,
+            stale,
+        }),
+    }
+}
+
+/// Reads the device-source state without ever prompting (attribute-only
+/// keychain query, PATH scan for `age-plugin-se`).
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn devices(state: tauri::State<'_, std::sync::Arc<AppState>>) -> R<Devices> {
+    let i = state
+        .inner
+        .lock()
+        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+    let o = i.open.as_ref().ok_or(ks::Error::Locked)?;
+    let touch_id = touch_id_state(&o.vault);
+    let keychain = keychain_state(&o.vault);
+    Ok(Devices { touch_id, keychain })
+}
+
+/// Enables or disables a device source. Enabling needs the unlocked local
+/// key (`with_session` — agent sessions fail with `usage`); disabling
+/// needs only an open vault.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn set_device(
+    state: tauri::State<'_, std::sync::Arc<AppState>>,
+    kind: DeviceKind,
+    enabled: bool,
+) -> R<Vec<String>> {
+    let warnings = match (kind, enabled) {
+        (DeviceKind::TouchId, true) => {
+            state.with_session(|s| ks::touchid::enable(s).map(|()| Vec::new()))?
+        }
+        (DeviceKind::Keychain, true) => state.with_session(ks::keychain::enable)?,
+        (DeviceKind::TouchId, false) => {
+            let i = state
+                .inner
+                .lock()
+                .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+            let o = i.open.as_ref().ok_or(ks::Error::Locked)?;
+            ks::touchid::disable(&o.vault)?;
+            Vec::new()
+        }
+        (DeviceKind::Keychain, false) => {
+            let i = state
+                .inner
+                .lock()
+                .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+            let o = i.open.as_ref().ok_or(ks::Error::Locked)?;
+            ks::keychain::disable(&o.vault)?;
+            Vec::new()
+        }
+    };
+    Ok(warnings)
+}
+
+/// Touch ID availability: macOS and `age-plugin-se` on PATH. Failures of
+/// `is_enabled` downgrade to `enabled: false` plus a reason — never a
+/// prompt, never a hard error for a status query.
+#[cfg(target_os = "macos")]
+fn touch_id_state(vault: &ks::Vault) -> DeviceState {
+    let supported = which::which("age-plugin-se").is_ok();
+    match ks::touchid::is_enabled(vault) {
+        Ok(enabled) if supported => DeviceState {
+            supported: true,
+            enabled,
+            reason: None,
+        },
+        Ok(enabled) => DeviceState {
+            supported: false,
+            enabled,
+            reason: Some(
+                "age-plugin-se was not found; install it with `brew install age-plugin-se`"
+                    .to_owned(),
+            ),
+        },
+        Err(e) => DeviceState {
+            supported,
+            enabled: false,
+            reason: Some(e.to_string()),
+        },
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn touch_id_state(_vault: &ks::Vault) -> DeviceState {
+    DeviceState {
+        supported: false,
+        enabled: false,
+        reason: Some("Touch ID is only available on macOS".to_owned()),
+    }
+}
+
+#[cfg(any(target_os = "macos", windows))]
+fn keychain_state(vault: &ks::Vault) -> DeviceState {
+    match ks::keychain::is_enabled(vault) {
+        Ok(enabled) => DeviceState {
+            supported: true,
+            enabled,
+            reason: None,
+        },
+        Err(e) => DeviceState {
+            supported: true,
+            enabled: false,
+            reason: Some(e.to_string()),
+        },
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn keychain_state(_vault: &ks::Vault) -> DeviceState {
+    DeviceState {
+        supported: false,
+        enabled: false,
+        reason: Some("the OS keychain is not available on this platform".to_owned()),
+    }
 }
 
 #[tauri::command]

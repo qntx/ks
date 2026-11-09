@@ -13,6 +13,7 @@ export type SessionState = {
   vault: VaultInfo | undefined;
   settings: Settings_Serialize;
   lockReason: Reason | undefined;
+  deviceStale: boolean;
 };
 
 const DEFAULT_SETTINGS: Settings_Serialize = {
@@ -28,6 +29,7 @@ let state: SessionState = {
   vault: undefined,
   settings: DEFAULT_SETTINGS,
   lockReason: undefined,
+  deviceStale: false,
 };
 
 const listeners = new Set<() => void>();
@@ -73,12 +75,29 @@ export async function boot(): Promise<void> {
   });
 }
 
+/**
+ * Tries the device sources once (Touch ID prompt or silent keychain read). Returns whether the
+ * vault unlocked; device warnings stay out of the toast stream — the stale notice covers them.
+ */
+export async function unlockDevice(): Promise<boolean> {
+  const r = await call(commands.unlockDevice());
+  if (r.unlocked) {
+    for (const w of r.warnings) {
+      toast(w);
+    }
+    set({ phase: "unlocked", lockReason: undefined, deviceStale: false });
+    return true;
+  }
+  set({ deviceStale: r.stale });
+  return false;
+}
+
 export async function unlock(passphrase: string): Promise<void> {
-  const r = await call(commands.unlock(passphrase));
+  const r = await call(commands.unlock(passphrase, state.deviceStale));
   for (const w of r.warnings) {
     toast(w);
   }
-  set({ phase: "unlocked", lockReason: undefined });
+  set({ phase: "unlocked", lockReason: undefined, deviceStale: false });
 }
 
 export async function lock(): Promise<void> {
@@ -89,7 +108,7 @@ export async function lock(): Promise<void> {
 export async function openVault(path: string): Promise<void> {
   const vault = await call(commands.openVault(path));
   queryClient.clear();
-  set({ phase: "locked", vault, lockReason: undefined });
+  set({ phase: "locked", vault, lockReason: undefined, deviceStale: false });
 }
 
 export async function createVault(path: string, passphrase: string, git: boolean): Promise<void> {
@@ -125,5 +144,6 @@ export function resetSession(): void {
     vault: undefined,
     settings: DEFAULT_SETTINGS,
     lockReason: undefined,
+    deviceStale: false,
   };
 }

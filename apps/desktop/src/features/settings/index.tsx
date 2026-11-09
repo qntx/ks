@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 import { lock, openVault, saveSettings, useSession } from "../../app/session";
 import { errorMessage, useMessages } from "../../i18n";
 import { ChoiceMenu, ListGroup, ListRow, Sheet, Switch, toast } from "../../ui";
+import { DeviceUnlockGroup } from "../devices";
 
 function options(
   presets: number[],
@@ -96,6 +97,7 @@ export function SettingsDialog({
           />
         </ListRow>
       </ListGroup>
+      <DeviceUnlockGroup />
       <ListGroup title={m.settings.general}>
         <ListRow label={m.settings.language}>
           <ChoiceMenu

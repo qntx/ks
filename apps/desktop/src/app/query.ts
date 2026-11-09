@@ -18,5 +18,6 @@ export const queryKeys = {
   entries: ["entries"],
   entry: (name: string) => ["entry", name],
   entryAll: ["entry"],
+  devices: ["devices"],
   totp: (name: string) => ["totp", name],
 } as const;

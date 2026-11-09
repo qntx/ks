@@ -38,7 +38,11 @@ const binaries = new Map<string, number>([["personal/passport.pdf", 248_102]]);
 let hasVault = false;
 let unlocked = false;
 
-const mode = new URLSearchParams(location.search).get("mock");
+const params = new URLSearchParams(location.search);
+const mode = params.get("mock");
+let touchIdEnabled = params.get("touchid") !== null;
+let keychainEnabled = params.get("keychain") !== null;
+const deviceStale = params.get("stale") !== null;
 if (mode === "locked" || mode === "unlocked") {
   hasVault = true;
   unlocked = mode === "unlocked";
@@ -174,6 +178,29 @@ const dispatch = (cmd: string, payload: unknown): unknown => {
       }
       unlocked = true;
       return { warnings: [] };
+    case "devices":
+      return {
+        touchId: { supported: true, enabled: touchIdEnabled, reason: null },
+        keychain: { supported: true, enabled: keychainEnabled, reason: null },
+      };
+    case "set_device":
+      if (arg("kind") === "touch_id") {
+        touchIdEnabled = Boolean(args["enabled"]);
+      }
+      if (arg("kind") === "keychain") {
+        keychainEnabled = Boolean(args["enabled"]);
+      }
+      return [];
+
+    case "unlock_device":
+      if (deviceStale) {
+        return { unlocked: false, warnings: [], stale: true };
+      }
+      if (touchIdEnabled || keychainEnabled) {
+        unlocked = true;
+        return { unlocked: true, warnings: [], stale: false };
+      }
+      return { unlocked: false, warnings: [], stale: false };
     case "lock":
       unlocked = false;
       void emit("locked", { reason: "manual" });

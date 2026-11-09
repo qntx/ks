@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { Unlock } from "../features/access";
 import { Inspector } from "../features/entry";
+import { SettingsDialog } from "../features/settings";
 import { VaultScreen } from "../features/vault";
 import { I18nProvider } from "../i18n";
 import { App } from "./app";
@@ -66,6 +67,25 @@ async function bootTo(phase: "welcome" | "locked" | "unlocked"): Promise<void> {
   await boot();
 }
 
+function renderUnlock(): void {
+  render(
+    <QueryClientProvider client={queryClient}>
+      <I18nProvider language="en">
+        <Tooltip.Provider>
+          <Unlock />
+        </Tooltip.Provider>
+      </I18nProvider>
+    </QueryClientProvider>,
+  );
+}
+
+const ok = <T,>(data: T): { status: "ok"; data: T } => ({ status: "ok", data });
+
+const DEVICES_TOUCH = {
+  touchId: { supported: true, enabled: true, reason: null },
+  keychain: { supported: true, enabled: false, reason: null },
+};
+
 describe("views", () => {
   beforeEach(() => {
     cleanup();
@@ -85,13 +105,7 @@ describe("views", () => {
   });
 
   it("wrong passphrase shows the localized error and clears the field", async () => {
-    render(
-      <I18nProvider language="en">
-        <Tooltip.Provider>
-          <Unlock />
-        </Tooltip.Provider>
-      </I18nProvider>,
-    );
+    renderUnlock();
     const input = screen.getByLabelText("Passphrase");
     fireEvent.change(input, { target: { value: "wrong" } });
     fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
@@ -108,6 +122,111 @@ describe("views", () => {
     await waitFor(() => {
       expect(screen.getByText("Locked after inactivity")).toBeDefined();
     });
+  });
+
+  it("auto-runs unlockDevice when a device is enabled, never otherwise", async () => {
+    renderUnlock();
+    await waitFor(() => {
+      expect(ipc.commands.devices).toHaveBeenCalled();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(ipc.commands.unlockDevice).not.toHaveBeenCalled();
+
+    cleanup();
+    resetSession();
+    queryClient.clear();
+    ipc.store.devices = structuredClone(DEVICES_TOUCH);
+    renderUnlock();
+    await waitFor(() => {
+      expect(ipc.commands.unlockDevice).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("shows the Touch ID pill only when Touch ID is enabled", async () => {
+    renderUnlock();
+    await waitFor(() => {
+      expect(ipc.commands.devices).toHaveBeenCalled();
+    });
+    expect(screen.queryByRole("button", { name: "Unlock with Touch ID" })).toBeNull();
+
+    cleanup();
+    resetSession();
+    queryClient.clear();
+    ipc.store.devices = structuredClone(DEVICES_TOUCH);
+    renderUnlock();
+    await expect(
+      screen.findByRole("button", { name: "Unlock with Touch ID" }),
+    ).resolves.toBeDefined();
+  });
+
+  it("stale shows the notice and submits passphrase with retireStale", async () => {
+    ipc.store.devices = structuredClone(DEVICES_TOUCH);
+    ipc.commands.unlockDevice.mockResolvedValue(ok({ unlocked: false, warnings: [], stale: true }));
+    renderUnlock();
+    await expect(
+      screen.findByText("Device unlock is out of date — enter your passphrase to remove it"),
+    ).resolves.toBeDefined();
+    const input = screen.getByLabelText("Passphrase");
+    fireEvent.change(input, { target: { value: "correct horse battery staple" } });
+    fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
+    await waitFor(() => {
+      expect(ipc.commands.unlock).toHaveBeenCalledWith("correct horse battery staple", true);
+    });
+  });
+
+  it("settings device group toggles via setDevice and refetches state", async () => {
+    await bootTo("unlocked");
+    ipc.store.devices = structuredClone(DEVICES_TOUCH);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider language="en">
+          <Tooltip.Provider>
+            <SettingsDialog open onOpenChange={() => {}} />
+          </Tooltip.Provider>
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+    const touchRow = await screen.findByRole("switch", {
+      name: "Unlock with Touch ID",
+    });
+    expect(touchRow.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(touchRow);
+    await waitFor(() => {
+      expect(ipc.commands.setDevice).toHaveBeenCalledWith("touch_id", false);
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByRole("switch", { name: "Unlock with Touch ID" }).getAttribute("aria-checked"),
+      ).toBe("false");
+    });
+  });
+
+  it("an unsupported device row is disabled and shows the reason", async () => {
+    await bootTo("unlocked");
+    ipc.store.devices = {
+      touchId: {
+        supported: false,
+        enabled: false,
+        reason: "age-plugin-se was not found; install it with brew install age-plugin-se",
+      },
+      keychain: { supported: true, enabled: false, reason: null },
+    };
+    render(
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider language="en">
+          <Tooltip.Provider>
+            <SettingsDialog open onOpenChange={() => {}} />
+          </Tooltip.Provider>
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+    const row = await screen.findByRole("switch", {
+      name: "Unlock with Touch ID",
+    });
+    expect(row).toHaveProperty("disabled", true);
+    await expect(
+      screen.findByText("age-plugin-se was not found; install it with brew install age-plugin-se"),
+    ).resolves.toBeDefined();
   });
 
   it("navigates folders and searches", async () => {

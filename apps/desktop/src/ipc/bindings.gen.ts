@@ -14,7 +14,23 @@ export const commands = {
 	/**  Clones a remote vault (blocking) and returns it already unlocked. */
 	cloneVault: (url: string, path: string, passphrase: SecretText) => typedError<VaultInfo, AppError>(__TAURI_INVOKE("clone_vault", { url, path, passphrase })),
 	passphraseStrength: (passphrase: SecretText) => __TAURI_INVOKE<Strength_Serialize>("passphrase_strength", { passphrase }),
-	unlock: (passphrase: SecretText | null) => typedError<UnlockResult, AppError>(__TAURI_INVOKE("unlock", { passphrase })),
+	unlock: (passphrase: SecretText, retireStale: boolean) => typedError<UnlockResult, AppError>(__TAURI_INVOKE("unlock", { passphrase, retireStale })),
+	/**
+	 *  Tries the device sources only (ADR-16 companion: Touch ID prompt or a
+	 *  silent keychain read). Never asks for a passphrase.
+	 */
+	unlockDevice: () => typedError<DeviceUnlockResult, AppError>(__TAURI_INVOKE("unlock_device")),
+	/**
+	 *  Reads the device-source state without ever prompting (attribute-only
+	 *  keychain query, PATH scan for `age-plugin-se`).
+	 */
+	devices: () => typedError<Devices_Serialize, AppError>(__TAURI_INVOKE("devices")),
+	/**
+	 *  Enables or disables a device source. Enabling needs the unlocked local
+	 *  key (`with_session` — agent sessions fail with `usage`); disabling
+	 *  needs only an open vault.
+	 */
+	setDevice: (kind: DeviceKind, enabled: boolean) => typedError<string[], AppError>(__TAURI_INVOKE("set_device", { kind, enabled })),
 	lock: () => typedError<null, AppError>(__TAURI_INVOKE("lock")),
 	heartbeat: () => __TAURI_INVOKE<void>("heartbeat"),
 	listEntries: () => typedError<string[], AppError>(__TAURI_INVOKE("list_entries")),
@@ -92,6 +108,68 @@ export type AppView_Serialize = {
 export type Copied = {
 	/**  Seconds until cleared. */
 	clearsInSecs: number,
+};
+
+/**  The device source to toggle, serialized as `"touch_id" | "keychain"`. */
+export type DeviceKind = 
+/**  Touch ID via `age-plugin-se`. */
+"touch_id" | 
+/**  OS keychain entry. */
+"keychain";
+
+/**  Availability of one device source for the settings group. */
+export type DeviceState = DeviceState_Serialize | DeviceState_Deserialize;
+
+/**  Availability of one device source for the settings group. */
+export type DeviceState_Deserialize = {
+	/**  The platform offers the source at all. */
+	supported: boolean,
+	/**  The vault currently has the source enabled. */
+	enabled: boolean,
+	/**  Why the source is unusable, when it is. */
+	reason?: string | null,
+};
+
+/**  Availability of one device source for the settings group. */
+export type DeviceState_Serialize = {
+	/**  The platform offers the source at all. */
+	supported: boolean,
+	/**  The vault currently has the source enabled. */
+	enabled: boolean,
+	/**  Why the source is unusable, when it is. */
+	reason: string | null,
+};
+
+/**  Outcome of the device-unlock attempt for the unlock screen. */
+export type DeviceUnlockResult = {
+	/**  A device session was established. */
+	unlocked: boolean,
+	/**  Session plus device warnings; surfaced as toasts, not errors. */
+	warnings: string[],
+	/**
+	 *  A device source held an outdated key — the passphrase will remove
+	 *  it on the next successful unlock.
+	 */
+	stale: boolean,
+};
+
+/**  All device sources the settings group and unlock screen render. */
+export type Devices = Devices_Serialize | Devices_Deserialize;
+
+/**  All device sources the settings group and unlock screen render. */
+export type Devices_Deserialize = {
+	/**  Touch ID via `age-plugin-se`. */
+	touchId: DeviceState_Deserialize,
+	/**  OS keychain entry. */
+	keychain: DeviceState_Deserialize,
+};
+
+/**  All device sources the settings group and unlock screen render. */
+export type Devices_Serialize = {
+	/**  Touch ID via `age-plugin-se`. */
+	touchId: DeviceState_Serialize,
+	/**  OS keychain entry. */
+	keychain: DeviceState_Serialize,
 };
 
 /**  Emitted when vault files change on disk. */
