@@ -1,9 +1,4 @@
 //! Tauri commands over `ks` — secrets only cross via `SecretText`.
-#![allow(
-    clippy::needless_pass_by_value,
-    clippy::cast_possible_truncation,
-    reason = "Tauri injects command args by value; field sizes fit u32"
-)]
 
 use serde::Serialize;
 use specta::Type;
@@ -441,17 +436,10 @@ pub(crate) fn totp_code(
     name: String,
 ) -> R<TotpCode> {
     let e = state.with_session(|s| s.get(&ks::Name::parse(&name)?))?;
-    let t = e
-        .as_text()
-        .ok_or(ks::Error::InvalidInput("not a text entry".into()))?;
-    let seed = t
-        .field("totp")
-        .ok_or_else(|| ks::Error::NotFound("totp".to_owned()))?;
-    let totp = totp_rs::Totp::from_url(seed)
-        .map_err(|_| ks::Error::InvalidInput("invalid TOTP seed".into()))?;
+    let (code, valid_for) = ks::totp::code(&e, std::time::SystemTime::now())?;
     Ok(TotpCode {
-        code: totp.generate_current().to_string(),
-        valid_for: u32::try_from(totp.next_step_current()).unwrap_or(30),
+        code,
+        valid_for: u32::try_from(valid_for).unwrap_or(30),
     })
 }
 
@@ -548,8 +536,22 @@ pub(crate) fn import_binary(
     path: String,
     overwrite: bool,
 ) -> R<Vec<String>> {
-    let bytes = std::fs::read(&path).map_err(|e| ks::Error::Io {
-        path: path.clone().into(),
+    let src = std::path::Path::new(&path);
+    if !src.is_absolute() {
+        return Err(ks::Error::InvalidInput("path must be absolute".into()).into());
+    }
+    let meta = std::fs::symlink_metadata(src).map_err(|e| ks::Error::Io {
+        path: src.to_path_buf(),
+        source: e,
+    })?;
+    if meta.file_type().is_symlink() || !meta.file_type().is_file() {
+        return Err(ks::Error::InvalidInput("path must be a regular file".into()).into());
+    }
+    if meta.len() > 64 * 1024 * 1024 {
+        return Err(ks::Error::InvalidInput("file larger than 64 MiB".into()).into());
+    }
+    let bytes = std::fs::read(src).map_err(|e| ks::Error::Io {
+        path: src.to_path_buf(),
         source: e,
     })?;
     state.with_session(|s| {
@@ -579,8 +581,12 @@ pub(crate) fn export_binary(
     if e.as_text().is_some() {
         return Err(ks::Error::InvalidInput("text entries have no binary payload".into()).into());
     }
-    std::fs::write(&path, e.payload()).map_err(|e| ks::Error::Io {
-        path: path.clone().into(),
+    let dst = std::path::Path::new(&path);
+    if !dst.is_absolute() {
+        return Err(ks::Error::InvalidInput("path must be absolute".into()).into());
+    }
+    std::fs::write(dst, e.payload()).map_err(|e| ks::Error::Io {
+        path: dst.to_path_buf(),
         source: e,
     })?;
     Ok(())

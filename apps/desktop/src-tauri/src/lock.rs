@@ -14,10 +14,6 @@ use crate::state::AppState;
 /// Why a lock happened (also the `Locked` event payload).
 #[derive(Debug, Clone, Copy, Serialize, Type)]
 #[serde(rename_all = "snake_case")]
-#[expect(
-    dead_code,
-    reason = "ScreenLock/Quit fire from platform and lifecycle hooks in D2/D5"
-)]
 pub(crate) enum Reason {
     /// User locked.
     Manual,
@@ -58,7 +54,12 @@ pub(crate) fn on_locked(reason: Reason) {
         drop(app.emit("locked", Locked { reason }));
     }
     #[cfg(target_os = "macos")]
-    platform::end_activity();
+    if let Some(app) = &*APP
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    {
+        drop(app.run_on_main_thread(platform::end_activity));
+    }
 }
 
 /// Locks via state; emits the event once. Returns false when already locked.
@@ -67,6 +68,20 @@ pub(crate) fn lock_now(state: &AppState, reason: Reason) -> bool {
 }
 
 pub(crate) struct Wake;
+
+fn expired_reason(state: &std::sync::Arc<AppState>, idle: Duration) -> Reason {
+    let i = state
+        .inner
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    i.open.as_ref().map_or(Reason::Max, |o| {
+        if o.last_activity.elapsed() >= idle {
+            Reason::Idle
+        } else {
+            Reason::Max
+        }
+    })
+}
 
 fn time_left(state: &std::sync::Arc<AppState>, idle: Duration, max: Duration) -> Option<Duration> {
     let i = state
@@ -92,36 +107,16 @@ pub(crate) fn start(
     let (tx, rx) = channel::<Wake>();
     std::thread::spawn(move || {
         loop {
-            match time_left(&state, idle, max) {
-                None => {
-                    if rx.recv_timeout(Duration::from_secs(60)).is_ok() {
-                        return;
-                    }
-                }
+            let wait = match time_left(&state, idle, max) {
+                None => Duration::from_secs(60),
                 Some(d) if d.is_zero() => {
-                    let i = state
-                        .inner
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner);
-                    let idle_expired = i
-                        .open
-                        .as_ref()
-                        .is_some_and(|o| o.last_activity.elapsed() >= idle);
-                    drop(i);
-                    lock_now(
-                        &state,
-                        if idle_expired {
-                            Reason::Idle
-                        } else {
-                            Reason::Max
-                        },
-                    );
+                    let _ = lock_now(&state, expired_reason(&state, idle));
+                    continue;
                 }
-                Some(d) => {
-                    if rx.recv_timeout(d.min(Duration::from_secs(5))).is_ok() {
-                        return;
-                    }
-                }
+                Some(d) => d.min(Duration::from_secs(5)),
+            };
+            if rx.recv_timeout(wait).is_ok() {
+                return;
             }
         }
     });

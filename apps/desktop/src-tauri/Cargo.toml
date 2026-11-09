@@ -31,12 +31,14 @@ serde_json            = { workspace = true }
 sha2                  = { workspace = true }
 specta                = { workspace = true }
 tauri                 = { workspace = true }
+tauri-plugin-dialog   = { workspace = true }
 tauri-specta          = { workspace = true }
-totp-rs               = { workspace = true }
 zeroize               = { workspace = true }
 
 [dev-dependencies]
 specta-typescript.workspace = true
+tauri                       = { workspace = true, features = ["test"] }
+tempfile                    = { workspace = true }
 
 
 [lints]

@@ -1,10 +1,6 @@
 //! Desktop shell for the ks secret vault.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![allow(
-    clippy::excessive_nesting,
-    reason = "specta command list and test harness read better as one nested level"
-)]
 
 #[allow(
     clippy::pedantic,
@@ -13,6 +9,8 @@
     reason = "command glue: Tauri signatures, doc style and nesting follow framework conventions"
 )]
 mod commands;
+#[cfg(test)]
+mod desk_tests;
 #[allow(
     clippy::pedantic,
     clippy::restriction,
@@ -127,18 +125,61 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ])
 }
 
+/// Minimal tray: Open ks / Lock / Quit (full menu lands in D5).
+fn tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::TrayIconBuilder;
+
+    let open = MenuItem::with_id(app, "open", "Open ks", true, None::<&str>)?;
+    let lock_i = MenuItem::with_id(app, "lock", "Lock", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &lock_i, &quit])?;
+    let Some(icon) = app.default_window_icon().cloned() else {
+        return Ok(());
+    };
+    TrayIconBuilder::new()
+        .icon(icon)
+        .menu(&menu)
+        .on_menu_event(|handle, event| match event.id.as_ref() {
+            "open" => {
+                #[cfg(target_os = "macos")]
+                drop(handle.set_activation_policy(tauri::ActivationPolicy::Regular));
+                if let Some(w) = handle.get_webview_window("main") {
+                    drop(w.show());
+                    drop(w.set_focus());
+                }
+            }
+            "lock" => {
+                if let Some(state) = handle.try_state::<Arc<state::AppState>>() {
+                    state.lock(lock::Reason::Manual);
+                }
+            }
+            "quit" => {
+                if let Some(state) = handle.try_state::<Arc<state::AppState>>() {
+                    state.lock(lock::Reason::Quit);
+                }
+                handle.exit(0);
+            }
+            _ => {}
+        })
+        .build(app)?;
+    Ok(())
+}
+
 #[expect(
     clippy::disallowed_methods,
     reason = "tauri::generate_context! calls std::process::exit on a malformed config"
 )]
 fn main() -> tauri::Result<()> {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(state::AppState::new()))
         .invoke_handler(specta_builder().invoke_handler())
         .setup(|app| {
             lock::init(app.handle());
             let state = Arc::clone(app.state::<Arc<state::AppState>>().inner());
             lock::watch_system(state, settings::load().lock_on_sleep);
+            tray(app)?;
             Ok(())
         })
         .on_window_event(|w, e| {
@@ -198,10 +239,14 @@ mod tests {
         );
     }
 
+    fn invoke_name(rest: &str) -> Option<String> {
+        rest.find('\"').map(|end| rest[..end].to_owned())
+    }
+
     /// Every command whose params or result mention `SecretText` must be
     /// in the allowlist (ADR-18).
     #[test]
-    fn secret_commands_allowlist() {
+    fn desk_core_secrets_allowlist() {
         let src = fs::read_to_string(BINDINGS_PATH).unwrap();
         let mut found: Vec<String> = Vec::new();
         for line in src.lines() {
@@ -211,10 +256,7 @@ mod tests {
             if let Some(pos) = line.find("INVOKE")
                 && let Some(p2) = line[pos..].find("(\"")
             {
-                let rest = &line[pos + p2 + 2..];
-                if let Some(end) = rest.find('\"') {
-                    found.push(rest[..end].to_owned());
-                }
+                found.extend(invoke_name(&line[pos + p2 + 2..]));
             }
         }
         found.sort();
