@@ -17,6 +17,8 @@
 
 #[cfg(feature = "agent")]
 pub mod agent;
+#[cfg(feature = "agent-server")]
+mod agent_server;
 mod entry;
 mod error;
 pub mod git;

@@ -26,8 +26,8 @@ pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {
     let keychain = ks::keychain::is_enabled(&v).unwrap_or(false);
     let value = serde_json::json!({
         "vault": v.root().display().to_string(),
-        "agent": agent.map(|a| serde_json::json!({
-            "ttl_left": a.ttl_left, "life_left": a.life_left,
+        "agent": agent.as_ref().map(|a| serde_json::json!({
+            "ttl_left": a.ttl_left, "life_left": a.life_left, "host": a.host,
         })),
         "touchid": touchid,
         "keychain": keychain,
@@ -36,7 +36,12 @@ pub(crate) fn run(cli: &Cli, out: &Out) -> CliResult<i32> {
     });
     let agent_line = agent.map_or_else(
         || "agent: not running".to_owned(),
-        |a| format!("agent: ttl {}s, life {}s", a.ttl_left, a.life_left),
+        |a| {
+            format!(
+                "agent: ttl {}s, life {}s, host {}",
+                a.ttl_left, a.life_left, a.host
+            )
+        },
     );
     Ok(out.ok_value(
         &format!(

@@ -22,7 +22,6 @@ ks-clipboard = { workspace = true }
 age          = { workspace = true }
 clap         = { workspace = true }
 cliclack     = { workspace = true }
-interprocess = { workspace = true }
 base64       = { workspace = true }
 serde_json   = { workspace = true }
 tempfile     = { workspace = true }
@@ -33,7 +32,6 @@ libc   = { workspace = true }
 rustix = { workspace = true, features = ["process"] }
 
 [target.'cfg(windows)'.dependencies]
-widestring  = { workspace = true }
 windows-sys = { workspace = true }
 
 [dev-dependencies]

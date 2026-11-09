@@ -378,12 +378,15 @@ fn new_label() -> String {
 }
 
 /// Agent liveness info from `hello`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct AgentStatus {
     /// Seconds until the idle timeout fires.
     pub ttl_left: u64,
     /// Seconds until the lifetime cap fires.
     pub life_left: u64,
+    /// Who serves the endpoint: `"cli"` or `"desktop"` (missing ⇒ `"cli"`).
+    pub host: String,
 }
 
 /// `hello` only — does not count as activity.
@@ -395,8 +398,13 @@ pub fn status(vault: &Vault) -> Result<Option<AgentStatus>> {
     let Some(mut stream) = connect_raw(vault)? else {
         return Ok(None);
     };
-    let ok = hello(&mut stream)?;
-    Ok(Some(AgentStatus {
+    Ok(Some(parse_status(&hello(&mut stream)?)))
+}
+
+/// Reads an `ok` payload from `hello`; unknown or missing fields are
+/// ignored (`host` defaults to `"cli"` for older peers).
+fn parse_status(ok: &serde_json::Value) -> AgentStatus {
+    AgentStatus {
         ttl_left: ok
             .get("ttl_left")
             .and_then(serde_json::Value::as_u64)
@@ -405,7 +413,12 @@ pub fn status(vault: &Vault) -> Result<Option<AgentStatus>> {
             .get("life_left")
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0),
-    }))
+        host: ok
+            .get("host")
+            .and_then(|h| h.as_str())
+            .unwrap_or("cli")
+            .to_owned(),
+    }
 }
 
 /// Asks a running agent to exit. `true` when one was running.
@@ -434,6 +447,7 @@ pub enum ConnectionEnd {
 #[derive(Debug)]
 pub struct Handler {
     key: LocalKey,
+    host: &'static str,
 }
 
 impl Handler {
@@ -450,8 +464,22 @@ impl Handler {
         reason = "the caller owns the identity so it is zeroized when dropped"
     )]
     pub fn new(identity: SecretString) -> Result<Self> {
+        Self::with_host(identity, "cli")
+    }
+
+    /// Same as [`Handler::new`] but reports `host` in `hello`.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Corrupt`] when the identity text is malformed.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "the caller owns the identity so it is zeroized when dropped"
+    )]
+    pub fn with_host(identity: SecretString, host: &'static str) -> Result<Self> {
         Ok(Self {
             key: LocalKey::from_identity_text(&identity)?,
+            host,
         })
     }
 
@@ -494,7 +522,7 @@ impl Handler {
         match op {
             "hello" => match frame.get("version").and_then(serde_json::Value::as_u64) {
                 Some(v) if v == u64::from(PROTOCOL_VERSION) => serde_json::json!({
-                    "ok": { "ttl_left": ttl_left(), "life_left": life_left() }
+                    "ok": { "ttl_left": ttl_left(), "life_left": life_left(), "host": self.host }
                 }),
                 _ => serde_json::json!({ "error": "unsupported protocol version" }),
             },
@@ -555,6 +583,9 @@ impl Handler {
         }
     }
 }
+
+#[cfg(feature = "agent-server")]
+pub use crate::agent_server::{Host, Server, ServerConfig, StopHandle, StopReason};
 
 #[cfg(test)]
 mod tests {
@@ -694,5 +725,21 @@ mod tests {
         let l2 = new_label();
         assert_ne!(l1, l2);
         assert_eq!(l1.len(), 32);
+    }
+
+    #[test]
+    fn status_tolerates_unknown_hello_fields() {
+        let st = parse_status(&serde_json::json!({
+            "ttl_left": 5,
+            "life_left": 60,
+            "host": "desktop",
+            "future_field": {"nested": [1, 2]},
+        }));
+        assert_eq!(st.host, "desktop");
+        assert_eq!(st.ttl_left, 5);
+        // missing host → older peer → cli
+        let older = parse_status(&serde_json::json!({ "ttl_left": 1 }));
+        assert_eq!(older.host, "cli");
+        assert_eq!(older.life_left, 0);
     }
 }

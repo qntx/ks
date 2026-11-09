@@ -48,6 +48,15 @@ pub(crate) fn run(cli: &Cli, out: &Out, ttl: &str, max: &str) -> CliResult<i32> 
         return fail(ErrorCode::Internal, "vault has no exportable identity");
     };
 
+    // A desktop-hosted session is not replaced.
+    if let Ok(Some(a)) = ks::agent::status(&v)
+        && a.host == "desktop"
+    {
+        return fail(
+            ErrorCode::Unavailable,
+            "the desktop app is serving this vault; lock it there or use it directly",
+        );
+    }
     // An already-running agent gets a stale key; ask it to exit first.
     drop(ks::agent::lock(&v));
 
