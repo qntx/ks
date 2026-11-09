@@ -19,12 +19,19 @@ pub(crate) struct VaultInfo {
     pub path: String,
     /// Whether it is a git repo.
     pub is_git: bool,
+    /// Non-fatal warnings (e.g. a skipped initial commit).
+    pub warnings: Vec<String>,
 }
 
 fn info(v: &ks::Vault) -> VaultInfo {
+    info_with_warnings(v, Vec::new())
+}
+
+fn info_with_warnings(v: &ks::Vault, warnings: Vec<String>) -> VaultInfo {
     VaultInfo {
         path: v.root().display().to_string(),
         is_git: v.root().join(".git").exists(),
+        warnings,
     }
 }
 

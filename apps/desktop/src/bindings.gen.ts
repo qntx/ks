@@ -257,6 +257,8 @@ export type VaultInfo = {
 	path: string,
 	/**  Whether it is a git repo. */
 	isGit: boolean,
+	/**  Non-fatal warnings (e.g. a skipped initial commit). */
+	warnings: string[],
 };
 
 /**  D0 status shape (kept for the shell). */

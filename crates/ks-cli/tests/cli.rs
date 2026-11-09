@@ -714,3 +714,33 @@ fn commands_leave_no_local_state_dir() {
     );
     assert!(!sock.exists(), "agent socket leaked: {}", sock.display());
 }
+
+#[test]
+fn init_git_without_identity_still_creates_vault() {
+    let t = mk();
+    let mut cmd = ks(&t, &["init", "--git", "--json"]);
+    cmd.env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "user.useConfigOnly")
+        .env("GIT_CONFIG_VALUE_0", "true")
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL");
+    let mut child = cmd.spawn().unwrap();
+    child.stdin.take().unwrap().write_all(b"").unwrap();
+    let out = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(out.status.code().unwrap_or(-1), 0, "{stdout}");
+    let value: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(value["git"].as_bool(), Some(true));
+    assert!(
+        value["warnings"]
+            .as_array()
+            .is_some_and(|warn| !warn.is_empty()),
+        "expected an initial-commit warning: {stdout}"
+    );
+    assert!(t.vault.join(".identity.age").exists());
+    assert!(t.vault.join(".git").exists());
+}

@@ -21,9 +21,15 @@ pub(crate) fn run(cli: &Cli, out: &Out, git_flag: bool, clone: Option<&str>) -> 
     let mut value = serde_json::json!({ "created": true, "path": path.display().to_string() });
     if git_flag {
         let git = ks::git::Git::new(&path, out.interactive);
-        git.init("ks: init").map_err(|e| err(&e))?;
+        let git_warnings = git.init("ks: init").map_err(|e| err(&e))?;
+        for w in &git_warnings {
+            out.warn(w);
+        }
         if let Some(map) = value.as_object_mut() {
             map.insert("git".to_owned(), serde_json::Value::from(true));
+            if !git_warnings.is_empty() {
+                map.insert("warnings".to_owned(), serde_json::Value::from(git_warnings));
+            }
         }
     }
     Ok(out.ok_value(&format!("created vault at {}", path.display()), value))
