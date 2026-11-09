@@ -17,7 +17,7 @@ keywords     = ["age", "secrets", "password-manager", "vault"]
 categories   = ["cryptography"]
 
 [workspace.dependencies]
-ks           = { version = "0.8", path = "crates/ks", features = ["agent", "keychain"] }
+ks           = { version = "0.8", path = "crates/ks", features = ["agent", "agent-server", "keychain"] }
 ks-clipboard = { version = "0.8", path = "crates/ks-clipboard" }
 
 age                          = { version = "0.12.1", features = ["plugin"] }

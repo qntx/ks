@@ -352,3 +352,40 @@ fn agent_windows_owner_dacl_roundtrip() {
     assert_eq!(code, 0);
     assert_eq!(out.trim(), "v");
 }
+
+/// A server started with `Host::Desktop` in-process: `ks unlock` must
+/// refuse to replace it, and `ks status` reports the host.
+#[test]
+fn unlock_refuses_to_replace_desktop_host() {
+    let t = mk();
+    init(&t);
+    let pass = PASS.to_owned();
+    let v = ks::Vault::open(&t.vault).unwrap();
+    let session = v
+        .unlock_without_agent(Some(&|| Ok(age::secrecy::SecretString::from(pass.clone()))))
+        .unwrap();
+    let identity = session.agent_identity().unwrap();
+    let server = ks::agent::Server::start(
+        &v,
+        identity,
+        ks::agent::ServerConfig {
+            ttl: Duration::from_secs(30),
+            max: Duration::from_secs(300),
+            host: ks::agent::Host::Desktop,
+        },
+    )
+    .unwrap();
+
+    let (code, _out, err) = unlock(&t, &[]);
+    assert_eq!(code, 69, "desktop host must refuse unlock: {err}");
+    assert!(
+        err.contains("desktop"),
+        "message should name the desktop host: {err}"
+    );
+
+    let (_, out, _) = ks(&t, &["status", "--json"], b"", false);
+    let j: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+    assert_eq!(j["agent"]["host"], "desktop");
+
+    let _ = server.stop();
+}
