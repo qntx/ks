@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-rotation-pending"
+description = "Enables the rotation_pending command without any pre-configured scope."
+commands.allow = ["rotation_pending"]
+
+[[permission]]
+identifier = "deny-rotation-pending"
+description = "Denies the rotation_pending command without any pre-configured scope."
+commands.deny = ["rotation_pending"]

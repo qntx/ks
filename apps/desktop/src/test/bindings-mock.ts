@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings_Serialize = {
   syncOnUnlock: true,
   syncOnLock: true,
   syncAfterWrite: false,
+  quickShortcut: "CommandOrControl+Shift+Space",
 };
 
 function createBindingsMockImpl() {
@@ -64,6 +65,7 @@ function createBindingsMockImpl() {
   type SyncCb = (e: { payload: SyncState }) => void;
   const lockedCbs = new Set<LockedCb>();
   const changedCbs = new Set<ChangedCb>();
+  const quickShownCbs = new Set<() => void>();
   const syncCbs = new Set<SyncCb>();
 
   const emitLocked = (reason: string): void => {
@@ -125,6 +127,9 @@ function createBindingsMockImpl() {
       return ok(null);
     }),
     setTrayLabels: vi.fn(async (_l: unknown) => ok(null)),
+    hideQuick: vi.fn(async () => {
+      await Promise.resolve();
+    }),
     doctorFix: vi.fn(async () => ok({ problems: store.doctorProblems.filter((p) => !p.fixable) })),
     setDevice: vi.fn(async (kind: "touch_id" | "keychain", enabled: boolean) => {
       store.devices[kind === "touch_id" ? "touchId" : "keychain"].enabled = enabled;
@@ -253,6 +258,14 @@ function createBindingsMockImpl() {
         };
       }),
     },
+    quickShown: {
+      listen: vi.fn((cb: () => void) => {
+        quickShownCbs.add(cb);
+        return () => {
+          quickShownCbs.delete(cb);
+        };
+      }),
+    },
   };
 
   const emitSyncState = (syncState: SyncState): void => {
@@ -262,7 +275,12 @@ function createBindingsMockImpl() {
     }
   };
 
-  return { commands, events, store, emitLocked, emitChanged, emitSyncState };
+  const emitQuickShown = (): void => {
+    for (const cb of quickShownCbs) {
+      cb();
+    }
+  };
+  return { commands, events, store, emitLocked, emitChanged, emitSyncState, emitQuickShown };
 }
 
 /** Exported factory (explicit boundary type via the impl). */

@@ -206,6 +206,24 @@ export function SettingsDialog({
           />
           <ListGroup title={m.settings.general}>
             <AutostartRow />
+            <ListRow label={m.settings.quickShortcut}>
+              <ChoiceMenu
+                label={m.settings.quickShortcut}
+                value={settings.quickShortcut ?? "off"}
+                options={(
+                  [
+                    ["CommandOrControl+Shift+Space", "⌘⇧Space"],
+                    ["Alt+Space", "⌥Space"],
+                    ["Control+Alt+Space", "⌃⌥Space"],
+                    ["CommandOrControl+Shift+K", "⌘⇧K"],
+                    ["off", m.settings.shortcutOff],
+                  ] as const
+                ).map(([value, label]) => ({ value, label }))}
+                onChange={(v) => {
+                  void patch({ quickShortcut: v === "off" ? null : v });
+                }}
+              />
+            </ListRow>
             <ListRow label={m.settings.language}>
               <ChoiceMenu
                 label={m.settings.language}

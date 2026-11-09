@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-totp-code"
+description = "Enables the totp_code command without any pre-configured scope."
+commands.allow = ["totp_code"]
+
+[[permission]]
+identifier = "deny-totp-code"
+description = "Denies the totp_code command without any pre-configured scope."
+commands.deny = ["totp_code"]

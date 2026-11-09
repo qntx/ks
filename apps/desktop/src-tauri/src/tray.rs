@@ -19,6 +19,7 @@ pub(crate) struct TrayLabels {
     pub(crate) quit: String,
     pub(crate) locked: String,
     pub(crate) unlocked: String,
+    pub(crate) quick: String,
 }
 
 impl Default for TrayLabels {
@@ -29,6 +30,7 @@ impl Default for TrayLabels {
             quit: "Quit".to_owned(),
             locked: "Locked".to_owned(),
             unlocked: "Unlocked".to_owned(),
+            quick: "Quick access".to_owned(),
         }
     }
 }
@@ -142,11 +144,15 @@ pub(crate) fn build(app: &tauri::App) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let lock_i = MenuItem::with_id(app, "lock", &labels.lock, false, None::<&str>)?;
+    let quick_i = MenuItem::with_id(app, "quick", &labels.quick, true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", &labels.open, true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", &labels.quit, true, None::<&str>)?;
     let sep1 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let sep2 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&status, &sep1, &lock_i, &open, &sep2, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[&status, &sep1, &lock_i, &quick_i, &open, &sep2, &quit],
+    )?;
     let Some(icon) = app.default_window_icon().cloned() else {
         return Ok(());
     };
@@ -154,6 +160,7 @@ pub(crate) fn build(app: &tauri::App) -> tauri::Result<()> {
         .icon(icon)
         .menu(&menu)
         .on_menu_event(|handle, event| match event.id.as_ref() {
+            "quick" => crate::quick::show_quick(handle),
             "open" => crate::window::show_main(handle),
             "lock" => {
                 if let Some(state) = handle.try_state::<std::sync::Arc<crate::state::AppState>>() {

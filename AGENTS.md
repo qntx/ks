@@ -47,3 +47,10 @@ bun run lint && bun run typecheck && bun run build && bun run test
 `vp run` caches task results locally (`run.cache` is off only when `CI` is
 set); prefix the JS gate with `CI=1` for an uncached run before a pull
 request.
+
+Run the JS gate from the repository root: `bun run lint` there runs
+`vp check`, taplo and the desktop style guard together. `ks-desktop` cannot
+be cross-checked from macOS (Tauri needs the GTK sysroot), so CI on Linux is
+the first build of its `cfg(not(target_os = "macos"))` branches; keep each
+platform pair small, and make sure items used only on one side are gated
+to it.

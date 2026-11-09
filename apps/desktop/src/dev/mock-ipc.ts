@@ -15,6 +15,7 @@ const settings = {
   syncOnUnlock: true,
   syncOnLock: true,
   syncAfterWrite: false,
+  quickShortcut: "CommandOrControl+Shift+Space",
 };
 
 const texts = new Map<string, string>([
@@ -139,6 +140,9 @@ const resolveField = (name: string, field: unknown): string | ErrObj => {
     return text.split("\n")[0] ?? "";
   }
   if (field === "totp") {
+    if (!fields(text).some(([k]) => k === "totp")) {
+      return errObj("no_totp", "this entry has no TOTP");
+    }
     return String(((Math.floor(Date.now() / 1000) * 7) % 900000) + 100000);
   }
   const key =

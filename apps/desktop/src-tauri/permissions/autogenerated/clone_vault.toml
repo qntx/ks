@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clone-vault"
+description = "Enables the clone_vault command without any pre-configured scope."
+commands.allow = ["clone_vault"]
+
+[[permission]]
+identifier = "deny-clone-vault"
+description = "Denies the clone_vault command without any pre-configured scope."
+commands.deny = ["clone_vault"]

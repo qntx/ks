@@ -1,15 +1,18 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { open as dialogOpen, save as dialogSave } from "@tauri-apps/plugin-dialog";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Tooltip } from "radix-ui";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { Unlock } from "../features/access";
 import { Inspector } from "../features/entry";
+import { QuickApp } from "../features/quick";
 import { SettingsDialog } from "../features/settings";
 import { resetSync } from "../features/sync";
 import { VaultScreen } from "../features/vault";
 import { I18nProvider } from "../i18n";
+import { IpcError } from "../ipc/call";
+import { Toaster } from "../ui";
 import { App } from "./app";
 import { queryClient, queryKeys } from "./query";
 import { boot, resetSession, saveSettings } from "./session";
@@ -677,7 +680,199 @@ describe("views", () => {
         quit: "退出",
         locked: "已锁定",
         unlocked: "已解锁",
+        quick: "快速访问",
       });
+    });
+  });
+
+  it("quick shortcut menu saves a preset", async () => {
+    await bootTo("unlocked");
+    renderSettings();
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "Quick access shortcut" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "⌥Space" }));
+    await waitFor(() => {
+      expect(ipc.commands.setSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ quickShortcut: "Alt+Space" }),
+      );
+    });
+    expect(screen.getByRole("button", { name: "Quick access shortcut" }).textContent).toContain(
+      "⌥Space",
+    );
+  });
+
+  it("keeps the shortcut value when the chord is taken", async () => {
+    ipc.store.settings = { ...ipc.store.settings, quickShortcut: "CommandOrControl+Shift+Space" };
+    await bootTo("unlocked");
+    ipc.commands.setSettings.mockRejectedValueOnce(
+      new IpcError({ code: "shortcut_unavailable", message: "in use" }),
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider language="en">
+          <Tooltip.Provider>
+            <SettingsDialog open onOpenChange={() => {}} />
+            <Toaster />
+          </Tooltip.Provider>
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "Quick access shortcut" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "⌥Space" }));
+    await screen.findByText("This shortcut is used by another app");
+    expect(screen.getByRole("button", { name: "Quick access shortcut" }).textContent).toContain(
+      "⌘⇧Space",
+    );
+  });
+});
+
+describe("quick", () => {
+  let storeUnlocked = true;
+
+  beforeEach(() => {
+    cleanup();
+    ipc.store.settings = { ...ipc.store.settings, language: "en" };
+    ipc.commands.appState.mockImplementation(async () => {
+      await Promise.resolve();
+      return {
+        vault: ipc.store.vault,
+        unlocked: storeUnlocked,
+        lockReason: null,
+        settings: ipc.store.settings,
+      };
+    });
+  });
+
+  function renderQuick(): void {
+    render(<QuickApp />);
+  }
+
+  async function searchInput(): Promise<HTMLElement> {
+    return screen.findByRole("combobox", { name: "Search entries…" });
+  }
+
+  it("filters results while typing", async () => {
+    storeUnlocked = true;
+    renderQuick();
+    const input = await searchInput();
+    const found1 = await screen.findByRole("option", { name: /github/ });
+    expect(found1).toBeDefined();
+    fireEvent.change(input, { target: { value: "passport" } });
+    await waitFor(() => {
+      expect(screen.queryByRole("option", { name: /github/ })).toBeNull();
+    });
+    const found2 = await screen.findByRole("option", { name: /passport/ });
+    expect(found2).toBeDefined();
+  });
+
+  it("arrow down moves the active option", async () => {
+    storeUnlocked = true;
+    renderQuick();
+    const input = await searchInput();
+    await waitFor(() => {
+      expect(screen.getAllByRole("option").length).toBeGreaterThan(1);
+    });
+    const [first, second] = screen.getAllByRole("option");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    await waitFor(() => {
+      expect(input.getAttribute("aria-activedescendant")).toBe(second?.id);
+      expect(input.getAttribute("aria-activedescendant")).not.toBe(first?.id);
+    });
+  });
+
+  it("enter copies the secret and hides", async () => {
+    storeUnlocked = true;
+    renderQuick();
+    const input = await searchInput();
+    await waitFor(() => {
+      expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+    });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => {
+      expect(ipc.commands.copyField).toHaveBeenCalledWith("personal/bank", "value");
+      expect(ipc.commands.hideQuick).toHaveBeenCalled();
+    });
+  });
+
+  it("meta+enter without totp shows the message and stays", async () => {
+    storeUnlocked = true;
+    renderQuick();
+    const input = await searchInput();
+    await waitFor(() => {
+      expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+    });
+    // The copy_field(totp) call rejects with `no_totp` for this entry.
+    ipc.commands.copyField.mockRejectedValueOnce(
+      new IpcError({ code: "no_totp", message: "this entry has no TOTP" }),
+    );
+    fireEvent.keyDown(input, { key: "Enter", metaKey: true });
+    const found3 = await screen.findByText("No one-time code for this entry");
+    expect(found3).toBeDefined();
+    expect(ipc.commands.hideQuick).not.toHaveBeenCalled();
+  });
+
+  it("shows an empty state for no matches", async () => {
+    storeUnlocked = true;
+    renderQuick();
+    const input = await searchInput();
+    const found4 = await screen.findByRole("option", { name: /github/ });
+    expect(found4).toBeDefined();
+    fireEvent.change(input, { target: { value: "zzzznomatch" } });
+    const found5 = await screen.findByText("No matching entries");
+    expect(found5).toBeDefined();
+  });
+
+  it("shows an empty state for an empty vault", async () => {
+    storeUnlocked = true;
+    const { names } = ipc.store;
+    ipc.store.names = [];
+    try {
+      renderQuick();
+      await searchInput();
+      const found = await screen.findByText("No entries yet");
+      expect(found).toBeDefined();
+    } finally {
+      ipc.store.names = names;
+    }
+  });
+
+  it("esc hides the panel", async () => {
+    storeUnlocked = true;
+    renderQuick();
+    const input = await searchInput();
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() => {
+      expect(ipc.commands.hideQuick).toHaveBeenCalled();
+    });
+  });
+
+  it("unlocking shows the search view", async () => {
+    storeUnlocked = false;
+    ipc.commands.unlock.mockImplementation(async () => {
+      await Promise.resolve();
+      storeUnlocked = true;
+      return { status: "ok" as const, data: { warnings: [] } };
+    });
+    renderQuick();
+    const field = await screen.findByLabelText("Passphrase");
+    fireEvent.change(field, { target: { value: "correct horse battery staple" } });
+    fireEvent.click(screen.getByRole("button", { name: "Unlock" }));
+    const found6 = await screen.findByRole("combobox", { name: "Search entries…" });
+    expect(found6).toBeDefined();
+  });
+
+  it("quick-shown resets the query", async () => {
+    storeUnlocked = true;
+    renderQuick();
+    const input = await searchInput();
+    fireEvent.change(input, { target: { value: "passport" } });
+    await waitFor(() => {
+      expect((input as HTMLInputElement).value).toBe("passport");
+    });
+    act(() => {
+      ipc.emitQuickShown();
+    });
+    await waitFor(() => {
+      expect((input as HTMLInputElement).value).toBe("");
     });
   });
 });

@@ -16,14 +16,9 @@ use crate::{Entry, Error, Result};
 ///   malformed.
 /// - [`Error::InvalidInput`] for binary entries.
 pub fn code(entry: &Entry, now: SystemTime) -> Result<(String, u64)> {
-    let text = entry
-        .as_text()
+    let secret = secret(entry)
         .ok_or_else(|| Error::InvalidInput("binary entry has no TOTP secret".into()))?;
-    let secret = ["otpauth", "totp", "otp"]
-        .iter()
-        .find_map(|key| text.field(key))
-        .map_or_else(|| text.value().to_owned(), str::to_owned);
-    let totp = parse(&secret)?;
+    let totp = parse(secret)?;
     let now_secs = now
         .duration_since(UNIX_EPOCH)
         .map_err(|_| Error::InvalidInput("time before unix epoch".into()))?
@@ -31,6 +26,28 @@ pub fn code(entry: &Entry, now: SystemTime) -> Result<(String, u64)> {
     let token = totp.generate(now_secs);
     let valid_for = totp.next_step(now_secs).saturating_sub(now_secs);
     Ok((token.to_string(), valid_for))
+}
+
+/// True when [`code`] can produce a code for `entry`: a text entry whose
+/// TOTP secret (field or first line) parses.
+#[must_use]
+pub fn has_secret(entry: &Entry) -> bool {
+    secret(entry).is_some_and(|s| parse(s).is_ok())
+}
+
+/// Field keys that hold a TOTP secret, in lookup order.
+pub const FIELDS: [&str; 3] = ["otpauth", "totp", "otp"];
+
+/// The TOTP secret candidate: the first TOTP field, else the first line;
+/// `None` for binary entries.
+fn secret(entry: &Entry) -> Option<&str> {
+    let text = entry.as_text()?;
+    Some(
+        FIELDS
+            .iter()
+            .find_map(|key| text.field(key))
+            .unwrap_or_else(|| text.value()),
+    )
 }
 
 fn parse(secret: &str) -> Result<totp_rs::Totp> {
@@ -47,4 +64,32 @@ fn parse(secret: &str) -> Result<totp_rs::Totp> {
         .with_secret(secret)
         .build()
         .map_err(invalid)
+}
+
+#[cfg(test)]
+mod tests {
+    use zeroize::Zeroizing;
+
+    use super::*;
+
+    fn text(s: &str) -> Entry {
+        Entry::text(Zeroizing::new(s.to_owned())).unwrap()
+    }
+
+    #[test]
+    fn has_secret_follows_code() {
+        let field = text("hunter2\notpauth: JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP\n");
+        let bare = text("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP\n");
+        let none = text("hunter2!\nuser: alice\n");
+        let binary = Entry::binary(Zeroizing::new(vec![0, 1, 2])).unwrap();
+        for (entry, expect) in [
+            (&field, true),
+            (&bare, true),
+            (&none, false),
+            (&binary, false),
+        ] {
+            assert_eq!(has_secret(entry), expect);
+            assert_eq!(code(entry, SystemTime::now()).is_ok(), expect);
+        }
+    }
 }

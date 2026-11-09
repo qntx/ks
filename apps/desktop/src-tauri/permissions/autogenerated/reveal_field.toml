@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-reveal-field"
+description = "Enables the reveal_field command without any pre-configured scope."
+commands.allow = ["reveal_field"]
+
+[[permission]]
+identifier = "deny-reveal-field"
+description = "Denies the reveal_field command without any pre-configured scope."
+commands.deny = ["reveal_field"]

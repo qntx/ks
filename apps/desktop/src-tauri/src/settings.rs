@@ -25,11 +25,19 @@ pub(crate) struct Settings {
     pub sync_on_lock: bool,
     /// Debounced sync after writes.
     pub sync_after_write: bool,
+    /// Global quick-access shortcut chord; `None` disables it.
+    #[serde(default = "default_quick_shortcut")]
+    pub quick_shortcut: Option<String>,
+}
+
+fn default_quick_shortcut() -> Option<String> {
+    Some(crate::shortcut::DEFAULT.to_owned())
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            quick_shortcut: default_quick_shortcut(),
             auto_lock_minutes: 15,
             max_session_hours: 8,
             clipboard_seconds: 45,

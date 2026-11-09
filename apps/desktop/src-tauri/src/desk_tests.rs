@@ -330,10 +330,13 @@ fn desk_core_copy_holds_then_clears_clipboard() {
     let f = mk();
     unlock(&f);
     set(&f, "a", "ks-clip-value", false);
-    commands::set_settings(crate::settings::Settings {
-        clipboard_seconds: 1,
-        ..crate::settings::Settings::default()
-    })
+    commands::set_settings(
+        f.app.handle().clone(),
+        crate::settings::Settings {
+            clipboard_seconds: 1,
+            ..crate::settings::Settings::default()
+        },
+    )
     .unwrap();
     let c = commands::copy_field(
         f.app.state::<Arc<AppState>>(),
@@ -460,7 +463,7 @@ fn desk_core_onboard_create_open_invalid_and_settings() {
 
     let mut s = commands::get_settings();
     s.auto_lock_minutes = 7;
-    commands::set_settings(s.clone()).unwrap();
+    commands::set_settings(f.app.handle().clone(), s.clone()).unwrap();
     let loaded = commands::get_settings();
     assert_eq!(loaded.auto_lock_minutes, 7);
 }
@@ -883,8 +886,8 @@ fn desk_core_unlock_retire_stale_paths() {
 #[test]
 fn desk_core_unlock_device_without_sources() {
     let f = mk();
-    let r =
-        commands::unlock_device(f.app.handle().clone(), f.app.state::<Arc<AppState>>()).unwrap();
+    let r = commands::unlock_device_impl(f.app.handle(), false, &f.app.state::<Arc<AppState>>())
+        .unwrap();
     assert!(!r.unlocked);
     assert!(!r.stale);
     assert!(!commands::app_state(f.app.state::<Arc<AppState>>()).unlocked);
@@ -1288,6 +1291,7 @@ fn desk_tray_status_text() {
         quit: "退出".into(),
         locked: "已锁定".into(),
         unlocked: "已解锁".into(),
+        quick: "快速访问".into(),
     };
     assert_eq!(
         crate::tray::status_text(true, "vault", &zh),
@@ -1304,6 +1308,7 @@ fn desk_set_tray_labels_stores() {
         quit: "q".into(),
         locked: "lo".into(),
         unlocked: "un".into(),
+        quick: "qa".into(),
     };
     let f = mk();
     commands::set_tray_labels(f.app.handle().clone(), labels.clone()).unwrap();
@@ -1364,4 +1369,172 @@ fn desk_commands_never_run_on_main_thread() {
             );
         }
     }
+}
+
+/// The command surface must be identical in three places: the specta
+/// `collect_commands!` in main.rs, the `AppManifest` in build.rs and the
+/// `allow-*` permissions in capabilities/main.json. The quick window's
+/// capability must be exactly the minimal set below.
+#[test]
+fn desk_capabilities_match_commands() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let main_rs = std::fs::read_to_string(manifest_dir.join("src/main.rs")).unwrap();
+    let mut specta: Vec<String> = Vec::new();
+    let mut in_block = false;
+    for line in main_rs.lines() {
+        if line.contains("collect_commands![") {
+            in_block = true;
+            continue;
+        }
+        if in_block && line.contains(']') {
+            break;
+        }
+        if in_block {
+            let mut name = line.trim().trim_end_matches(',').trim();
+            if let Some(pos) = name.find("::<") {
+                name = &name[..pos];
+            }
+            let name = name.rsplit("::").next().unwrap_or(name).trim();
+            if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_') {
+                specta.push(name.to_owned());
+            }
+        }
+    }
+    let specta: std::collections::BTreeSet<String> = specta.into_iter().collect();
+
+    let build_rs = std::fs::read_to_string(manifest_dir.join("build.rs")).unwrap();
+    let start = build_rs.find("commands(&[").unwrap();
+    let block = &build_rs[start..];
+    let mut build: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for m in block.split('"') {
+        if m.chars().all(|c| c.is_ascii_lowercase() || c == '_') && m.len() > 2 {
+            build.insert(m.to_owned());
+        }
+    }
+    let main_cap: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("main.json")).unwrap()).unwrap();
+    let allows: std::collections::BTreeSet<String> = main_cap["permissions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p.as_str())
+        .filter(|p| p.starts_with("allow-"))
+        .map(|p| p.trim_start_matches("allow-").replace('-', "_"))
+        .collect();
+    assert_eq!(specta, build, "specta commands != build.rs manifest");
+    assert_eq!(specta, allows, "specta commands != main.json allow-*");
+
+    let quick_cap: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("quick.json")).unwrap()).unwrap();
+    let q: std::collections::BTreeSet<String> = quick_cap["permissions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p.as_str())
+        .filter(|p| p.starts_with("allow-"))
+        .map(|p| p.trim_start_matches("allow-").replace('-', "_"))
+        .collect();
+    let want: std::collections::BTreeSet<String> = [
+        "app_state",
+        "get_settings",
+        "list_entries",
+        "copy_field",
+        "unlock",
+        "unlock_device",
+        "devices",
+        "heartbeat",
+        "hide_quick",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    assert_eq!(q, want, "quick.json commands != the minimal set");
+
+    // The quick frontend may only invoke allowed commands — scan
+    // src/features/quick for `commands.<name>(` calls.
+    let src = manifest_dir.join("../src/features/quick");
+    let mut used: Vec<String> = Vec::new();
+    for entry in walk(&src) {
+        let text = std::fs::read_to_string(&entry).unwrap();
+        for seg in text.split("commands.").skip(1) {
+            let camel: String = seg
+                .chars()
+                .take_while(char::is_ascii_alphanumeric)
+                .collect();
+            if !seg.starts_with(&format!("{camel}(")) {
+                continue;
+            }
+            let snake = camel
+                .chars()
+                .fold(String::new(), |mut acc, c| {
+                    if c.is_ascii_uppercase() {
+                        acc.push('_');
+                        acc.push(c.to_ascii_lowercase());
+                    } else {
+                        acc.push(c);
+                    }
+                    acc
+                })
+                .to_lowercase();
+            assert!(
+                q.contains(&snake),
+                "{}: `commands.{camel}` → `{snake}` not in quick.json allow-*",
+                entry.display()
+            );
+            used.push(snake);
+        }
+    }
+    assert!(
+        !used.is_empty(),
+        "no commands.* calls found in features/quick"
+    );
+}
+
+fn walk(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let p = entry.unwrap().path();
+        if p.is_dir() {
+            out.extend(walk(&p));
+        } else if p.extension().is_some_and(|e| e == "ts" || e == "tsx") {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// The Touch-ID pin guard clears on every exit — the panel's resign-key
+/// handler must never stay suppressed after `unlock_device` returns.
+#[test]
+fn desk_quick_pin_clears() {
+    assert!(!crate::quick::pinned());
+    {
+        let _g = crate::quick::Pin::new();
+        assert!(crate::quick::pinned());
+    }
+    assert!(!crate::quick::pinned());
+    // Error path: drop from an early-return closure clears it too.
+    let r = || -> Result<(), ()> {
+        let _g = crate::quick::Pin::new();
+        Err(())
+    };
+    assert!(r().is_err());
+    assert!(!crate::quick::pinned());
+}
+
+/// `copy_field` with the TOTP ref on an entry without one reports the
+/// dedicated `no_totp` code (the quick panel maps it to its inline hint).
+#[test]
+fn desk_copy_totp_without_totp_is_no_totp() {
+    let f = mk();
+    unlock(&f);
+    set(&f, "a", "v", false);
+    let e = commands::copy_field(
+        f.app.state::<Arc<AppState>>(),
+        "a".into(),
+        commands::FieldRef::Totp,
+    )
+    .unwrap_err();
+    assert_eq!(e.code, "no_totp");
 }

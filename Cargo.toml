@@ -20,14 +20,16 @@ categories   = ["cryptography"]
 ks           = { version = "0.8", path = "crates/ks", features = ["agent", "agent-server", "keychain"] }
 ks-clipboard = { version = "0.8", path = "crates/ks-clipboard" }
 
-tauri                     = { version = "2.12.5", features = ["tray-icon"] }
-tauri-build               = "2.7.4"
-tauri-plugin-dialog       = "2.4.0"
-tauri-plugin-window-state = "2.5.0"
-tauri-plugin-autostart    = "2.7.0"
-tauri-specta              = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
-specta                    = "=2.0.0-rc.26"
-specta-typescript         = "=0.0.13"
+tauri                        = { version = "2.12.5", features = ["tray-icon"] }
+tauri-build                  = "2.7.4"
+tauri-plugin-dialog          = "2.4.0"
+tauri-plugin-window-state    = "2.5.0"
+tauri-plugin-autostart       = "2.7.0"
+tauri-plugin-global-shortcut = "2.4.1"
+tauri-nspanel                = "2.1.1"
+tauri-specta                 = { version = "=2.0.0-rc.26", features = ["derive", "typescript"] }
+specta                       = "=2.0.0-rc.26"
+specta-typescript            = "=0.0.13"
 
 age                          = { version = "0.12.1", features = ["plugin"] }
 age-core                     = "0.12.0"
