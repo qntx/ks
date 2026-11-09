@@ -16,6 +16,16 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  ci:
+    uses: qntx/workflows/.github/workflows/ci-bun.yml@v2
+    permissions:
+      contents: read
+    with:
+      # bun run lint → vp check + taplo + version lockstep; rust needed for
+      # scripts/check-version.ts (Cargo.toml) and ks-desktop compile.
+      rust: true
+    # bun run typecheck / build / test → vp run -r across the workspace
+
   taplo:
     runs-on: ubuntu-latest
     permissions:
@@ -44,6 +54,8 @@ jobs:
       deny: true
       doc: true
       package-check: true
+      # Tauri dev-time system libraries (Linux runner).
+      apt-packages: libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev
 
   # ci-rust.yml requires a Debian-like runner (apt); test on the other two
   # target platforms directly.
@@ -57,7 +69,13 @@ jobs:
     steps:
       - uses: qntx/workflows/actions/hardened-checkout@v2
       - uses: qntx/workflows/actions/setup-rust@v2
+      - run: cargo test --workspace --all-features --exclude ks-desktop
+        if: runner.os == 'Windows'
+      # ks-desktop needs WebView2 SDK headers that windows-latest lacks;
+      # the tauri crate is compile-checked on macOS and Linux instead.
       - run: cargo test --workspace --all-features
+        if: runner.os == 'macOS'
+
 
   # The fixture vault must recover with the official age CLI alone (G3);
   # vault-identity.txt is the decrypted .identity.age — public test
