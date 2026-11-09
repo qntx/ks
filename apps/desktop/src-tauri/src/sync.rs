@@ -232,7 +232,7 @@ pub(crate) fn run_sync(
 }
 
 /// Status of the open vault's repo; `None` when it is not a repo.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 #[expect(
     clippy::needless_pass_by_value,
@@ -281,7 +281,7 @@ pub(crate) async fn sync_now(
 }
 
 /// Current sync state for the pill.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 #[expect(
     clippy::needless_pass_by_value,

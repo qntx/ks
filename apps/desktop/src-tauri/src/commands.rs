@@ -1,4 +1,13 @@
 //! Tauri commands over `ks` — secrets only cross via `SecretText`.
+//!
+//! Threading rule: no command may run on the main thread (a blocked
+//! command freezes the whole window and the tray). Short or medium
+//! blocking work uses `#[tauri::command(async)]`, which runs the sync fn
+//! on the runtime thread pool; long CPU, network or crypto-heavy work
+//! keeps `async fn` + `tauri::async_runtime::spawn_blocking`
+//! (`clone_vault`, `sync_now`, `doctor*`, `change_passphrase`,
+//! `rotate_key`). AppKit/window access posts with `run_on_main_thread`
+//! and never waits — `desk_tests` scans every attribute.
 
 use serde::Serialize;
 use specta::Type;
@@ -49,7 +58,7 @@ pub(crate) struct AppView {
     pub settings: crate::settings::Settings,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn app_state(state: tauri::State<'_, std::sync::Arc<AppState>>) -> AppView {
     let i = state
@@ -64,7 +73,7 @@ pub(crate) fn app_state(state: tauri::State<'_, std::sync::Arc<AppState>>) -> Ap
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn recent_vaults() -> Vec<String> {
     let mut out = vec![];
@@ -243,7 +252,7 @@ fn duration_or_never(n: u32, unit_secs: u64) -> std::time::Duration {
 }
 
 /// Opens an existing vault directory.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn open_vault<RT: tauri::Runtime>(
     app: tauri::AppHandle<RT>,
@@ -258,7 +267,7 @@ pub(crate) fn open_vault<RT: tauri::Runtime>(
 }
 
 /// Creates a new vault and returns it already unlocked.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn create_vault<RT: tauri::Runtime>(
     app: tauri::AppHandle<RT>,
@@ -326,7 +335,7 @@ pub(crate) struct Strength {
     pub suggestions: Vec<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn passphrase_strength(passphrase: SecretText) -> Strength {
     let s = ks::strength(passphrase.expose());
@@ -346,7 +355,7 @@ pub(crate) struct UnlockResult {
     pub warnings: Vec<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn unlock<RT: tauri::Runtime>(
     app: tauri::AppHandle<RT>,
@@ -421,7 +430,7 @@ pub(crate) enum DeviceKind {
 
 /// Tries the device sources only (ADR-16 companion: Touch ID prompt or a
 /// silent keychain read). Never asks for a passphrase.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn unlock_device<RT: tauri::Runtime>(
     app: tauri::AppHandle<RT>,
@@ -454,7 +463,7 @@ pub(crate) fn unlock_device<RT: tauri::Runtime>(
 
 /// Reads the device-source state without ever prompting (attribute-only
 /// keychain query, PATH scan for `age-plugin-se`).
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn devices(state: tauri::State<'_, std::sync::Arc<AppState>>) -> R<Devices> {
     let i = state
@@ -470,7 +479,7 @@ pub(crate) fn devices(state: tauri::State<'_, std::sync::Arc<AppState>>) -> R<De
 /// Enables or disables a device source. Enabling needs the unlocked local
 /// key (`with_session` — agent sessions fail with `usage`); disabling
 /// needs only an open vault.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn set_device(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
@@ -566,20 +575,20 @@ fn keychain_state(_vault: &ks::Vault) -> DeviceState {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn lock(state: tauri::State<'_, std::sync::Arc<AppState>>) -> R<()> {
     state.lock(crate::lock::Reason::Manual);
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn heartbeat(state: tauri::State<'_, std::sync::Arc<AppState>>) {
     state.touch();
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn list_entries(state: tauri::State<'_, std::sync::Arc<AppState>>) -> R<Vec<String>> {
     state
@@ -635,7 +644,7 @@ pub(crate) enum FieldRef {
     Totp,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn entry_detail(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
@@ -711,7 +720,7 @@ fn resolve(entry: &ks::Entry, field: &FieldRef) -> Result<String, ks::Error> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn reveal_field(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
@@ -730,7 +739,7 @@ pub(crate) struct Copied {
     pub clears_in_secs: u32,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn copy_field(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
@@ -767,7 +776,7 @@ pub(crate) struct TotpCode {
     pub valid_for: u32,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn totp_code(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
@@ -781,7 +790,7 @@ pub(crate) fn totp_code(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn edit_entry(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
@@ -807,7 +816,7 @@ fn autocommit(root: &std::path::Path, msg: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn save_entry(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
@@ -837,7 +846,7 @@ pub(crate) fn save_entry(
     Ok(root.map_or_else(Vec::new, |r| autocommit(&r, &format!("set {name}"))))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn rename_entry(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
@@ -862,7 +871,7 @@ pub(crate) fn rename_entry(
     Ok(root.map_or_else(Vec::new, |r| autocommit(&r, &format!("mv {from} {to}"))))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn delete_entry(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
@@ -884,7 +893,7 @@ pub(crate) fn delete_entry(
     Ok(root.map_or_else(Vec::new, |r| autocommit(&r, &format!("rm {name}"))))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn import_binary(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
@@ -932,7 +941,7 @@ pub(crate) fn import_binary(
     Ok(root.map_or_else(Vec::new, |r| autocommit(&r, &format!("import {name}"))))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn export_binary(
     state: tauri::State<'_, std::sync::Arc<AppState>>,
@@ -954,7 +963,7 @@ pub(crate) fn export_binary(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn generate_password(length: u32, charset: String) -> R<SecretText> {
     let sets: &[u8] = match charset.as_str() {
@@ -975,13 +984,13 @@ pub(crate) fn generate_password(length: u32, charset: String) -> R<SecretText> {
     Ok(SecretText::new(out))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn get_settings() -> crate::settings::Settings {
     crate::settings::load()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn set_settings(s: crate::settings::Settings) -> R<()> {
     crate::settings::save(&s).map_err(|e| AppError {
@@ -1014,7 +1023,7 @@ pub(crate) struct VaultStatusOut {
     pub agent: Option<AgentInfo>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn vault_status() -> R<VaultStatusOut> {
     let path = ks::Vault::default_path()?;
@@ -1336,7 +1345,7 @@ fn restore_services<RT: tauri::Runtime>(
 }
 
 /// Whether "open at login" is enabled (system state wins).
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn autostart<RT: tauri::Runtime>(app: tauri::AppHandle<RT>) -> R<bool> {
     use tauri_plugin_autostart::ManagerExt as _;
@@ -1346,7 +1355,7 @@ pub(crate) fn autostart<RT: tauri::Runtime>(app: tauri::AppHandle<RT>) -> R<bool
 }
 
 /// Enables or disables "open at login".
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn set_autostart<RT: tauri::Runtime>(app: tauri::AppHandle<RT>, on: bool) -> R<()> {
     use tauri_plugin_autostart::ManagerExt as _;
@@ -1359,7 +1368,7 @@ pub(crate) fn set_autostart<RT: tauri::Runtime>(app: tauri::AppHandle<RT>, on: b
 }
 
 /// Stores the localized tray menu labels and refreshes the menu.
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn set_tray_labels<RT: tauri::Runtime>(
     app: tauri::AppHandle<RT>,
@@ -1370,7 +1379,7 @@ pub(crate) fn set_tray_labels<RT: tauri::Runtime>(
 }
 
 /// True while an interrupted key rotation is pending (`key_count > 1`).
-#[tauri::command]
+#[tauri::command(async)]
 #[specta::specta]
 pub(crate) fn rotation_pending(state: tauri::State<'_, std::sync::Arc<AppState>>) -> R<bool> {
     Ok(state.with_session(|s| Ok(s.key_count() > 1))?)
