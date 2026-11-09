@@ -38,6 +38,16 @@ export const commands = {
 	/**  Current sync state for the pill. */
 	syncState: () => __TAURI_INVOKE<SyncState>("sync_state"),
 	lock: () => typedError<null, AppError>(__TAURI_INVOKE("lock")),
+	/**
+	 *  Checks the vault for structural problems (needs an unlocked session).
+	 *  Off the main thread — it decrypts every entry.
+	 */
+	doctor: () => typedError<DoctorReport, AppError>(__TAURI_INVOKE("doctor")),
+	/**
+	 *  Re-checks and applies the safe repairs; returns what remains.
+	 *  `state.git` is held since the fix may rewrite `.gitignore`.
+	 */
+	doctorFix: () => typedError<DoctorReport, AppError>(__TAURI_INVOKE("doctor_fix")),
 	heartbeat: () => __TAURI_INVOKE<void>("heartbeat"),
 	listEntries: () => typedError<string[], AppError>(__TAURI_INVOKE("list_entries")),
 	entryDetail: (name: string) => typedError<EntryDetail_Serialize, AppError>(__TAURI_INVOKE("entry_detail", { name })),
@@ -184,6 +194,22 @@ export type Devices_Serialize = {
 	touchId: DeviceState_Serialize,
 	/**  OS keychain entry. */
 	keychain: DeviceState_Serialize,
+};
+
+/**  The problem class, rendered as a group title in the UI. */
+export type DoctorKind = "unfinished_rotation" | "undecryptable" | "temp_file" | "permissions" | "git_meta" | "unreadable" | "symlink" | "non_ks_file";
+
+/**  One doctor finding, serializable to the frontend. */
+export type DoctorProblem = {
+	path: string,
+	kind: DoctorKind,
+	message: string,
+	fixable: boolean,
+};
+
+/**  The doctor result shown in the Maintenance sheet. */
+export type DoctorReport = {
+	problems: DoctorProblem[],
 };
 
 /**  Emitted when vault files change on disk. */

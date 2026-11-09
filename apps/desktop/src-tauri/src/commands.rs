@@ -993,3 +993,105 @@ pub(crate) fn vault_status() -> R<VaultStatusOut> {
         agent: None,
     })
 }
+
+/// One doctor finding, serializable to the frontend.
+#[derive(serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DoctorProblem {
+    pub(crate) path: std::path::PathBuf,
+    pub(crate) kind: DoctorKind,
+    pub(crate) message: String,
+    pub(crate) fixable: bool,
+}
+
+/// The problem class, rendered as a group title in the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DoctorKind {
+    UnfinishedRotation,
+    Undecryptable,
+    TempFile,
+    Permissions,
+    GitMeta,
+    Unreadable,
+    Symlink,
+    NonKsFile,
+}
+
+impl From<ks::doctor::ProblemKind> for DoctorKind {
+    fn from(k: ks::doctor::ProblemKind) -> Self {
+        match k {
+            ks::doctor::ProblemKind::UnfinishedRotation => Self::UnfinishedRotation,
+            ks::doctor::ProblemKind::Undecryptable => Self::Undecryptable,
+            ks::doctor::ProblemKind::TempFile => Self::TempFile,
+            ks::doctor::ProblemKind::Permissions => Self::Permissions,
+            ks::doctor::ProblemKind::GitMeta => Self::GitMeta,
+            ks::doctor::ProblemKind::Unreadable => Self::Unreadable,
+            ks::doctor::ProblemKind::Symlink => Self::Symlink,
+            ks::doctor::ProblemKind::NonKsFile => Self::NonKsFile,
+        }
+    }
+}
+
+/// The doctor result shown in the Maintenance sheet.
+#[derive(serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DoctorReport {
+    pub(crate) problems: Vec<DoctorProblem>,
+}
+
+fn doctor_report(report: ks::doctor::Report) -> DoctorReport {
+    DoctorReport {
+        problems: report
+            .problems
+            .into_iter()
+            .map(|p| {
+                let fixable = p.fixable();
+                DoctorProblem {
+                    path: p.path,
+                    kind: p.kind.into(),
+                    message: p.message,
+                    fixable,
+                }
+            })
+            .collect(),
+    }
+}
+
+/// Checks the vault for structural problems (needs an unlocked session).
+/// Off the main thread — it decrypts every entry.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn doctor(state: tauri::State<'_, std::sync::Arc<AppState>>) -> R<DoctorReport> {
+    let arc = std::sync::Arc::clone(state.inner());
+    tauri::async_runtime::spawn_blocking(move || doctor_blocking(&arc))
+        .await
+        .map_err(|_| ks::Error::Internal("doctor task panicked"))?
+}
+
+pub(crate) fn doctor_blocking(state: &AppState) -> R<DoctorReport> {
+    let report = state.with_session(ks::doctor::check)?;
+    Ok(doctor_report(report))
+}
+
+/// Re-checks and applies the safe repairs; returns what remains.
+/// `state.git` is held since the fix may rewrite `.gitignore`.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn doctor_fix(
+    state: tauri::State<'_, std::sync::Arc<AppState>>,
+) -> R<DoctorReport> {
+    let arc = std::sync::Arc::clone(state.inner());
+    tauri::async_runtime::spawn_blocking(move || doctor_fix_blocking(&arc))
+        .await
+        .map_err(|_| ks::Error::Internal("doctor task panicked"))?
+}
+
+pub(crate) fn doctor_fix_blocking(state: &AppState) -> R<DoctorReport> {
+    let _git = state
+        .git
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let report = state.with_session(ks::doctor::check)?;
+    Ok(doctor_report(ks::doctor::fix(report)))
+}

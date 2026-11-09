@@ -1095,3 +1095,38 @@ fn desk_sync_writes_during_unlock_sync_all_commit() {
         std::thread::sleep(Duration::from_millis(50));
     }
 }
+
+/// Doctor reports a temp file and a weakened `.gitignore` as fixable,
+/// and `doctor_fix` removes both, restoring canonical metadata.
+#[test]
+fn desk_doctor_finds_and_fixes() {
+    let f = mk_git();
+    unlock(&f);
+    std::fs::write(f.vault.join(".tmp1"), b"").unwrap();
+    std::fs::write(f.vault.join(".gitignore"), b"weakened\n").unwrap();
+
+    let report = commands::doctor_blocking(&f.state).unwrap();
+    let kinds: Vec<commands::DoctorKind> = report.problems.iter().map(|p| p.kind).collect();
+    assert!(kinds.contains(&commands::DoctorKind::TempFile));
+    assert!(kinds.contains(&commands::DoctorKind::GitMeta));
+    let fixables: Vec<bool> = report
+        .problems
+        .iter()
+        .filter(|p| {
+            matches!(
+                p.kind,
+                commands::DoctorKind::TempFile | commands::DoctorKind::GitMeta
+            )
+        })
+        .map(|p| p.fixable)
+        .collect();
+    assert!(fixables.iter().all(|v| *v));
+
+    let after = commands::doctor_fix_blocking(&f.state).unwrap();
+    assert!(!after.problems.iter().any(|p| p.fixable));
+    assert!(!f.vault.join(".tmp1").exists());
+    assert_eq!(
+        std::fs::read(f.vault.join(".gitignore")).unwrap(),
+        ks::GITIGNORE.as_bytes()
+    );
+}

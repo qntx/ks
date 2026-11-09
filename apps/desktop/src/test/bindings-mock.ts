@@ -4,6 +4,7 @@ import type {
   Devices,
   AppError,
   AppView_Serialize,
+  DoctorProblem,
   GitStatus_Serialize,
   Settings_Serialize,
   SyncOutcome,
@@ -41,6 +42,7 @@ function createBindingsMockImpl() {
       keychain: { supported: true, enabled: false, reason: null },
     } as Devices,
     gitStatus: undefined as GitStatus_Serialize | undefined,
+    doctorProblems: [] as DoctorProblem[],
     syncState: { status: "idle" } as SyncState,
     texts: new Map<string, string>([
       [
@@ -95,7 +97,7 @@ function createBindingsMockImpl() {
     ),
     unlockDevice: vi.fn(async () => ok({ unlocked: false, warnings: [], stale: false })),
     devices: vi.fn(async () => ok(store.devices)),
-    gitStatus: vi.fn(async () => ok(store.gitStatus)),
+    gitStatus: vi.fn(async () => ok(store.gitStatus ?? null)),
     syncNow: vi.fn(async (_keep: unknown): Promise<{ status: "ok"; data: SyncOutcome }> =>
       ok({
         status: "synced",
@@ -109,6 +111,8 @@ function createBindingsMockImpl() {
       await Promise.resolve();
       return store.syncState;
     }),
+    doctor: vi.fn(async () => ok({ problems: store.doctorProblems })),
+    doctorFix: vi.fn(async () => ok({ problems: store.doctorProblems.filter((p) => !p.fixable) })),
     setDevice: vi.fn(async (kind: "touch_id" | "keychain", enabled: boolean) => {
       store.devices[kind === "touch_id" ? "touchId" : "keychain"].enabled = enabled;
       return ok([]);
