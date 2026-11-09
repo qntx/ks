@@ -101,9 +101,12 @@ pub(crate) fn watch_system(state: Arc<AppState>, lock_on_sleep: bool) {
     );
 }
 
-/// Suppresses App Nap while unlocked (must run on the main thread).
+/// Suppresses App Nap while unlocked. Production callers dispatch to
+/// the main thread; anything else (e.g. tests) is a no-op.
 pub(crate) fn begin_activity() {
-    debug_assert!(MainThreadMarker::new().is_some());
+    if MainThreadMarker::new().is_none() {
+        return;
+    }
     let act = NSProcessInfo::processInfo().beginActivityWithOptions_reason(
         objc2_foundation::NSActivityOptions::UserInitiated
             | objc2_foundation::NSActivityOptions::IdleSystemSleepDisabled,

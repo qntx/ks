@@ -9,9 +9,9 @@ export const commands = {
 	recentVaults: () => __TAURI_INVOKE<string[]>("recent_vaults"),
 	/**  Opens an existing vault directory. */
 	openVault: (path: string) => typedError<VaultInfo, AppError>(__TAURI_INVOKE("open_vault", { path })),
-	/**  Creates a new vault. */
+	/**  Creates a new vault and returns it already unlocked. */
 	createVault: (path: string, passphrase: SecretText, git: boolean) => typedError<VaultInfo, AppError>(__TAURI_INVOKE("create_vault", { path, passphrase, git })),
-	/**  Clones a remote vault (blocking). */
+	/**  Clones a remote vault (blocking) and returns it already unlocked. */
 	cloneVault: (url: string, path: string, passphrase: SecretText) => typedError<VaultInfo, AppError>(__TAURI_INVOKE("clone_vault", { url, path, passphrase })),
 	passphraseStrength: (passphrase: SecretText) => __TAURI_INVOKE<Strength_Serialize>("passphrase_strength", { passphrase }),
 	unlock: (passphrase: SecretText | null) => typedError<UnlockResult, AppError>(__TAURI_INVOKE("unlock", { passphrase })),
@@ -147,7 +147,9 @@ export type FieldRef =
 /**  A named field. */
 { field: string } | 
 /**  The notes text. */
-"notes";
+"notes" | 
+/**  The current one-time code; never the seed. */
+"totp";
 
 /**  Emitted to the frontend whenever the vault locks. */
 export type Locked = {

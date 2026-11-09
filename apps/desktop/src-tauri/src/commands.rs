@@ -71,6 +71,73 @@ pub(crate) fn recent_vaults() -> Vec<String> {
     out
 }
 
+/// Installs `vault` as the open (still locked) vault, dropping any
+/// previous session, watcher and timers.
+pub(crate) fn install_open(state: &std::sync::Arc<AppState>, vault: ks::Vault) -> R<VaultInfo> {
+    let out = info(&vault);
+    let mut i = state
+        .inner
+        .lock()
+        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+    i.open = Some(crate::state::Open {
+        vault,
+        session: None,
+        watcher: None,
+        watchdog: None,
+        last_activity: std::time::Instant::now(),
+        unlocked_at: None,
+    });
+    Ok(out)
+}
+
+/// Installs an unlocked `Session` on the open vault: activity stamps,
+/// identity watcher, App Nap suppression and the auto-lock watchdog.
+/// Returns the session's non-fatal warnings.
+fn begin_session<RT: tauri::Runtime>(
+    app: &tauri::AppHandle<RT>,
+    state: &std::sync::Arc<AppState>,
+    session: ks::Session,
+) -> R<Vec<String>> {
+    let warnings = session.warnings().to_vec();
+    let mut i = state
+        .inner
+        .lock()
+        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+    let o = i.open.as_mut().ok_or(ks::Error::Locked)?;
+    let root = o.vault.root().to_path_buf();
+    let identity_hash = std::fs::read(root.join(".identity.age"))
+        .ok()
+        .map(|b| sha2::Sha256::digest(&b).to_vec())
+        .unwrap_or_default();
+    o.session = Some(session);
+    o.unlocked_at = Some(std::time::Instant::now());
+    o.last_activity = std::time::Instant::now();
+    o.watcher = crate::watch::Watcher::start(
+        app.clone(),
+        std::sync::Arc::clone(state),
+        root,
+        identity_hash,
+    );
+    #[cfg(target_os = "macos")]
+    drop(app.run_on_main_thread(crate::lock::platform::begin_activity));
+    let st = crate::settings::load();
+    o.start_watchdog(
+        std::sync::Arc::clone(state),
+        duration_or_never(st.auto_lock_minutes, 60),
+        duration_or_never(st.max_session_hours, 3600),
+    );
+    Ok(warnings)
+}
+
+/// Settings encode "never" as `0`; map it to an unbounded duration.
+fn duration_or_never(n: u32, unit_secs: u64) -> std::time::Duration {
+    if n == 0 {
+        std::time::Duration::MAX
+    } else {
+        std::time::Duration::from_secs(u64::from(n) * unit_secs)
+    }
+}
+
 /// Opens an existing vault directory.
 #[tauri::command]
 #[specta::specta]
@@ -79,50 +146,46 @@ pub(crate) fn open_vault(
     path: String,
 ) -> R<VaultInfo> {
     let v = ks::Vault::open(std::path::Path::new(&path))?;
-    let mut i = state
-        .inner
-        .lock()
-        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-    i.open = Some(crate::state::Open {
-        vault: ks::Vault::open(std::path::Path::new(&path))?,
-        session: None,
-        watcher: None,
-        last_activity: std::time::Instant::now(),
-        unlocked_at: None,
-    });
-    Ok(info(&v))
+    crate::settings::remember_vault(v.root());
+    install_open(state.inner(), v)
 }
 
-/// Creates a new vault.
+/// Creates a new vault and returns it already unlocked.
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn create_vault(
+pub(crate) fn create_vault<RT: tauri::Runtime>(
+    app: tauri::AppHandle<RT>,
     state: tauri::State<'_, std::sync::Arc<AppState>>,
     path: String,
     passphrase: SecretText,
     git: bool,
 ) -> R<VaultInfo> {
     let p = std::path::Path::new(&path);
-    let _s = ks::Vault::create(
+    let session = ks::Vault::create(
         p,
         &age::secrecy::SecretString::from(passphrase.expose().to_owned()),
     )?;
     if git {
         ks::git::Git::new(p, false).init("ks init")?;
     }
-    open_vault(state, path)
+    let v = ks::Vault::open(p)?;
+    crate::settings::remember_vault(v.root());
+    let mut out = install_open(state.inner(), v)?;
+    out.warnings = begin_session(&app, state.inner(), session)?;
+    Ok(out)
 }
 
-/// Clones a remote vault (blocking).
+/// Clones a remote vault (blocking) and returns it already unlocked.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn clone_vault(
+pub(crate) async fn clone_vault<RT: tauri::Runtime>(
+    app: tauri::AppHandle<RT>,
     state: tauri::State<'_, std::sync::Arc<AppState>>,
     url: String,
     path: String,
     passphrase: SecretText,
 ) -> R<VaultInfo> {
-    let v = tauri::async_runtime::spawn_blocking(move || {
+    let session = tauri::async_runtime::spawn_blocking(move || {
         let g = ks::git::Git::clone(&url, std::path::Path::new(&path), false)?;
         drop(g);
         ks::Vault::open(std::path::Path::new(&path)).and_then(|v| {
@@ -130,8 +193,7 @@ pub(crate) async fn clone_vault(
                 Ok(age::secrecy::SecretString::from(
                     passphrase.expose().to_owned(),
                 ))
-            }))?;
-            Ok(v)
+            }))
         })
     })
     .await
@@ -139,18 +201,10 @@ pub(crate) async fn clone_vault(
         code: "internal".into(),
         message: e.to_string(),
     })??;
-    let out = info(&v);
-    let mut i = state
-        .inner
-        .lock()
-        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-    i.open = Some(crate::state::Open {
-        vault: v,
-        session: None,
-        watcher: None,
-        last_activity: std::time::Instant::now(),
-        unlocked_at: None,
-    });
+    let v = ks::Vault::open(session.vault().root())?;
+    crate::settings::remember_vault(v.root());
+    let mut out = install_open(state.inner(), v)?;
+    out.warnings = begin_session(&app, state.inner(), session)?;
     Ok(out)
 }
 
@@ -190,51 +244,26 @@ pub(crate) struct UnlockResult {
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) fn unlock(
-    app: tauri::AppHandle,
+pub(crate) fn unlock<RT: tauri::Runtime>(
+    app: tauri::AppHandle<RT>,
     state: tauri::State<'_, std::sync::Arc<AppState>>,
     passphrase: Option<SecretText>,
 ) -> R<UnlockResult> {
-    let mut i = state
-        .inner
-        .lock()
-        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-    let o = i.open.as_mut().ok_or(ks::Error::Locked)?;
-    let text = passphrase.as_ref().map(|p| p.expose().to_owned());
-    let cb = move || {
-        Ok(age::secrecy::SecretString::from(
-            text.clone().unwrap_or_default(),
-        ))
+    let session = {
+        let mut i = state
+            .inner
+            .lock()
+            .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
+        let o = i.open.as_mut().ok_or(ks::Error::Locked)?;
+        let text = passphrase.as_ref().map(|p| p.expose().to_owned());
+        let cb = move || {
+            Ok(age::secrecy::SecretString::from(
+                text.clone().unwrap_or_default(),
+            ))
+        };
+        o.vault.unlock_without_agent(Some(&cb))?
     };
-    let s = o.vault.unlock_without_agent(Some(&cb))?;
-    let warnings: Vec<String> = s.warnings().to_vec();
-    let root = o.vault.root().to_path_buf();
-    let identity_hash = std::fs::read(root.join(".identity.age"))
-        .ok()
-        .map(|b| sha2::Sha256::digest(&b).to_vec())
-        .unwrap_or_default();
-    o.session = Some(s);
-    o.unlocked_at = Some(std::time::Instant::now());
-    o.last_activity = std::time::Instant::now();
-    drop(i);
-    // watcher needs the app handle + state: re-register via commands
-    let mut i = state
-        .inner
-        .lock()
-        .map_err(|_| ks::Error::Internal("state lock poisoned"))?;
-    if let Some(o) = i.open.as_mut() {
-        o.watcher =
-            crate::watch::Watcher::start(app, std::sync::Arc::clone(&*state), root, identity_hash);
-    }
-    #[cfg(target_os = "macos")]
-    #[cfg(target_os = "macos")]
-    crate::lock::platform::begin_activity();
-    let st = crate::settings::load();
-    crate::lock::start(
-        std::sync::Arc::clone(&*state),
-        std::time::Duration::from_secs(u64::from(st.auto_lock_minutes) * 60),
-        std::time::Duration::from_secs(u64::from(st.max_session_hours) * 3600),
-    );
+    let warnings = begin_session(&app, state.inner(), session)?;
     Ok(UnlockResult { warnings })
 }
 
@@ -303,6 +332,8 @@ pub(crate) enum FieldRef {
     Field(String),
     /// The notes text.
     Notes,
+    /// The current one-time code; never the seed.
+    Totp,
 }
 
 #[tauri::command]
@@ -377,6 +408,7 @@ fn resolve(entry: &ks::Entry, field: &FieldRef) -> Result<String, ks::Error> {
             .field("notes")
             .map(str::to_owned)
             .ok_or_else(|| ks::Error::NotFound("notes".to_owned())),
+        FieldRef::Totp => Ok(ks::totp::code(entry, std::time::SystemTime::now())?.0),
     }
 }
 

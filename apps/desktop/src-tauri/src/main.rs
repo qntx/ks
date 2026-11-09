@@ -97,10 +97,10 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             app_state,
             recent_vaults,
             open_vault,
-            create_vault,
-            clone_vault,
+            create_vault::<tauri::Wry>,
+            clone_vault::<tauri::Wry>,
             passphrase_strength,
-            unlock,
+            unlock::<tauri::Wry>,
             lock,
             heartbeat,
             list_entries,
@@ -178,7 +178,17 @@ fn main() -> tauri::Result<()> {
         .setup(|app| {
             lock::init(app.handle());
             let state = Arc::clone(app.state::<Arc<state::AppState>>().inner());
-            lock::watch_system(state, settings::load().lock_on_sleep);
+            lock::watch_system(Arc::clone(&state), settings::load().lock_on_sleep);
+            // Auto-open the last-used vault, else the default one (still locked).
+            for path in [settings::last_vault(), ks::Vault::default_path().ok()]
+                .into_iter()
+                .flatten()
+            {
+                if let Ok(v) = ks::Vault::open(&path) {
+                    drop(commands::install_open(&state, v));
+                    break;
+                }
+            }
             tray(app)?;
             Ok(())
         })
