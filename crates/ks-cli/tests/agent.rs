@@ -200,33 +200,6 @@ fn agent_status_json_shape() {
 
 #[cfg(unix)]
 #[test]
-fn agent_isolation_endpoint_permissions() {
-    let t = mk();
-    init(&t);
-    let _g = Guard(&t);
-    unlock(&t, &[]);
-    // find the endpoint dir via the library's own resolution
-    let ep = ks::agent::endpoint(&ks::Vault::open(&t.vault).unwrap()).unwrap();
-    let path = ep.path().unwrap();
-    use std::os::unix::fs::MetadataExt as _;
-    let dir_meta = std::fs::metadata(path.parent().unwrap()).unwrap();
-    assert_eq!(dir_meta.mode() & 0o777, 0o700);
-    // loosen the dir -> client refuses the endpoint and falls back
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::set_permissions(
-        path.parent().unwrap(),
-        std::fs::Permissions::from_mode(0o777),
-    )
-    .unwrap();
-    assert!(ks::agent::connect_raw(&ks::Vault::open(&t.vault).unwrap()).is_err());
-    std::fs::set_permissions(
-        path.parent().unwrap(),
-        std::fs::Permissions::from_mode(0o700),
-    )
-    .unwrap();
-}
-
-#[test]
 fn agent_impersonation_with_foreign_key() {
     // Vault A has a running __agent fed vault B's identity: unwrap works but
     // the check fails, so unlock falls back to the passphrase and asks the

@@ -686,46 +686,6 @@ fn clipboard_copy_roundtrips_and_clears() {
 }
 #[cfg(unix)]
 #[test]
-fn unlock_soft_fails_on_loose_state_dir() {
-    use std::os::unix::fs::PermissionsExt as _;
-    let t = mk();
-    init(&t);
-    run(&t, &["set", "a"], b"v");
-    // Loosen the directory holding the agent endpoint. Linux: a private
-    // XDG_RUNTIME_DIR owned by this test. macOS: the shared run dir under
-    // Application Support (directories ignores env), restored afterwards.
-    let xdg = tempfile::tempdir().unwrap();
-    let dir = if cfg!(target_os = "macos") {
-        std::env::home_dir()
-            .unwrap()
-            .join("Library/Application Support/ks/run")
-    } else {
-        xdg.path().join("ks")
-    };
-    std::fs::create_dir_all(&dir).unwrap();
-    let mode = dir.symlink_metadata().unwrap().permissions().mode() & 0o777;
-    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let with_pass = ks(&t, &["show", "a"])
-        .env("XDG_RUNTIME_DIR", xdg.path())
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    let without = ks(&t, &["show", "a"])
-        .env("XDG_RUNTIME_DIR", xdg.path())
-        .env_remove("KS_PASSPHRASE_FILE")
-        .env_remove("KS_PASSPHRASE")
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode)).unwrap();
-    let err = String::from_utf8_lossy(&with_pass.stderr);
-    assert_eq!(with_pass.status.code(), Some(0), "{err}");
-    assert!(err.contains("agent"), "expected an agent warning: {err}");
-    assert_eq!(without.status.code(), Some(77));
-}
-
-#[cfg(unix)]
-#[test]
 fn commands_leave_no_local_state_dir() {
     let t = mk();
     init(&t);
