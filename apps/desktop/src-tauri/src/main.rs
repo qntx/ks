@@ -216,6 +216,7 @@ fn main() -> tauri::Result<()> {
                     }
                     // macOS Dock/Finder relaunch — app bundles are already
                     // single-instance through LaunchServices.
+                    #[cfg(target_os = "macos")]
                     tauri::RunEvent::Reopen { .. } => window::show_main(handle),
                     _ => {}
                 }
