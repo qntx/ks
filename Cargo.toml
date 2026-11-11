@@ -58,7 +58,7 @@ notify-debouncer-mini = "0.6.0"
 objc2                 = "0.6.0"
 objc2-app-kit         = "0.3.2"
 objc2-foundation      = "0.3.2"
-base64                = "0.22.1"
+base64                = "0.23.1"
 libc                  = "0.2.191"
 widestring            = "1.2.1"
 windows-sys           = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Console"] }

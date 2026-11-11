@@ -2885,7 +2885,7 @@ dependencies = [
  "age",
  "age-core",
  "apple-native-keyring-store",
- "base64 0.22.1",
+ "base64 0.23.1",
  "directories",
  "fd-lock",
  "interprocess",
@@ -2912,7 +2912,7 @@ version = "0.8.2"
 dependencies = [
  "age",
  "assert_cmd",
- "base64 0.22.1",
+ "base64 0.23.1",
  "clap",
  "cliclack",
  "ks",
