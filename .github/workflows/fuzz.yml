@@ -5,11 +5,14 @@ on:
     - cron: "37 4 * * *"
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   fuzz:
     uses: qntx/workflows/.github/workflows/ci-rust-fuzz.yml@v2
+    permissions:
+      contents: read
     with:
       fuzz-directory: fuzz
       targets: "entry_decode name identity_text age_header agent_frames git_porcelain"
