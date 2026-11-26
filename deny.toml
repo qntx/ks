@@ -11,7 +11,42 @@ feature-depth = 1
 # zbus 5's split crates were merged into zbus 6 upstream (unmaintained, not
 # vulnerable). They arrive transitively via secret-service ->
 # zbus-secret-service-keyring-store; the store must bump to zbus 6 upstream.
-ignore = [{ id = "RUSTSEC-2026-0374", reason = "unmaintained basic-toml via age -> i18n-embed-fl; used at compile time only" }, { id = "RUSTSEC-2026-0387", reason = "crypto-bigint timing variability via age -> p256; reachable only through the tagpq recipient, which ks never uses" }, { id = "RUSTSEC-2024-0436", reason = "unmaintained paste via specta/tauri-specta (ks-desktop); macro-only, no safe upgrade" }, { id = "RUSTSEC-2024-0370", reason = "unmaintained proc-macro-error via glib-macros -> gtk (Linux-only ks-desktop build path); no safe upgrade" }]
+ignore = [
+  { id = "RUSTSEC-2026-0374", reason = "unmaintained basic-toml via age -> i18n-embed-fl; used at compile time only" },
+  { id = "RUSTSEC-2026-0387", reason = "crypto-bigint timing variability via age -> p256; reachable only through the tagpq recipient, which ks never uses" },
+  { id = "RUSTSEC-2024-0436", reason = "unmaintained paste via specta/tauri-specta (ks-desktop); macro-only, no safe upgrade" },
+  { id = "RUSTSEC-2024-0370", reason = "unmaintained proc-macro-error via glib-macros -> gtk (Linux-only ks-desktop build path); no safe upgrade" },
+  # chrono is unmaintained and has no patched release. It is in the lockfile
+  # only through zxcvbn 3.1.1's unconditional
+  # [target.'cfg(target_arch = "wasm32")'.dependencies] entry — not a
+  # feature, so it cannot be disabled — and zxcvbn is used by the ks crate
+  # (crates/ks/src/passphrase.rs). chrono therefore compiles only when ks
+  # is built for wasm32; CI builds ks only on Linux (ci-rust) and
+  # macOS/Windows (cargo test), so chrono is never compiled.
+  # Revisit: remove this entry when zxcvbn drops chrono; review by
+  # 2027-02-27.
+  { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; lockfile-only via zxcvbn's wasm32-only dep, and nothing builds ks for wasm32; remove when zxcvbn drops chrono; review by 2027-02-27" },
+  # url <= 2.5.8: `Url::origin()` recurses once per nested `blob:` prefix
+  # and can overflow the stack. url 2.5.8 arrives via totp-rs (ks, all
+  # targets) and via reqwest/tao/wry/tauri-utils/urlpattern/schemars
+  # (ks-desktop only). Across the workspace and every registry crate in
+  # Cargo.lock, nothing calls `Url::origin()` or `url::quirks::origin()`
+  # outside url's own sources — the vulnerable function is never invoked.
+  # Fixed in 2.5.9, published 2026-11-20T23:03Z.
+  # Revisit: from 2026-11-28 (7-day rule) run `cargo update -p url` to
+  # 2.5.9 and remove this entry.
+  { id = "RUSTSEC-2026-0592", reason = "Url::origin() blob: recursion; no caller of .origin()/quirks::origin anywhere in the workspace or lockfile deps; bump url to 2.5.9 and remove from 2026-11-28" },
+  # cookie < 0.18.3: `PrivateJar::add`/`add_original` nonces can repeat
+  # after fork(). cookie 0.18.2 arrives via tauri/tauri-runtime/wry
+  # (ks-desktop only). `PrivateJar` is `#[cfg(feature = "private")]` and
+  # only cookie's `default` feature is enabled in this graph, so the
+  # vulnerable type is not even compiled; nothing calls `.private()`/
+  # `.private_mut()`/`add_original`, and ks-desktop never fork()s.
+  # Fixed in 0.18.3, published 2026-11-23T07:45Z.
+  # Revisit: from 2026-11-30 (7-day rule) run `cargo update -p cookie`
+  # to 0.18.3 and remove this entry.
+  { id = "RUSTSEC-2026-0594", reason = "cookie PrivateJar nonce reuse after fork; cookie's private feature is off so PrivateJar is not compiled, and nothing calls it; bump cookie to 0.18.3 and remove from 2026-11-30" },
+]
 
 [licenses]
 confidence-threshold = 0.8
