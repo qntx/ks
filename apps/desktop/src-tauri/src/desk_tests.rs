@@ -1359,7 +1359,7 @@ fn desk_commands_never_run_on_main_thread() {
             {
                 j += 1;
             }
-            let sig = lines.get(j).map(|l| l.trim()).unwrap_or_default();
+            let sig = lines.get(j).map_or_default(|l| l.trim());
             let ok = t == "#[tauri::command(async)]" || sig.contains("async fn");
             assert!(
                 ok,

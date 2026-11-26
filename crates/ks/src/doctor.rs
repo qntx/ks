@@ -160,13 +160,13 @@ fn check_git_meta(root: &Path, problems: &mut Vec<Problem>) {
         match std::fs::read(&path) {
             Ok(bytes) if bytes == canonical.as_bytes() => {}
             Ok(_) => problems.push(Problem {
-                path: path.clone(),
+                path,
                 kind: ProblemKind::GitMeta,
                 message: format!("{file} differs from the canonical content"),
             }),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => problems.push(Problem {
-                path: path.clone(),
+                path,
                 kind: ProblemKind::Unreadable,
                 message: format!("cannot read {file}: {e}"),
             }),
@@ -194,7 +194,7 @@ fn scan(root: &Path, problems: &mut Vec<Problem>) {
             }
             if meta.file_type().is_symlink() {
                 problems.push(Problem {
-                    path: path.clone(),
+                    path,
                     kind: ProblemKind::Symlink,
                     message: "symlinks are not allowed inside the vault".into(),
                 });
@@ -207,7 +207,7 @@ fn scan(root: &Path, problems: &mut Vec<Problem>) {
             }
             if name.starts_with(".tmp") {
                 problems.push(Problem {
-                    path: path.clone(),
+                    path,
                     kind: ProblemKind::TempFile,
                     message: "leftover temp file".into(),
                 });
@@ -217,7 +217,7 @@ fn scan(root: &Path, problems: &mut Vec<Problem>) {
             let is_entry = name.rsplit('.').next() == Some("age") && !name.starts_with('.');
             if !is_internal && !is_entry {
                 problems.push(Problem {
-                    path: path.clone(),
+                    path,
                     kind: ProblemKind::NonKsFile,
                     message: "non-ks file inside the vault".into(),
                 });
