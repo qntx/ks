@@ -23,7 +23,7 @@ License: contributions are dual-licensed [MIT](LICENSE-MIT) OR
 
 ## Prerequisites
 
-- **Rust 1.99** — pinned by `rust-toolchain.toml`.
+- **Rust 1.100** — pinned by `rust-toolchain.toml`.
 - **cargo-deny** — `cargo install cargo-deny --locked` for the supply-chain gate.
 - **just** — optional; `just gate` runs the local gate below.
 
