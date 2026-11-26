@@ -108,8 +108,7 @@ pub(crate) fn refresh<RT: tauri::Runtime>(app: &tauri::AppHandle<RT>) {
                         o.vault
                             .root()
                             .file_name()
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_default(),
+                            .map_or_default(|n| n.to_string_lossy().into_owned()),
                     )
                 })
             },
@@ -127,15 +126,12 @@ pub(crate) fn refresh<RT: tauri::Runtime>(app: &tauri::AppHandle<RT>) {
 /// Builds the tray icon: status (disabled), separator, "Lock now",
 /// "Open ks", separator, "Quit".
 pub(crate) fn build(app: &tauri::App) -> tauri::Result<()> {
-    let labels = app
-        .try_state::<Tray>()
-        .map(|t| {
-            t.labels
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone()
-        })
-        .unwrap_or_default();
+    let labels = app.try_state::<Tray>().map_or_default(|t| {
+        t.labels
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    });
     let status = MenuItem::with_id(
         app,
         "status",
